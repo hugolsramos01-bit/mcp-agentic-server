@@ -89,16 +89,23 @@ export async function tournamentSpawnTool(input: TournamentSpawnInput): Promise<
         const { existsSync } = await import("node:fs");
         const { join } = await import("node:path");
         let cmd = "npm";
-        let args = ["install"];
+        const args = ["install", "--ignore-scripts"];
         if (existsSync(join(worktree.path, "pnpm-lock.yaml"))) {
           cmd = process.platform === "win32" ? "pnpm.cmd" : "pnpm";
         } else if (existsSync(join(worktree.path, "yarn.lock"))) {
           cmd = process.platform === "win32" ? "yarn.cmd" : "yarn";
         }
         try {
-          await execFileAsync(cmd, args, { cwd: worktree.path, timeout: 120_000, shell: true });
+          const { assertCommandAllowed } = await import("./security/command-executor.js");
+          await assertCommandAllowed({
+            command: `${cmd} ${args.join(" ")}`,
+            workspaceRoot: worktree.path,
+            workingDirectory: worktree.path,
+            source: "dependency-install",
+          });
+          await execFileAsync(cmd, args, { cwd: worktree.path, timeout: 120_000, shell: false });
         } catch {
-          // Non-fatal — worktree_install_deps can be called manually
+          // Non-fatal - worktree_install_deps can be called manually
         }
       }
 

@@ -307,11 +307,34 @@ export class WorkspaceRegistry {
       if (!sourceRoot) {
         throw new Error(`Stored worktree workspace is missing sourceRoot: ${root}`);
       }
-      assertAllowedPath(sourceRoot, this.config.allowedRoots);
-      return assertAllowedPath(root, [this.config.worktreeRoot]);
+      let validSourceRoot = false;
+      for (const allowed of this.config.allowedRoots) {
+        try {
+          resolveWorkspacePath(allowed, sourceRoot, true);
+          validSourceRoot = true;
+          break;
+        } catch {}
+      }
+      if (!validSourceRoot) throw new Error(`Source root is outside allowed roots: ${sourceRoot}`);
+
+      try {
+        const resolved = resolveWorkspacePath(this.config.worktreeRoot, root, true);
+        return resolved.canonicalPath;
+      } catch (e) {
+        throw new Error(`Worktree root is outside allowed roots: ${root}`);
+      }
     }
 
-    return assertAllowedPath(root, this.config.allowedRoots);
+    let lastError: Error | null = null;
+    for (const allowed of this.config.allowedRoots) {
+      try {
+        const resolved = resolveWorkspacePath(allowed, root, true);
+        return resolved.canonicalPath;
+      } catch (e: any) {
+        lastError = e;
+      }
+    }
+    throw lastError || new Error(`Path is outside allowed roots: ${root}`);
   }
 
   private async loadInitialAgentsFiles(root: string): Promise<LoadedAgentsFile[]> {

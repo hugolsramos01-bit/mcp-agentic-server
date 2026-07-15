@@ -24,29 +24,46 @@ import { expandHomePath } from "./roots.js";
 
 
 
-export function enforceSecurePath(requestedPath: string | undefined, cwd: string, allowedRoots: string[], isWrite: boolean = false): string {
+export function enforceSecurePath(
+  requestedPath: string | undefined,
+  cwd: string,
+  allowedRoots: string[],
+  isWrite = false,
+): string {
   if (!requestedPath) {
-    // If no path is provided, we default to cwd, which is inherently safe as it's the root.
+    assertPathOperationAllowed(cwd, isWrite ? "write" : "read");
     return cwd;
   }
 
-  let securePathObj: any = null;
-  let lastError: Error | null = null;
+  const expanded = expandHomePath(requestedPath);
+  const candidate = isAbsolute(expanded)
+    ? expanded
+    : resolve(cwd, expanded);
+
+  let lastError: Error | undefined;
+
   for (const root of allowedRoots) {
     try {
-      securePathObj = resolveWorkspacePath(root, requestedPath, true);
-      break;
-    } catch (e: any) {
-      lastError = e;
+      const resolved = resolveWorkspacePath(
+        root,
+        candidate,
+        isWrite,
+      );
+
+      assertPathOperationAllowed(
+        resolved.canonicalPath,
+        isWrite ? "write" : "read",
+      );
+
+      return resolved.canonicalPath;
+    } catch (error) {
+      lastError = error as Error;
     }
   }
 
-  if (!securePathObj) {
-    throw lastError || new Error(`Path is outside allowed roots: ${requestedPath}`);
-  }
-
-  assertPathOperationAllowed(securePathObj.canonicalPath, isWrite ? "write" : "read");
-  return securePathObj.canonicalPath;
+  throw lastError ?? new Error(
+    `Path is outside allowed roots: ${requestedPath}`,
+  );
 }
 
 type McpContent = { type: "text"; text: string } | { type: "image"; data: string; mimeType: string };

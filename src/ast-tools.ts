@@ -217,7 +217,7 @@ export interface PayloadSchemaMapInput {}
 
 export async function payloadSchemaMapTool(cwd: string, basePath?: string): Promise<ToolResponse> {
   // If a basePath is provided (e.g. "apps/web"), search relative to it
-  const searchRoot = basePath ? join(cwd, basePath) : cwd;
+  const searchRoot = basePath ? enforceSecurePath(basePath, cwd, [cwd], false) : cwd;
   
   // Common locations for payload collections
   const possibleDirs = [
