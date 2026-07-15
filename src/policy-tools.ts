@@ -69,13 +69,7 @@ const DEFAULT_POLICY: PolicyConfig = [
 
 let activePolicy: PolicyConfig = [...DEFAULT_POLICY];
 
-export function resetPolicy(): void {
-  activePolicy = [...DEFAULT_POLICY];
-}
 
-export function setPolicy(rules: PolicyConfig): void {
-  activePolicy = rules;
-}
 
 export function getPolicy(): PolicyConfig {
   return activePolicy;
@@ -123,87 +117,8 @@ export function assessCommand(command: string, scope: "bash" | "all" = "bash"): 
 
 // ─── Tools ───────────────────────────────────────────────────
 
-export interface RiskAssessCommandInput {
-  command: string;
-}
 
-export async function riskAssessCommandTool(input: RiskAssessCommandInput): Promise<ToolResponse> {
-  const assessment = assessCommand(input.command);
 
-  return {
-    content: [
-      {
-        type: "text",
-        text: JSON.stringify(assessment, null, 2),
-      },
-    ],
-  };
-}
 
-export interface SetPolicyInput {
-  rules: {
-    pattern: string;
-    reason: string;
-    action: "block" | "dangerous" | "warn" | "allow";
-    scope?: "bash" | "all";
-  }[];
-  mode?: "merge" | "replace";
-}
 
-export async function setPolicyTool(input: SetPolicyInput): Promise<ToolResponse> {
-  const newRules: PolicyConfig = input.rules.map((r) => ({
-    ...r,
-    pattern: new RegExp(r.pattern),
-  }));
 
-  if (input.mode === "replace") {
-    setPolicy(newRules);
-  } else {
-    // Default: merge — append new rules on top of defaults
-    // New rules take precedence (added first in array = checked first)
-    const defaults = DEFAULT_POLICY.filter(
-      d => !newRules.some(n => n.pattern.source === d.pattern.source)
-    );
-    setPolicy([...newRules, ...defaults]);
-  }
-
-  return {
-    content: [
-      {
-        type: "text",
-        text: JSON.stringify(
-          {
-            message: `Policy updated (mode: ${input.mode || "merge"}).`,
-            ruleCount: newRules.length + (input.mode === "replace" ? 0 : DEFAULT_POLICY.length - newRules.length),
-            mode: input.mode || "merge",
-            rules: activePolicy.map((r) => ({ pattern: r.pattern.source, reason: r.reason, action: r.action })),
-          },
-          null,
-          2,
-        ),
-      },
-    ],
-  };
-}
-
-export interface ResetPolicyInput {}
-
-export async function resetPolicyTool(): Promise<ToolResponse> {
-  resetPolicy();
-
-  return {
-    content: [
-      {
-        type: "text",
-        text: JSON.stringify(
-          {
-            message: "Policy reset to defaults.",
-            rules: DEFAULT_POLICY.map((r) => ({ pattern: r.pattern.source, reason: r.reason, action: r.action })),
-          },
-          null,
-          2,
-        ),
-      },
-    ],
-  };
-}

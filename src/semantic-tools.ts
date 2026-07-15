@@ -1,6 +1,7 @@
 import { join, relative } from "node:path";
-import { existsSync, readFileSync, statSync } from "node:fs";
+import { existsSync, statSync } from "node:fs";
 import { readdir } from "node:fs/promises";
+import { secureFs } from "./security/secure-fs.js";
 import type { ToolResponse } from "./pi-tools.js";
 import { codingContextTool } from "./bootstrap-tools.js";
 import { nextRouteMapTool, payloadSchemaMapTool } from "./ast-tools.js";
@@ -24,16 +25,16 @@ export async function contextBudgetTool(input: ContextBudgetInput, cwd: string):
   for (const p of input.paths) {
     const fullPath = join(cwd, p);
     try {
-      if (!existsSync(fullPath)) {
+      if (!secureFs.exists(cwd, p)) {
         results.push({ path: p, notFound: true, estimatedTokens: 0 });
         continue;
       }
-      const stat = statSync(fullPath);
+      const stat = secureFs.stat(cwd, p);
       if (!stat.isFile()) {
         results.push({ path: p, notFound: true, estimatedTokens: 0 });
         continue;
       }
-      const content = readFileSync(fullPath, "utf8");
+      const content = secureFs.readFile(cwd, p);
       const lines = content.split("\n").length;
       const tokens = estimateTokens(content, p.endsWith(".ts") || p.endsWith(".js") || p.endsWith(".tsx"));
       totalTokens += tokens;
@@ -253,10 +254,10 @@ export async function semanticPackTool(
 
     for (const file of relevantFiles.slice(0, 10)) {
       const fullPath = join(cwd, file);
-      if (!existsSync(fullPath)) continue;
+      if (!secureFs.exists(cwd, file)) continue;
 
-      const stat = statSync(fullPath);
-      const content = readFileSync(fullPath, "utf8");
+      const stat = secureFs.stat(cwd, file);
+      const content = secureFs.readFile(cwd, file);
 
       const levels = ["none", "light", "balanced", "skeletal"] as const;
       let finalCompression = null;

@@ -1,5 +1,6 @@
 import { join, basename, relative, extname } from "node:path";
 import { existsSync, readFileSync, statSync } from "node:fs";
+import { secureFs } from "./security/secure-fs.js";
 import { readdir } from "node:fs/promises";
 import { exec } from "node:child_process";
 import { promisify } from "node:util";
@@ -10,7 +11,7 @@ import type { ToolResponse } from "./pi-tools.js";
 const astCache = new Map<string, { mtimeMs: number; size: number; data: any }>();
 const CACHE_MAX_SIZE = 1000;
 
-function getCachedParsedCollection(filePath: string): any {
+function getCachedParsedCollection(cwd: string, filePath: string): any {
   const stats = statSync(filePath);
   const cacheKey = filePath;
   const cached = astCache.get(cacheKey);
@@ -22,7 +23,7 @@ function getCachedParsedCollection(filePath: string): any {
     return cached.data;
   }
 
-  const content = readFileSync(filePath, "utf8");
+  const content = secureFs.readFile(cwd, filePath);
   const data = parseCollectionFile(content);
   
   if (astCache.size >= CACHE_MAX_SIZE) {
@@ -252,7 +253,7 @@ export async function payloadSchemaMapTool(cwd: string, basePath?: string): Prom
       } else if (entry.name.endsWith(".ts")) {
         const filePath = join(dir, entry.name);
         try {
-          const content = readFileSync(filePath, "utf8");
+          const content = secureFs.readFile(cwd, filePath);
           const parsed = parseCollectionFile(content);
           if (parsed && parsed.slug) {
             collections.push({
@@ -451,7 +452,7 @@ export async function fileDependenciesTool(cwd: string, targetPath: string): Pro
     return { content: [{ type: "text", text: `File not found: ${targetPath}` }] };
   }
   
-  const content = readFileSync(fullPath, "utf8");
+  const content = secureFs.readFile(cwd, targetPath);
   
   // 1. Outward dependencies — use AST to resolve actual imports
   const sourceFile = ts.createSourceFile(targetPath, content, ts.ScriptTarget.Latest, true);

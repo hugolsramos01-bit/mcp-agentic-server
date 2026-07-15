@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto";
+import { assertCommandAllowed } from "./security/command-executor.js";
 import { readFileSync } from "node:fs";
 import { realpath } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
@@ -39,7 +40,7 @@ import { checkEditAllowed, recordPlan, recordDryRun, recordCheckpoint, recordCha
 import { semanticPackTool, contextBudgetTool } from "./semantic-tools.js";
 import { knowledgeCaptureTool, knowledgeSearchTool } from "./knowledge-tools.js";
 import { tournamentSpawnTool, tournamentJudgeTool, tournamentCleanupTool } from "./tournament-tools.js";
-import { assessCommand, riskAssessCommandTool, setPolicyTool, resetPolicyTool } from "./policy-tools.js";
+import { assessCommand } from "./policy-tools.js";
 import { SingleUserOAuthProvider } from "./oauth-provider.js";
 import { ProcessSessionManager, type ProcessSnapshot } from "./process-sessions.js";
 import { createReviewCheckpointManager } from "./review-checkpoints.js";
@@ -74,149 +75,7 @@ interface RunningServer {
   close(): void;
 }
 
-function registerCodexProcessTools(
-  server: McpServer,
-  config: ServerConfig,
-  workspaces: WorkspaceRegistry,
-  processSessions: ProcessSessionManager,
-): void {
-  registerAppTool(
-    server,
-    "exec_command",
-    {
-      title: "Execute command",
-      description:
-        "Run a command inside an open workspace. Returns its result when it exits during the yield window, otherwise returns a sessionId for write_stdin. Use this for file inspection, tests, builds, package scripts, and long-running processes. Call open_workspace first and pass workspaceId.",
-      inputSchema: {
-        workspaceId: z.string().describe("Workspace identifier returned by open_workspace."),
-        cmd: z.string().min(1).describe("Shell command to execute."),
-        tty: z
-          .boolean()
-          .optional()
-          .describe("Allocate a pseudo-terminal for interactive commands. Defaults to false."),
-        columns: z.number().int().min(1).max(1_000).optional().describe("Initial PTY width. Defaults to 80."),
-        rows: z.number().int().min(1).max(1_000).optional().describe("Initial PTY height. Defaults to 24."),
-        workingDirectory: z
-          .string()
-          .optional()
-          .describe("Working directory relative to the workspace root. Defaults to the workspace root."),
-        yieldTimeMs: z
-          .number()
-          .int()
-          .min(0)
-          .max(30_000)
-          .optional()
-          .describe("Milliseconds to wait before returning a running session. Defaults to 10000."),
-        maxOutputTokens: z
-          .number()
-          .int()
-          .positive()
-          .max(100_000)
-          .optional()
-          .describe("Approximate output token budget. Defaults to 10000."),
-      },
-      outputSchema: processOutputSchema(),
-      ...toolWidgetDescriptorMeta(config, "shell"),
-      annotations: SHELL_TOOL_ANNOTATIONS,
-    },
-    async ({ workspaceId, cmd, tty, columns, rows, workingDirectory, yieldTimeMs, maxOutputTokens }) => {
-      const startedAt = performance.now();
-      const workspace = workspaces.getWorkspace(workspaceId);
-      const cwd = workspaces.resolveWorkingDirectory(workspace, workingDirectory);
-      const snapshot = await processSessions.start({
-        workspaceId,
-        command: cmd,
-        cwd,
-        workspaceRoot: workspace.root,
-        tty,
-        columns,
-        rows,
-        yieldTimeMs,
-        maxOutputTokens,
-      });
 
-      logToolCall(config, {
-        tool: "exec_command",
-        workspaceId,
-        workingDirectory: workingDirectory ?? ".",
-        command: cmd,
-        commandLength: cmd.length,
-        success: true,
-        durationMs: Math.round(performance.now() - startedAt),
-      });
-
-      return processToolResponse("exec_command", workspaceId, snapshot, {
-        command: cmd,
-        workingDirectory: workingDirectory ?? ".",
-        running: snapshot.running,
-        exitCode: snapshot.exitCode,
-        wallTimeMs: snapshot.wallTimeMs,
-      });
-    },
-  );
-
-  registerAppTool(
-    server,
-    "write_stdin",
-    {
-      title: "Write to process",
-      description:
-        "Poll or write characters to a process returned by exec_command. Omit chars or pass an empty string to poll. Pass \\u0003 to send Ctrl-C.",
-      inputSchema: {
-        workspaceId: z.string().describe("Workspace identifier used to start the process."),
-        sessionId: z.number().describe("Process session identifier returned by exec_command."),
-        chars: z.string().optional().describe("Characters to write. Omit or pass an empty string to poll."),
-        columns: z.number().int().min(1).max(1_000).optional().describe("Resize a PTY to this width."),
-        rows: z.number().int().min(1).max(1_000).optional().describe("Resize a PTY to this height."),
-        yieldTimeMs: z
-          .number()
-          .int()
-          .min(0)
-          .max(30_000)
-          .optional()
-          .describe("Milliseconds to wait for process output or completion. Defaults to 10000."),
-        maxOutputTokens: z
-          .number()
-          .int()
-          .positive()
-          .max(100_000)
-          .optional()
-          .describe("Approximate output token budget. Defaults to 10000."),
-      },
-      outputSchema: processOutputSchema(),
-      ...toolWidgetDescriptorMeta(config, "shell"),
-      annotations: SHELL_TOOL_ANNOTATIONS,
-    },
-    async ({ workspaceId, sessionId, chars, columns, rows, yieldTimeMs, maxOutputTokens }) => {
-      const startedAt = performance.now();
-      workspaces.getWorkspace(workspaceId);
-      const snapshot = await processSessions.write({
-        workspaceId,
-        sessionId,
-        chars,
-        columns,
-        rows,
-        yieldTimeMs,
-        maxOutputTokens,
-      });
-
-      logToolCall(config, {
-        tool: "write_stdin",
-        workspaceId,
-        success: true,
-        durationMs: Math.round(performance.now() - startedAt),
-      });
-
-      return processToolResponse("write_stdin", workspaceId, snapshot, {
-        sessionId,
-        charactersWritten: chars?.length ?? 0,
-        running: snapshot.running,
-        exitCode: snapshot.exitCode,
-        wallTimeMs: snapshot.wallTimeMs,
-      });
-    },
-  );
-}
 
 function createMcpServer(
   config: ServerConfig,
@@ -2268,66 +2127,9 @@ function createMcpServer(
         return wrap("tournament_cleanup", req, await tournamentCleanupTool(req));
       }
     );
-    registerAppTool(
-      server,
-      "risk_assess_command",
-      {
-        title: "[ADVANCED] Risk Assess Command",
-        description: "[Security] Evaluate a shell command against the workspace security policy before running it. Returns whether the command would be allowed, warned, or blocked. Call this before bash if you are unsure about safety.",
-        inputSchema: {
-          workspaceId: z.string().describe("Workspace ID"),
-          command: z.string().describe("Shell command to assess"),
-        },
-        outputSchema: resultOutputSchema(),
-        ...toolWidgetDescriptorMeta(config, "read"),
-        annotations: READ_TOOL_ANNOTATIONS,
-      } as any,
-      async (req: any) => {
-        return wrap("risk_assess_command", req, await riskAssessCommandTool(req));
-      }
-    );
-    registerAppTool(
-      server,
-      "set_policy",
-      {
-        title: "[ADVANCED] Set Policy",
-        description: "[Security] Override the security policy rules. Each rule has a regex pattern, reason, action (block/warn/allow), and optional scope (bash/all).",
-        inputSchema: {
-          workspaceId: z.string().describe("Workspace ID"),
-          rules: z.array(z.object({
-            pattern: z.string().describe("Regex pattern to match against commands"),
-            reason: z.string().describe("Human-readable reason for the rule"),
-            action: z.enum(["block", "dangerous", "warn", "allow"]).describe("Action when pattern matches"),
-            scope: z.enum(["bash", "all"]).optional().describe("Scope: bash only or all tools"),
-          })).describe("Array of policy rules"),
-          mode: z.enum(["merge", "replace"]).optional().describe("'merge' (default) adds rules alongside defaults; 'replace' replaces all rules entirely"),
-        },
-        outputSchema: resultOutputSchema(),
-        ...toolWidgetDescriptorMeta(config, "read"),
-        annotations: READ_TOOL_ANNOTATIONS,
-      } as any,
-      async (req: any) => {
-        return wrap("set_policy", req, await setPolicyTool(req));
-      }
-    );
-    registerAppTool(
-      server,
-      "reset_policy",
-      {
-        title: "[ADVANCED] Reset Policy",
-        description: "[Security] Reset security policy to factory defaults.",
-        inputSchema: {
-          workspaceId: z.string().describe("Workspace ID"),
-        },
-        outputSchema: resultOutputSchema(),
-        ...toolWidgetDescriptorMeta(config, "read"),
-        annotations: READ_TOOL_ANNOTATIONS,
-      } as any,
-      async (req: any) => {
-        const workspace = workspaces.getWorkspace(req.workspaceId);
-        return wrap("reset_policy", req, await resetPolicyTool());
-      }
-    );
+    
+    
+    
 
     registerAppTool(
       server,
@@ -2533,36 +2335,6 @@ function createMcpServer(
       annotations: SHELL_TOOL_ANNOTATIONS,
     },
     async ({ workspaceId, workingDirectory, ...input }) => {
-      // Assess command against policy before execution
-      const assessment = assessCommand(input.command);
-      if (assessment.verdict === "block") {
-        const blockedMsg = "Command blocked by security policy:\n" + assessment.blocked.map((b) => "  - " + b.reason + " (rule: " + b.rule + ")").join("\n");
-        logToolCall(config, {
-          tool: toolNames.shell,
-          workspaceId,
-          workingDirectory: workingDirectory ?? ".",
-          command: input.command,
-          commandLength: input.command.length,
-          success: false,
-          durationMs: 0,
-          error: blockedMsg,
-        });
-        return { content: [{ type: "text", text: blockedMsg }], isError: true };
-      }
-      if (assessment.verdict === "dangerous") {
-        const dangerousMsg = "⚠️  Command requires explicit user confirmation:\n" + assessment.dangerous.map((b) => "  - " + b.reason + " (rule: " + b.rule + ")").join("\n") + "\n\nDo NOT execute this command until the user explicitly confirms they understand these risks and want to proceed. Ask the user: 'This command has risks: [list risks]. Do you want to proceed?'";
-        logToolCall(config, {
-          tool: toolNames.shell,
-          workspaceId,
-          workingDirectory: workingDirectory ?? ".",
-          command: input.command,
-          commandLength: input.command.length,
-          success: false,
-          durationMs: 0,
-          error: dangerousMsg,
-        });
-        return { content: [{ type: "text", text: dangerousMsg }], isError: true };
-      }
       const startedAt = performance.now();
       const workspace = workspaces.getWorkspace(workspaceId);
       const cwd = workspaces.resolveWorkingDirectory(
@@ -2573,13 +2345,6 @@ function createMcpServer(
         cwd,
         root: workspace.root,
       });
-
-      // Prepend warning prefix if applicable
-      if (assessment.verdict === "warn" && !response.isError) {
-        const warnPrefix = "⚠️  Risk notice:\n" + assessment.warnings.map((w) => "  - " + w.reason).join("\n") + "\n\n";
-        const existingText = response.content[0]?.type === "text" ? response.content[0].text : "";
-        response.content = [{ type: "text", text: warnPrefix + existingText }];
-      }
 
       if (response.isError) {
         logFailedToolResponse(config, {
@@ -2628,7 +2393,7 @@ function createMcpServer(
   }
 
   if (config.toolMode === "codex") {
-    registerCodexProcessTools(server, config, workspaces, processSessions);
+// registerCodexProcessTools(server, config, workspaces, processSessions);
   }
 
   return server;

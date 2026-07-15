@@ -1,6 +1,6 @@
 {
   "name": "mcp-agentic-server",
-  "version": "1.0.4",
+  "version": "1.0.5",
   "description": "Expose a secure local coding workspace through an MCP server.",
   "type": "module",
   "main": "dist/server.js",
@@ -62,7 +62,8 @@
     "react-dom": "^19.2.6",
     "semver": "^7.8.4",
     "yaml": "^2.9.0",
-    "zod": "^4.4.3"
+    "zod": "^4.4.3",
+    "typescript": "^6.0.3"
   },
   "devDependencies": {
     "@types/better-sqlite3": "^7.6.13",
@@ -73,7 +74,6 @@
     "@types/semver": "^7.7.1",
     "@vitejs/plugin-react": "^6.0.2",
     "tsx": "^4.22.3",
-    "typescript": "^6.0.3",
     "vite": "^8.0.14"
   },
   "overrides": {
@@ -85,4 +85,3 @@
     "node-pty": "^1.1.0"
   }
 }
-

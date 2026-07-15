@@ -16,7 +16,36 @@ import {
   type WriteToolInput,
   type AgentToolResult,
 } from "@earendil-works/pi-coding-agent";
-import { resolveAllowedPath } from "./roots.js";
+import { resolveWorkspacePath } from "./security/path-resolution.js";
+import { assertPathOperationAllowed } from "./security/secret-policy.js";
+import { assertCommandAllowed } from "./security/command-executor.js";
+
+
+
+function enforceSecurePath(requestedPath: string | undefined, cwd: string, allowedRoots: string[], isWrite: boolean = false): string {
+  if (!requestedPath) {
+    // If no path is provided, we default to cwd, which is inherently safe as it's the root.
+    return cwd;
+  }
+
+  let securePathObj: any = null;
+  let lastError: Error | null = null;
+  for (const root of allowedRoots) {
+    try {
+      securePathObj = resolveWorkspacePath(root, requestedPath, true);
+      break;
+    } catch (e: any) {
+      lastError = e;
+    }
+  }
+
+  if (!securePathObj) {
+    throw lastError || new Error(`Path is outside allowed roots: ${requestedPath}`);
+  }
+
+  assertPathOperationAllowed(securePathObj.canonicalPath, isWrite ? "write" : "read");
+  return securePathObj.canonicalPath;
+}
 
 type McpContent = { type: "text"; text: string } | { type: "image"; data: string; mimeType: string };
 export type ToolResponse<TDetails = unknown> = {
@@ -67,7 +96,7 @@ async function runTool<TInput, TDetails = unknown>(
 }
 
 export async function readFileTool(input: ReadToolInput, context: ToolContext): Promise<ToolResponse> {
-  const path = resolveAllowedPath(input.path, context.cwd, context.readRoots ?? [context.root]);
+  const path = enforceSecurePath(input.path, context.cwd, context.readRoots ?? [context.root], false);
   const tool = createReadTool(context.cwd);
 
   return runTool((params) => tool.execute("read_file", params), {
@@ -78,7 +107,7 @@ export async function readFileTool(input: ReadToolInput, context: ToolContext): 
 }
 
 export async function writeFileTool(input: WriteToolInput, context: ToolContext): Promise<ToolResponse> {
-  const path = resolveAllowedPath(input.path, context.cwd, [context.root]);
+  const path = enforceSecurePath(input.path, context.cwd, [context.root], true);
   const tool = createWriteTool(context.cwd);
 
   return runTool((params) => tool.execute("write_file", params), {
@@ -88,7 +117,7 @@ export async function writeFileTool(input: WriteToolInput, context: ToolContext)
 }
 
 export async function editFileTool(input: EditToolInput, context: ToolContext): Promise<ToolResponse<EditToolDetails>> {
-  const path = resolveAllowedPath(input.path, context.cwd, [context.root]);
+  const path = enforceSecurePath(input.path, context.cwd, [context.root], true);
   const tool = createEditTool(context.cwd);
 
   return runTool((params) => tool.execute("edit_file", params), {
@@ -98,21 +127,21 @@ export async function editFileTool(input: EditToolInput, context: ToolContext): 
 }
 
 export async function grepFilesTool(input: GrepToolInput, context: ToolContext): Promise<ToolResponse> {
-  if (input.path) resolveAllowedPath(input.path, context.cwd, [context.root]);
+  if (input.path) enforceSecurePath(input.path, context.cwd, [context.root], false);
   const tool = createGrepTool(context.cwd);
 
   return runTool((params) => tool.execute("grep_files", params), input, context);
 }
 
 export async function findFilesTool(input: FindToolInput, context: ToolContext): Promise<ToolResponse> {
-  if (input.path) resolveAllowedPath(input.path, context.cwd, [context.root]);
+  if (input.path) enforceSecurePath(input.path, context.cwd, [context.root], false);
   const tool = createFindTool(context.cwd);
 
   return runTool((params) => tool.execute("find_files", params), input, context);
 }
 
 export async function listDirectoryTool(input: LsToolInput, context: ToolContext): Promise<ToolResponse> {
-  if (input.path) resolveAllowedPath(input.path, context.cwd, [context.root]);
+  if (input.path) enforceSecurePath(input.path, context.cwd, [context.root], false);
   const tool = createLsTool(context.cwd);
 
   return runTool((params) => tool.execute("list_directory", params), input, context);
