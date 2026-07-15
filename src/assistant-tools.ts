@@ -359,11 +359,20 @@ export async function runScriptTool(input: RunScriptInput, cwd: string): Promise
       : "npm";
     const fullCommand = `${packageManager} run ${input.script}`;
 
+    const scriptCommand = String(pkg.scripts[input.script]);
+
     await assertCommandAllowed({
       command: fullCommand,
       workspaceRoot: cwd,
       workingDirectory: cwd,
       source: "bash",
+    });
+
+    await assertCommandAllowed({
+      command: scriptCommand,
+      workspaceRoot: cwd,
+      workingDirectory: cwd,
+      source: "package-script",
     });
 
     let stdout = "";

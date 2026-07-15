@@ -3,7 +3,6 @@ import { assertCommandAllowed } from "./security/command-executor.js";
 import { readFileSync } from "node:fs";
 import { realpath } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
-import { applyPatch } from "./apply-patch.js";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { createMcpExpressApp } from "@modelcontextprotocol/sdk/server/express.js";
 import { mcpAuthRouter, getOAuthProtectedResourceMetadataUrl } from "@modelcontextprotocol/sdk/server/auth/router.js";
@@ -1085,79 +1084,7 @@ function createMcpServer(
     );
   }
 
-  if (false) {
-    registerAppTool(
-      server,
-      "apply_patch",
-      {
-        title: "Apply patch",
-        description:
-          "Apply one Codex-style patch inside an open workspace. Supports adding, overwriting, updating, deleting, and moving files. Use this for all file modifications. Paths must be relative to the workspace. Call open_workspace first and pass workspaceId.",
-        inputSchema: {
-          workspaceId: z
-            .string()
-            .describe("Workspace identifier returned by open_workspace."),
-          patch: z
-            .string()
-            .describe("Patch text enclosed by *** Begin Patch and *** End Patch markers."),
-        },
-        outputSchema: resultOutputSchema({
-          additions: z.number(),
-          removals: z.number(),
-          files: z.array(
-            z.object({
-              path: z.string(),
-              previousPath: z.string().optional(),
-              operation: z.enum(["add", "update", "delete", "move"]),
-            }),
-          ),
-        }),
-        ...toolWidgetDescriptorMeta(config, "edit"),
-        annotations: EDIT_TOOL_ANNOTATIONS,
-      },
-      async ({ workspaceId, patch }) => {
-        const startedAt = performance.now();
-        const workspace = workspaces.getWorkspace(workspaceId);
-        const applied = await applyPatch(workspace.root, patch);
-        const paths = applied.files.map((file) => file.path).join(", ");
-        const result = `Applied patch to ${applied.files.length} file(s): ${paths}`;
-        const content = [textBlock(result)];
-        const displayPath = applied.files.length === 1
-          ? applied.files[0]?.path
-          : `${applied.files.length} files`;
-
-        logToolCall(config, {
-          tool: "apply_patch",
-          workspaceId,
-          success: true,
-          durationMs: Math.round(performance.now() - startedAt),
-        });
-
-        return {
-          content,
-          _meta: {
-            tool: "apply_patch",
-            card: {
-              workspaceId,
-              path: displayPath,
-              summary: {
-                files: applied.files.length,
-                additions: applied.additions,
-                removals: applied.removals,
-              },
-              payload: { patch: applied.patch },
-            },
-          },
-          structuredContent: {
-            result,
-            additions: applied.additions,
-            removals: applied.removals,
-            files: applied.files,
-          },
-        };
-      },
-    );
-  }
+  
 
   if (config.widgets === "changes") {
     registerAppTool(
