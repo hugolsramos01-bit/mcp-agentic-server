@@ -7,6 +7,7 @@ import { loadProjectContextFiles } from "@earendil-works/pi-coding-agent";
 import type { ServerConfig } from "./config.js";
 import { createManagedWorktree } from "./git-worktrees.js";
 import { assertAllowedPath, isPathInsideRoot, resolveAllowedPath } from "./roots.js";
+import { resolveWorkspacePath } from "./security/path-resolution.js";
 import {
   loadWorkspaceSkills,
   markSkillActivated,
@@ -222,7 +223,21 @@ export class WorkspaceRegistry {
   }
 
   private async openCheckoutWorkspace(path: string): Promise<WorkspaceContext> {
-    const root = assertAllowedPath(path, this.config.allowedRoots);
+    let root = "";
+    let lastError: Error | null = null;
+    for (const allowed of this.config.allowedRoots) {
+      try {
+        const resolved = resolveWorkspacePath(allowed, path, true);
+        root = resolved.canonicalPath;
+        break;
+      } catch (e: any) {
+        lastError = e;
+      }
+    }
+    if (!root) {
+      throw lastError || new Error(`Path is outside allowed roots: ${path}`);
+    }
+
     const rootStats = await ensureCheckoutWorkspaceRoot(root);
     if (!rootStats.isDirectory()) {
       throw new Error(`Workspace root must be a directory: ${path}`);

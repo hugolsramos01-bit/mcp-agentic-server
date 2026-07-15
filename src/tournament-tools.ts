@@ -5,6 +5,7 @@ import { promisify } from "node:util";
 import type { ServerConfig } from "./config.js";
 import { createManagedWorktree, removeManagedWorktree, type ManagedWorktree } from "./git-worktrees.js";
 import type { ToolResponse } from "./pi-tools.js";
+import { assertCommandAllowed } from "./security/command-executor.js";
 
 const execFileAsync = promisify(execFile);
 
@@ -217,6 +218,12 @@ export async function tournamentJudgeTool(input: TournamentJudgeInput): Promise<
     for (const script of scripts) {
       const start = performance.now();
       try {
+        await assertCommandAllowed({
+          command: script,
+          workspaceRoot: cwd,
+          workingDirectory: cwd,
+          source: "tournament",
+        });
         // shell: true so npm works, timeout 120s per script
         const { stdout, stderr } = await execFileAsync(
           process.platform === "win32" ? "cmd.exe" : "sh",

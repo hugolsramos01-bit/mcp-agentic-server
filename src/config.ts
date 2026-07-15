@@ -5,7 +5,7 @@ import type { LoggingConfig, LogFormat, LogLevel } from "./logger.js";
 import type { OAuthConfig } from "./oauth-provider.js";
 import { agenticAgentsDir, agenticSkillsDir, loadAgenticFiles } from "./user-config.js";
 
-export type ToolMode = "minimal" | "full" | "codex" | "assistant";
+export type ToolMode = "minimal" | "full" | "assistant";
 export type SpeedMode = "balanced" | "turbo";
 export type WidgetMode = "off" | "changes" | "full";
 const DEFAULT_OAUTH_ACCESS_TOKEN_TTL_SECONDS = 60 * 60;
@@ -86,7 +86,8 @@ function parseBoolean(value: string | undefined): boolean {
 
 function parseToolMode(env: NodeJS.ProcessEnv): ToolMode {
   const mode = env.AGENTIC_TOOL_MODE;
-  if (mode === "minimal" || mode === "full" || mode === "codex" || mode === "assistant") return mode;
+  if (mode === "codex") throw new Error("Invalid AGENTIC_TOOL_MODE: codex. This mode was removed for security reasons. Use assistant, minimal, or full.");
+  if (mode === "minimal" || mode === "full" || mode === "assistant") return mode;
   if (mode) throw new Error(`Invalid AGENTIC_TOOL_MODE: ${mode}`);
 
   if (env.AGENTIC_MINIMAL_TOOLS !== undefined) {

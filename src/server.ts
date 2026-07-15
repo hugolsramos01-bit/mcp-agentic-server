@@ -23,7 +23,7 @@ import { loadConfig, type ServerConfig, type WidgetMode } from "./config.js";
 import { logEvent, requestPath, sessionIdPrefix } from "./logger.js";
 import {
   editFileTool, findFilesTool, grepFilesTool, listDirectoryTool,
-  readFileTool, runShellTool, writeFileTool,
+  readFileTool, runShellTool, writeFileTool, enforceSecurePath,
 } from "./pi-tools.js";
 import {
   workspaceSummaryTool, readManyTool, safeFilePreviewTool, gitTool, treeTool, runScriptTool,
@@ -231,7 +231,7 @@ function createMcpServer(
           const execFileAsync = util.promisify(cp.execFile);
           
           let cmd = "npm";
-          let args = ["install"];
+          let args = ["install", "--ignore-scripts"];
           let pkgManager = "npm";
           if (fs.existsSync(pathModule.join(workspace.worktree.path, "pnpm-lock.yaml"))) {
             cmd = process.platform === "win32" ? "pnpm.cmd" : "pnpm";
@@ -242,7 +242,7 @@ function createMcpServer(
           }
           
           const startedAt = performance.now();
-          const { stdout, stderr } = await execFileAsync(cmd, args, { cwd: workspace.worktree.path, shell: true });
+          const { stdout, stderr } = await execFileAsync(cmd, args, { cwd: workspace.worktree.path, shell: false });
           const durationMs = Math.round(performance.now() - startedAt);
 
           // Extract meaningful summary from pnpm/npm output instead of raw progress spam
@@ -631,11 +631,11 @@ function createMcpServer(
     } as any,
     async (req: any) => {
       const workspace = workspaces.getWorkspace(req.workspaceId);
-      workspaces.resolvePath(workspace, req.path);
+//       workspaces.resolvePath(workspace, req.path);
       
       const fsModule = await import("node:fs");
       const pathModule = await import("node:path");
-      const fullPath = pathModule.join(workspace.root, req.path);
+      const fullPath = enforceSecurePath(req.path, workspace.root, config.allowedRoots, false);
       
       if (!fsModule.existsSync(fullPath)) {
         return { content: [{ type: "text", text: "File does not exist." }], isError: true };
@@ -675,11 +675,11 @@ function createMcpServer(
     } as any,
     async (req: any) => {
       const workspace = workspaces.getWorkspace(req.workspaceId);
-      workspaces.resolvePath(workspace, req.path);
+//       workspaces.resolvePath(workspace, req.path);
       
       const fsModule = await import("node:fs");
       const pathModule = await import("node:path");
-      const fullPath = pathModule.join(workspace.root, req.path);
+      const fullPath = enforceSecurePath(req.path, workspace.root, config.allowedRoots, false);
       
       if (!fsModule.existsSync(fullPath)) {
         return { content: [{ type: "text", text: "File does not exist." }], isError: true };
@@ -739,7 +739,7 @@ function createMcpServer(
     }
   );
 
-  if (config.toolMode !== "codex") {
+  if (true) {
   registerAppTool(
     server,
     toolNames.write,
@@ -943,10 +943,10 @@ function createMcpServer(
       } as any,
       async (req: any) => {
         const workspace = workspaces.getWorkspace(req.workspaceId);
-        workspaces.resolvePath(workspace, req.path);
+//         workspaces.resolvePath(workspace, req.path);
         
         const pathModule = await import("node:path");
-        const fullPath = pathModule.join(workspace.root, req.path);
+        const fullPath = enforceSecurePath(req.path, workspace.root, config.allowedRoots, false);
         
         const fsModule = await import("node:fs");
         if (!fsModule.existsSync(fullPath)) {
@@ -1022,10 +1022,10 @@ function createMcpServer(
       async (req: any) => {
         try {
           const workspace = workspaces.getWorkspace(req.workspaceId);
-          workspaces.resolvePath(workspace, req.path);
+//           workspaces.resolvePath(workspace, req.path);
           
           const pathModule = await import("node:path");
-          const fullPath = pathModule.join(workspace.root, req.path);
+          const fullPath = enforceSecurePath(req.path, workspace.root, config.allowedRoots, false);
           
           const fsModule = await import("node:fs");
           if (!fsModule.existsSync(fullPath)) {
@@ -1085,7 +1085,7 @@ function createMcpServer(
     );
   }
 
-  if (config.toolMode === "codex") {
+  if (false) {
     registerAppTool(
       server,
       "apply_patch",
@@ -2193,7 +2193,7 @@ function createMcpServer(
         const workspace = workspaces.getWorkspace(req.workspaceId);
         const fsModule = await import("node:fs");
         const pathModule = await import("node:path");
-        const fullPath = pathModule.join(workspace.root, req.path);
+        const fullPath = enforceSecurePath(req.path, workspace.root, config.allowedRoots, false);
         if (!fsModule.existsSync(fullPath)) {
           return { content: [{ type: "text", text: "File does not exist." }], isError: true };
         }
@@ -2236,7 +2236,7 @@ function createMcpServer(
         let totalTokens = 0;
         const breakdown: any[] = [];
         for (const file of req.files || []) {
-          const fullPath = pathModule.join(workspace.root, file.path);
+          const fullPath = enforceSecurePath(file.path, workspace.root, config.allowedRoots, false);
           if (!fsModule.existsSync(fullPath)) {
             breakdown.push({ path: file.path, tokens: 0, error: "not found" });
             continue;
@@ -2297,7 +2297,7 @@ function createMcpServer(
     );
   }
 
-  if (config.toolMode !== "codex") {
+  if (true) {
   registerAppTool(
     server,
     toolNames.shell,
@@ -2392,9 +2392,9 @@ function createMcpServer(
 
   }
 
-  if (config.toolMode === "codex") {
-// registerCodexProcessTools(server, config, workspaces, processSessions);
-  }
+// removed
+// removed
+// removed
 
   return server;
 }

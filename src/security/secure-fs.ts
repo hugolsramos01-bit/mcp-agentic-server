@@ -1,4 +1,4 @@
-import { readFileSync, writeFileSync, statSync, readdirSync, existsSync } from "node:fs";
+import { readFileSync, writeFileSync, statSync, lstatSync, readdirSync, existsSync } from "node:fs";
 import { join } from "node:path";
 import { resolveWorkspacePath } from "./path-resolution.js";
 import { assertPathOperationAllowed } from "./secret-policy.js";
@@ -62,7 +62,10 @@ export const secureFs = {
           // Check secret policy before traversing
           assertPathOperationAllowed(itemPath, "read");
           
-          const stat = statSync(itemPath);
+          const stat = lstatSync(itemPath);
+          if (stat.isSymbolicLink()) {
+            continue; // Skip symlinks to prevent recursion and escapes
+          }
           if (stat.isDirectory()) {
             walk(itemPath);
           } else {

@@ -4,6 +4,8 @@ import { secureFs } from "./security/secure-fs.js";
 import { readdir } from "node:fs/promises";
 import { exec } from "node:child_process";
 import { promisify } from "node:util";
+import { enforceSecurePath } from "./pi-tools.js";
+import { execFile } from "node:child_process";
 import ts from "typescript";
 import type { ToolResponse } from "./pi-tools.js";
 
@@ -125,7 +127,7 @@ export interface NextRouteMapInput {}
 
 export async function nextRouteMapTool(cwd: string, basePath?: string): Promise<ToolResponse> {
   // If a basePath is provided (e.g. "apps/web"), search relative to it
-  const searchRoot = basePath ? join(cwd, basePath) : cwd;
+  const searchRoot = basePath ? enforceSecurePath(basePath, cwd, [cwd], false) : cwd;
   const appDir = existsSync(join(searchRoot, "src/app")) ? join(searchRoot, "src/app") : existsSync(join(searchRoot, "app")) ? join(searchRoot, "app") : null;
   const pagesDir = existsSync(join(searchRoot, "src/pages")) ? join(searchRoot, "src/pages") : existsSync(join(searchRoot, "pages")) ? join(searchRoot, "pages") : null;
   
@@ -479,6 +481,7 @@ export async function fileDependenciesTool(cwd: string, targetPath: string): Pro
   // 2. Inward dependencies — use git grep with exact import pattern instead of filename match
   // Search for: import ... from 'relative/path/to/target' or import 'relative/path/to/target'
   const inwards: string[] = [];
+  const execFileAsync = promisify(execFile);
   const ext = extname(targetPath);
   // Build possible import paths (without extension, with index, etc.)
   const importVariants = [
@@ -490,7 +493,7 @@ export async function fileDependenciesTool(cwd: string, targetPath: string): Pro
   
   try {
     const searchPatterns = importVariants.map(v => `from ['"\`]${v}['"\`]`).join('|');
-    const { stdout } = await execAsync(`git grep --name-only -E "${searchPatterns}"`, { cwd, maxBuffer: 1024 * 1024 * 10 });
+    const { stdout } = await execFileAsync("git", ["grep", "--name-only", "-E", searchPatterns], { cwd, maxBuffer: 1024 * 1024 * 10 });
     const files = stdout.split('\n').map((l: string) => l.trim()).filter((l: string) => l && l !== targetPath.replace(/\\/g, '/'));
     for (const f of files) {
        if (!inwards.includes(f)) inwards.push(f);
@@ -499,7 +502,7 @@ export async function fileDependenciesTool(cwd: string, targetPath: string): Pro
     // If grep fails, fallback to simple filename-based search
     try {
       const fileBase = basename(targetPath, ext);
-      const { stdout } = await execAsync(`git grep --name-only ${fileBase}`, { cwd, maxBuffer: 1024 * 1024 * 10 });
+      const { stdout } = await execFileAsync("git", ["grep", "--name-only", fileBase], { cwd, maxBuffer: 1024 * 1024 * 10 });
       const files = stdout.split('\n').map((l: string) => l.trim()).filter((l: string) => l && l !== targetPath.replace(/\\/g, '/'));
       for (const f of files) {
          if (!inwards.includes(f)) inwards.push(f);
