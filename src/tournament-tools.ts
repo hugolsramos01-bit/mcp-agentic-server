@@ -1,11 +1,12 @@
 import { join } from "node:path";
-import { existsSync, writeFileSync } from "node:fs";
+import { existsSync, writeFileSync, readFileSync } from "node:fs";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import type { ServerConfig } from "./config.js";
 import { createManagedWorktree, removeManagedWorktree, type ManagedWorktree } from "./git-worktrees.js";
 import type { ToolResponse } from "./pi-tools.js";
 import { assertCommandAllowed } from "./security/command-executor.js";
+import { collectPackageScriptCommands } from "./security/script-resolver.js";
 
 const execFileAsync = promisify(execFile);
 
@@ -222,15 +223,35 @@ export async function tournamentJudgeTool(input: TournamentJudgeInput): Promise<
       continue;
     }
 
-    for (const script of scripts) {
+        for (const script of scripts) {
       const start = performance.now();
       try {
-        await assertCommandAllowed({
-          command: script,
-          workspaceRoot: cwd,
-          workingDirectory: cwd,
-          source: "tournament",
-        });
+        // Evaluate the script recursively if it calls a package manager
+        const runMatch = script.match(/^(?:npm|yarn|pnpm)\s+(?:run\s+)?([a-zA-Z0-9_.:@/-]+)/);
+        let commandsToValidate = [script];
+        if (runMatch && hasPkgJson) {
+          try {
+            const pkg = JSON.parse(readFileSync(join(cwd, "package.json"), "utf8"));
+            const resolved = collectPackageScriptCommands({ packageJson: pkg, scriptName: runMatch[1], maxDepth: 10 });
+            if (resolved.length > 0) {
+              commandsToValidate = resolved;
+              // Add the outer script execution too just in case it's doing something else
+              commandsToValidate.push(script);
+            }
+          } catch (e) {
+            // pkg json unreadable, fall back to literal evaluation
+          }
+        }
+        
+        for (const cmd of commandsToValidate) {
+          await assertCommandAllowed({
+            command: cmd,
+            workspaceRoot: cwd,
+            workingDirectory: cwd,
+            source: "tournament",
+          });
+        }
+        
         // shell: true so npm works, timeout 120s per script
         const { stdout, stderr } = await execFileAsync(
           process.platform === "win32" ? "cmd.exe" : "sh",

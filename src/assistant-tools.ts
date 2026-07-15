@@ -1,4 +1,5 @@
 import { assertCommandAllowed } from "./security/command-executor.js";
+import { collectPackageScriptCommands } from "./security/script-resolver.js";
 import { join, resolve } from "node:path";
 import { existsSync, readFileSync } from "node:fs";
 import { readdir } from "node:fs/promises";
@@ -362,38 +363,11 @@ export async function runScriptTool(input: RunScriptInput, cwd: string): Promise
     const cmdSuffix = process.platform === "win32" ? ".cmd" : "";
     const packageManagerCmd = packageManager + cmdSuffix;
 
-    const visited = new Set<string>();
-    const commandsToValidate: string[] = [];
-
-    function expandScript(scriptName: string, depth: number) {
-      if (depth > 10) throw new Error("Max script depth exceeded");
-      if (visited.has(scriptName)) return;
-      visited.add(scriptName);
-
-      const scriptContent = pkg.scripts[scriptName];
-      if (!scriptContent) return;
-
-      const subScriptRegex = /(?:npm|yarn|pnpm)\\s+(?:run\\s+)?([a-zA-Z0-9_:-]+)/g;
-      let match;
-      let hasSubscripts = false;
-      while ((match = subScriptRegex.exec(scriptContent)) !== null) {
-        hasSubscripts = true;
-        const subName = match[1];
-        if (pkg.scripts[subName]) {
-          if (pkg.scripts[`pre${subName}`]) expandScript(`pre${subName}`, depth + 1);
-          expandScript(subName, depth + 1);
-          if (pkg.scripts[`post${subName}`]) expandScript(`post${subName}`, depth + 1);
-        }
-      }
-
-      if (!hasSubscripts) {
-        commandsToValidate.push(String(scriptContent));
-      }
-    }
-
-    if (pkg.scripts[`pre${input.script}`]) expandScript(`pre${input.script}`, 0);
-    expandScript(input.script, 0);
-    if (pkg.scripts[`post${input.script}`]) expandScript(`post${input.script}`, 0);
+    const commandsToValidate = collectPackageScriptCommands({
+      packageJson: pkg,
+      scriptName: input.script,
+      maxDepth: 10,
+    });
 
     for (const cmd of commandsToValidate) {
       await assertCommandAllowed({
