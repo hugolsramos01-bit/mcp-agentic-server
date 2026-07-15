@@ -30,15 +30,12 @@ export function enforceSecurePath(
   allowedRoots: string[],
   isWrite = false,
 ): string {
-  if (!requestedPath) {
-    assertPathOperationAllowed(cwd, isWrite ? "write" : "read");
-    return cwd;
-  }
-
-  const expanded = expandHomePath(requestedPath);
-  const candidate = isAbsolute(expanded)
-    ? expanded
-    : resolve(cwd, expanded);
+  const expanded = expandHomePath(requestedPath ?? cwd);
+  const candidate = requestedPath
+    ? isAbsolute(expanded)
+      ? expanded
+      : resolve(cwd, expanded)
+    : resolve(cwd);
 
   let lastError: Error | undefined;
 

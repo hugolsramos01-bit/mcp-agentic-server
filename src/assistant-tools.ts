@@ -72,7 +72,7 @@ export async function readManyTool(input: ReadManyInput, cwd: string, allowedRoo
   const files: FileEntry[] = [];
   for (const p of input.paths) {
     try {
-      const fullPath = enforceSecurePath(p, cwd, allowedRoots, false);
+      const fullPath = enforceSecurePath(p, cwd, [cwd], false);
       files.push({ path: p, fullPath, stat: statSync(fullPath) });
     } catch {}
   }
@@ -123,7 +123,7 @@ export async function safeFilePreviewTool(input: SafeFilePreviewInput, cwd: stri
   const result: any[] = [];
   for (const p of input.paths) {
     try {
-      const fullPath = enforceSecurePath(p, cwd, allowedRoots, false);
+      const fullPath = enforceSecurePath(p, cwd, [cwd], false);
       const content = readFileSync(fullPath, "utf8");
       const lines = content.split('\n');
 
@@ -229,7 +229,7 @@ export interface TreeToolInput {
 }
 
 export async function treeTool(input: TreeToolInput, cwd: string, allowedRoots: string[]): Promise<ToolResponse> {
-  const targetPath = enforceSecurePath(input.path || ".", cwd, allowedRoots, false);
+  const targetPath = enforceSecurePath(input.path || ".", cwd, [cwd], false);
   const maxDepth = input.depth ?? 3;
   
   const lines: string[] = [];
@@ -359,7 +359,50 @@ export async function runScriptTool(input: RunScriptInput, cwd: string): Promise
       : "npm";
     const fullCommand = `${packageManager} run ${input.script}`;
 
-    const scriptCommand = String(pkg.scripts[input.script]);
+    const cmdSuffix = process.platform === "win32" ? ".cmd" : "";
+    const packageManagerCmd = packageManager + cmdSuffix;
+
+    const visited = new Set<string>();
+    const commandsToValidate: string[] = [];
+
+    function expandScript(scriptName: string, depth: number) {
+      if (depth > 10) throw new Error("Max script depth exceeded");
+      if (visited.has(scriptName)) return;
+      visited.add(scriptName);
+
+      const scriptContent = pkg.scripts[scriptName];
+      if (!scriptContent) return;
+
+      const subScriptRegex = /(?:npm|yarn|pnpm)\\s+(?:run\\s+)?([a-zA-Z0-9_:-]+)/g;
+      let match;
+      let hasSubscripts = false;
+      while ((match = subScriptRegex.exec(scriptContent)) !== null) {
+        hasSubscripts = true;
+        const subName = match[1];
+        if (pkg.scripts[subName]) {
+          if (pkg.scripts[`pre${subName}`]) expandScript(`pre${subName}`, depth + 1);
+          expandScript(subName, depth + 1);
+          if (pkg.scripts[`post${subName}`]) expandScript(`post${subName}`, depth + 1);
+        }
+      }
+
+      if (!hasSubscripts) {
+        commandsToValidate.push(String(scriptContent));
+      }
+    }
+
+    if (pkg.scripts[`pre${input.script}`]) expandScript(`pre${input.script}`, 0);
+    expandScript(input.script, 0);
+    if (pkg.scripts[`post${input.script}`]) expandScript(`post${input.script}`, 0);
+
+    for (const cmd of commandsToValidate) {
+      await assertCommandAllowed({
+        command: cmd,
+        workspaceRoot: cwd,
+        workingDirectory: cwd,
+        source: "package-script",
+      });
+    }
 
     await assertCommandAllowed({
       command: fullCommand,
@@ -368,20 +411,13 @@ export async function runScriptTool(input: RunScriptInput, cwd: string): Promise
       source: "bash",
     });
 
-    await assertCommandAllowed({
-      command: scriptCommand,
-      workspaceRoot: cwd,
-      workingDirectory: cwd,
-      source: "package-script",
-    });
-
     let stdout = "";
     let stderr = "";
     let exitCode = 0;
     const startTime = Date.now();
 
     try {
-      const result = await execFileAsync(packageManager, ["run", input.script], { cwd, shell: true });
+      const result = await execFileAsync(packageManagerCmd, ["run", input.script], { cwd, shell: false });
       stdout = result.stdout;
       stderr = result.stderr;
     } catch (e: any) {

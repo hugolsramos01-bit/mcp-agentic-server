@@ -634,7 +634,7 @@ function createMcpServer(
       
       const fsModule = await import("node:fs");
       const pathModule = await import("node:path");
-      const fullPath = enforceSecurePath(req.path, workspace.root, config.allowedRoots, false);
+      const fullPath = enforceSecurePath(req.path, workspace.root, [workspace.root], false);
       
       if (!fsModule.existsSync(fullPath)) {
         return { content: [{ type: "text", text: "File does not exist." }], isError: true };
@@ -678,7 +678,7 @@ function createMcpServer(
       
       const fsModule = await import("node:fs");
       const pathModule = await import("node:path");
-      const fullPath = enforceSecurePath(req.path, workspace.root, config.allowedRoots, false);
+      const fullPath = enforceSecurePath(req.path, workspace.root, [workspace.root], false);
       
       if (!fsModule.existsSync(fullPath)) {
         return { content: [{ type: "text", text: "File does not exist." }], isError: true };
@@ -945,7 +945,7 @@ function createMcpServer(
 //         workspaces.resolvePath(workspace, req.path);
         
         const pathModule = await import("node:path");
-        const fullPath = enforceSecurePath(req.path, workspace.root, config.allowedRoots, false);
+        const fullPath = enforceSecurePath(req.path, workspace.root, [workspace.root], false);
         
         const fsModule = await import("node:fs");
         if (!fsModule.existsSync(fullPath)) {
@@ -1024,7 +1024,7 @@ function createMcpServer(
 //           workspaces.resolvePath(workspace, req.path);
           
           const pathModule = await import("node:path");
-          const fullPath = enforceSecurePath(req.path, workspace.root, config.allowedRoots, false);
+          const fullPath = enforceSecurePath(req.path, workspace.root, [workspace.root], false);
           
           const fsModule = await import("node:fs");
           if (!fsModule.existsSync(fullPath)) {
@@ -2120,7 +2120,7 @@ function createMcpServer(
         const workspace = workspaces.getWorkspace(req.workspaceId);
         const fsModule = await import("node:fs");
         const pathModule = await import("node:path");
-        const fullPath = enforceSecurePath(req.path, workspace.root, config.allowedRoots, false);
+        const fullPath = enforceSecurePath(req.path, workspace.root, [workspace.root], false);
         if (!fsModule.existsSync(fullPath)) {
           return { content: [{ type: "text", text: "File does not exist." }], isError: true };
         }
@@ -2163,7 +2163,7 @@ function createMcpServer(
         let totalTokens = 0;
         const breakdown: any[] = [];
         for (const file of req.files || []) {
-          const fullPath = enforceSecurePath(file.path, workspace.root, config.allowedRoots, false);
+          const fullPath = enforceSecurePath(file.path, workspace.root, [workspace.root], false);
           if (!fsModule.existsSync(fullPath)) {
             breakdown.push({ path: file.path, tokens: 0, error: "not found" });
             continue;

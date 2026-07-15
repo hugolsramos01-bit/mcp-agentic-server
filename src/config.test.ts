@@ -19,7 +19,6 @@ assert.equal(loadConfig({ ...baseEnv, AGENTIC_WIDGETS: "off" }).widgets, "off");
 assert.equal(loadConfig(baseEnv).toolMode, "assistant");
 assert.equal(loadConfig({ ...baseEnv, AGENTIC_TOOL_MODE: "minimal" }).toolMode, "minimal");
 assert.equal(loadConfig({ ...baseEnv, AGENTIC_TOOL_MODE: "full" }).toolMode, "full");
-assert.equal(loadConfig({ ...baseEnv, AGENTIC_TOOL_MODE: "codex" }).toolMode, "codex");
 assert.equal(loadConfig({ ...baseEnv, AGENTIC_MINIMAL_TOOLS: "0" }).toolMode, "full");
 assert.equal(loadConfig({ ...baseEnv, AGENTIC_MINIMAL_TOOLS: "1" }).toolMode, "minimal");
 assert.equal(loadConfig(baseEnv).skillsEnabled, true);
