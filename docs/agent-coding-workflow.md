@@ -1,12 +1,12 @@
-# ChatGPT Coding Workflow
+# Agentic Coding Workflow
 
-Agentic MCP brings a Codex-style coding-agent loop to ChatGPT and other MCP hosts:
+Agentic MCP brings an advanced autonomous coding-agent loop to any MCP host (Claude Desktop, Cursor, Roo Code, ChatGPT, etc):
 inspect the repo, follow local instructions, make scoped edits, run
 verification, and show the user what changed.
 
 ## Open One Workspace
 
-ChatGPT should call `open_workspace` once for a project folder:
+The MCP Client should call `open_workspace` once for a project folder:
 
 ```json
 {
@@ -34,7 +34,7 @@ Checkout mode is the default. Agentic MCP opens the actual directory:
 }
 ```
 
-Use this when the user wants ChatGPT to work in the current checkout.
+Use this when the user wants the agent to work in the current checkout.
 
 ## Worktree Mode
 

@@ -43,9 +43,26 @@ npm run build
 npm run start
 ```
 
-### Exposing the Server
-To connect cloud-hosted agents (like Claude or ChatGPT) to your local machine, use a secure tunnel (e.g., Cloudflare Tunnel, ngrok, Pinggy).
+### Setting up the Server
 
+**For Local Clients (Claude Desktop, Cursor, Roo Code):**
+Configure your MCP client to start the server. Add the following to your MCP config:
+```json
+{
+  "mcpServers": {
+    "agentic-mcp": {
+      "command": "npx",
+      "args": ["-y", "mcp-agentic-server", "serve"],
+      "env": {
+        "AGENTIC_ALLOWED_ROOTS": "C:/path/to/projects"
+      }
+    }
+  }
+}
+```
+
+**For Cloud-hosted Clients (ChatGPT Web, Claude Web):**
+To connect cloud-hosted agents to your local machine, use a secure tunnel (e.g., Cloudflare Tunnel, ngrok, Pinggy).
 1. Start your tunnel (e.g., pointing to port 7676).
 2. Start the MCP server: `npm run start`
 3. Connect your MCP client to the public `/mcp` URL.
@@ -61,7 +78,7 @@ The tool surface depends on the `AGENTIC_TOOL_MODE` setting.
 | **`assistant`** (default) | `open_workspace`, `read`, `write`, `edit`, `bash`, `grep`, `glob`, `ls`, `tree`, `coding_context`, `read_many`, `safe_file_preview`, `git_status/diff/log`, `run_package_script`, `next_route_map`, `payload_schema_map`, `file_dependencies`, `checkpoint_*`, `edit_dry_run`, `show_changes`, `worktree_*`, `suggest_checks`, `propose_plan` | Full coding-agent workflow |
 | **`full`** | Base tools + `grep`, `glob`, `ls` | Manual inspection via shell |
 | **`minimal`** | `open_workspace`, `read`, `write`, `edit`, `bash` | Restricted surface |
-| **`codex`** | `open_workspace`, `read`, `apply_patch`, `exec_command`, `write_stdin` | Codex-style agent |
+
 
 > **Note:** The `assistant` mode is recommended for the full agentic coding experience. Set `AGENTIC_TOOL_MODE=assistant` in your `.env` or environment.
 
