@@ -1,10 +1,10 @@
+import { assertCommandAllowed } from "./security/command-executor.js";
 import { join, resolve } from "node:path";
 import { existsSync, readFileSync } from "node:fs";
 import { readdir } from "node:fs/promises";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
-import { resolveAllowedPath } from "./roots.js";
-import type { ToolResponse } from "./pi-tools.js";
+import { enforceSecurePath, type ToolResponse } from "./pi-tools.js";
 
 const execFileAsync = promisify(execFile);
 
@@ -72,7 +72,7 @@ export async function readManyTool(input: ReadManyInput, cwd: string, allowedRoo
   const files: FileEntry[] = [];
   for (const p of input.paths) {
     try {
-      const fullPath = resolveAllowedPath(p, cwd, allowedRoots);
+      const fullPath = enforceSecurePath(p, cwd, allowedRoots, false);
       files.push({ path: p, fullPath, stat: statSync(fullPath) });
     } catch {}
   }
@@ -123,7 +123,7 @@ export async function safeFilePreviewTool(input: SafeFilePreviewInput, cwd: stri
   const result: any[] = [];
   for (const p of input.paths) {
     try {
-      const fullPath = resolveAllowedPath(p, cwd, allowedRoots);
+      const fullPath = enforceSecurePath(p, cwd, allowedRoots, false);
       const content = readFileSync(fullPath, "utf8");
       const lines = content.split('\n');
 
@@ -229,7 +229,7 @@ export interface TreeToolInput {
 }
 
 export async function treeTool(input: TreeToolInput, cwd: string, allowedRoots: string[]): Promise<ToolResponse> {
-  const targetPath = resolveAllowedPath(input.path || ".", cwd, allowedRoots);
+  const targetPath = enforceSecurePath(input.path || ".", cwd, allowedRoots, false);
   const maxDepth = input.depth ?? 3;
   
   const lines: string[] = [];
@@ -358,6 +358,13 @@ export async function runScriptTool(input: RunScriptInput, cwd: string): Promise
       ? "yarn"
       : "npm";
     const fullCommand = `${packageManager} run ${input.script}`;
+
+    await assertCommandAllowed({
+      command: fullCommand,
+      workspaceRoot: cwd,
+      workingDirectory: cwd,
+      source: "bash",
+    });
 
     let stdout = "";
     let stderr = "";

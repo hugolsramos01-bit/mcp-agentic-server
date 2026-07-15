@@ -1,3 +1,4 @@
+import { assertPathOperationAllowed } from "./security/secret-policy.js";
 import { randomUUID } from "node:crypto";
 import { constants, type Stats } from "node:fs";
 import { access, lstat, mkdir, readFile, realpath, rename, rm, stat, writeFile } from "node:fs/promises";

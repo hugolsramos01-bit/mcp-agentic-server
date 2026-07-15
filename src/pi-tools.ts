@@ -22,7 +22,7 @@ import { assertCommandAllowed } from "./security/command-executor.js";
 
 
 
-function enforceSecurePath(requestedPath: string | undefined, cwd: string, allowedRoots: string[], isWrite: boolean = false): string {
+export function enforceSecurePath(requestedPath: string | undefined, cwd: string, allowedRoots: string[], isWrite: boolean = false): string {
   if (!requestedPath) {
     // If no path is provided, we default to cwd, which is inherently safe as it's the root.
     return cwd;
@@ -127,27 +127,36 @@ export async function editFileTool(input: EditToolInput, context: ToolContext): 
 }
 
 export async function grepFilesTool(input: GrepToolInput, context: ToolContext): Promise<ToolResponse> {
-  if (input.path) enforceSecurePath(input.path, context.cwd, [context.root], false);
+  const targetPath = input.path ?? context.cwd;
+  const path = enforceSecurePath(targetPath, context.cwd, [context.root], false);
   const tool = createGrepTool(context.cwd);
 
-  return runTool((params) => tool.execute("grep_files", params), input, context);
+  return runTool((params) => tool.execute("grep_files", params), { ...input, path }, context);
 }
 
 export async function findFilesTool(input: FindToolInput, context: ToolContext): Promise<ToolResponse> {
-  if (input.path) enforceSecurePath(input.path, context.cwd, [context.root], false);
+  const targetPath = input.path ?? context.cwd;
+  const path = enforceSecurePath(targetPath, context.cwd, [context.root], false);
   const tool = createFindTool(context.cwd);
 
-  return runTool((params) => tool.execute("find_files", params), input, context);
+  return runTool((params) => tool.execute("find_files", params), { ...input, path }, context);
 }
 
 export async function listDirectoryTool(input: LsToolInput, context: ToolContext): Promise<ToolResponse> {
-  if (input.path) enforceSecurePath(input.path, context.cwd, [context.root], false);
+  const targetPath = input.path ?? context.cwd;
+  const path = enforceSecurePath(targetPath, context.cwd, [context.root], false);
   const tool = createLsTool(context.cwd);
 
-  return runTool((params) => tool.execute("list_directory", params), input, context);
+  return runTool((params) => tool.execute("list_directory", params), { ...input, path }, context);
 }
 
 export async function runShellTool(input: BashToolInput, context: ToolContext): Promise<ToolResponse> {
+  await assertCommandAllowed({
+    command: input.command,
+    workspaceRoot: context.root,
+    workingDirectory: context.cwd,
+    source: "bash",
+  });
   const tool = createBashTool(context.cwd);
   const timeout = input.timeout === undefined ? 30 : Math.min(input.timeout, 300);
 
