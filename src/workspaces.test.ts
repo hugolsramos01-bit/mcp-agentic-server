@@ -9,9 +9,11 @@ import { GitWorktreeError } from "./git-worktrees.js";
 import { SqliteWorkspaceStore } from "./workspace-store.js";
 import { ensureCheckoutWorkspaceRoot, WorkspaceRegistry } from "./workspaces.js";
 
+import { realpathSync } from "node:fs";
+
 const execFileAsync = promisify(execFile);
-const root = await mkdtemp(join(tmpdir(), "agentic-workspace-test-"));
-const outsideRoot = await mkdtemp(join(tmpdir(), "agentic-workspace-outside-test-"));
+const root = realpathSync(await mkdtemp(join(tmpdir(), "agentic-workspace-test-")));
+const outsideRoot = realpathSync(await mkdtemp(join(tmpdir(), "agentic-workspace-outside-test-")));
 
 try {
   const agentDir = join(root, ".pi", "agent");
