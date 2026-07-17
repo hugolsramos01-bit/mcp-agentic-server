@@ -14,7 +14,7 @@ export function collectPackageScriptCommands({
   const visited = new Set<string>();
   const commandsToValidate: string[] = [];
 
-  const subScriptRegex = /(?:npm|yarn|pnpm)\s+(?:run\s+)?([a-zA-Z0-9_.:@/-]+)/g;
+  const subScriptRegex = /(?:npm|yarn|pnpm)(?:\s+(?:--silent|-q|--quiet))?\s+(?:run|run-script)?\s+([a-zA-Z0-9_.:@/-]+)/g;
 
   function expandScript(name: string, depth: number) {
     if (depth > maxDepth) {

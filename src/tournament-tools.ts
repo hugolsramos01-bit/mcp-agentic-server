@@ -203,7 +203,7 @@ export async function tournamentJudgeTool(input: TournamentJudgeInput): Promise<
     // - tsx, node with local modules
     const hasNodeModules = existsSync(join(cwd, "node_modules"));
     const hasPkgJson = existsSync(join(cwd, "package.json"));
-    const needsDeps = scripts.some(s => /\b(?:npm|pnpm|yarn)\s+run\b/.test(s) || /\bnpx\b/.test(s));
+    const needsDeps = scripts.length > 0; // Assume scripts require node_modules
 
     if (hasPkgJson && !hasNodeModules && needsDeps) {
       verdicts.push({

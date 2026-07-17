@@ -112,4 +112,20 @@ test('Security Regression: enforceSecurePath', async (t) => {
     assert.ok(cmds.includes("echo post"));
   });
 
+
+  await t.test('Script Resolver: Alternative Syntaxes (run-script, --silent)', () => {
+    const pkg = {
+      scripts: {
+        "test": "npm --silent run safe",
+        "safe": "npm run-script safe2",
+        "safe2": "npm -q run safe3",
+        "safe3": "npm --quiet run-script destructive",
+        "destructive": "rm -rf /"
+      }
+    };
+
+    const cmds = collectPackageScriptCommands({ packageJson: pkg, scriptName: "test" });
+    assert.ok(cmds.includes("rm -rf /"), "Should extract destructive command despite npm flags/run-script syntax");
+  });
+
 });
