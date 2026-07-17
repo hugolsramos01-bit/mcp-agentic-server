@@ -161,11 +161,16 @@ function findWindowsNodeEntrypoint(executable: string): string | undefined {
     if (!existsSync(candidate)) continue;
     try {
       const source = readFileSync(candidate, "utf8");
-      const matches = [...source.matchAll(/%~dp0\\?([^"'\r\n]+?\.(?:c?js|mjs))/gi)];
-      const match = matches.at(-1);
-      if (!match) continue;
-      const entrypoint = join(dirname(candidate), match[1].replace(/\\/g, "/"));
-      if (existsSync(entrypoint)) return entrypoint;
+      const patterns = [
+        /%~dp0\\([^"'\r\n]+?\.(?:c?js|mjs))/gi,
+        /%dp0%\\([^"'\r\n]+?\.(?:c?js|mjs))/gi,
+      ];
+      for (const pattern of patterns) {
+        const match = [...source.matchAll(pattern)].at(-1);
+        if (!match) continue;
+        const entrypoint = join(dirname(candidate), match[1].replace(/\\/g, "/"));
+        if (existsSync(entrypoint)) return entrypoint;
+      }
     } catch { /* try the next PATH entry */ }
   }
   return undefined;

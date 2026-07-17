@@ -37,6 +37,8 @@ export interface TournamentSpawnInput {
    * Default: false (manual via worktree_install_deps).
    */
   installDependencies?: boolean;
+  /** Explicitly allow a worktree rooted at the parent Git repository. */
+  allowParentGitRoot?: boolean;
   /**
    * Optional callback to register a worktree path as a valid workspace.
    * When provided, each spawned worktree is registered and a real workspaceId
@@ -75,6 +77,7 @@ export async function tournamentSpawnTool(input: TournamentSpawnInput): Promise<
         sourcePath: workspaceRoot,
         config,
         uniqueSuffix: `s${i + 1}`,
+        allowParentGitRoot: input.allowParentGitRoot,
       });
 
       // Register the worktree as a real workspace if callback provided
@@ -367,6 +370,8 @@ export async function tournamentJudgeTool(input: TournamentJudgeInput): Promise<
 export interface TournamentCleanupInput {
   tournamentId: string;
   winnerPath?: string;
+  /** Explicitly discard uncommitted worktree changes during removal. */
+  force?: boolean;
 }
 
 export async function tournamentCleanupTool(input: TournamentCleanupInput): Promise<ToolResponse> {
@@ -397,6 +402,7 @@ export async function tournamentCleanupTool(input: TournamentCleanupInput): Prom
       await removeManagedWorktree({
         worktreePath: entry.worktree.path,
         sourceRoot: entry.worktree.sourceRoot,
+        force: input.force === true,
       });
       
       // Verify via git worktree list
@@ -424,7 +430,12 @@ export async function tournamentCleanupTool(input: TournamentCleanupInput): Prom
   }
 
   if (status === "success") {
-    activeTournaments.delete(input.tournamentId);
+    if (winnerKept && input.winnerPath) {
+      // Preserve the tournament record for the intentionally retained worktree.
+      activeTournaments.set(input.tournamentId, entries.filter((entry) => entry.worktree.path === input.winnerPath));
+    } else {
+      activeTournaments.delete(input.tournamentId);
+    }
   }
 
   return {
@@ -436,11 +447,12 @@ export async function tournamentCleanupTool(input: TournamentCleanupInput): Prom
             tournamentId: input.tournamentId,
             status,
             winnerKept,
+            force: input.force === true,
             cleaned,
             remaining: remaining.length > 0 ? remaining : undefined,
             errors: errors.length > 0 ? errors : undefined,
             message: status === "success" 
-              ? (winnerKept ? "Winner worktree preserved. Use open_workspace to resume working in it." : "All tournament worktrees cleaned up.")
+              ? (winnerKept ? "Non-winner worktrees cleaned up; the winner remains registered. Use open_workspace to resume working in it." : "All tournament worktrees cleaned up.")
               : `Cleanup incomplete (${status}). Some worktrees remain.`,
           },
           null,

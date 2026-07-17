@@ -139,10 +139,12 @@ function createMcpServer(
       ...toolWidgetDescriptorMeta(config, "read"),
       annotations: READ_TOOL_ANNOTATIONS,
     },
-    async () => {
+      async () => {
       const report = await agenticDoctor();
       const text = JSON.stringify(report, null, 2);
-      return { content: [textBlock(text)], structuredContent: report };
+      // resultOutputSchema requires a result field. Keep the full report in the
+      // text payload and provide the schema-compatible summary field as well.
+      return { content: [textBlock(text)], structuredContent: { result: text } };
     },
   );
 
@@ -352,6 +354,10 @@ function createMcpServer(
           .string()
           .optional()
           .describe("Git ref to base a worktree on. Only used with mode=\"worktree\". Defaults to HEAD."),
+        allowParentGitRoot: z
+          .boolean()
+          .optional()
+          .describe("Only for mode=\"worktree\": explicitly allow a requested subdirectory to be promoted to its parent Git root, expanding workspace scope."),
       },
       outputSchema: {
         workspaceId: z.string(),
@@ -379,9 +385,9 @@ function createMcpServer(
       ...toolWidgetDescriptorMeta(config, "workspace"),
       annotations: READ_TOOL_ANNOTATIONS,
     },
-    async ({ path, mode, baseRef }) => {
+    async ({ path, mode, baseRef, allowParentGitRoot }) => {
       const startedAt = performance.now();
-      const { workspace, agentsFiles, availableAgentsFiles } = await workspaces.openWorkspace({ path, mode, baseRef });
+      const { workspace, agentsFiles, availableAgentsFiles } = await workspaces.openWorkspace({ path, mode, baseRef, allowParentGitRoot });
       if (config.widgets === "changes") {
         void reviewCheckpoints.initializeWorkspace({
           workspaceId: workspace.id,
@@ -1228,8 +1234,23 @@ function createMcpServer(
         }
 
         // Post-process: apply limit/offset client-side since Pi SDK doesn't support them
-        let resultText = contentText(response.content) || "";
-        let lines = resultText.split("\n").filter(l => l.includes(":"));
+        const resultText = contentText(response.content) || "";
+        // Normalize and sort the complete match set before paginating. The Pi
+        // backend may return duplicates or filesystem-order-dependent output;
+        // paging that raw stream creates overlapping pages.
+        const matches = new Map<string, { line: string; path: string; row: number; column: number }>();
+        for (const line of resultText.split("\n")) {
+          const parsed = line.match(/^(.*):(\d+)(?::(\d+))?:(.*)$/);
+          if (!parsed) continue;
+          const path = parsed[1].replace(/\\/g, "/");
+          const row = Number(parsed[2]);
+          const column = Number(parsed[3] ?? 0);
+          const key = `${path}\u0000${row}\u0000${column}\u0000${parsed[4]}`;
+          matches.set(key, { line, path, row, column });
+        }
+        let lines = [...matches.values()]
+          .sort((a, b) => a.path.localeCompare(b.path) || a.row - b.row || a.column - b.column || a.line.localeCompare(b.line))
+          .map((match) => match.line);
         
         // Apply offset: skip first N results
         const offset = userOffset ?? 0;
@@ -2031,6 +2052,7 @@ function createMcpServer(
           workspaceId: z.string().describe("Workspace ID of the source project"),
           strategies: z.array(z.string()).min(2).max(5).describe("2-5 strategies to test in parallel. Each strategy should be a concise description of the approach."),
           installDependencies: z.boolean().optional().describe("Auto-install dependencies in each worktree after creation (default: false)"),
+          allowParentGitRoot: z.boolean().optional().describe("Explicitly allow promotion from a requested subdirectory to its parent Git root. This expands the worktree scope."),
         },
         outputSchema: resultOutputSchema(),
         ...toolWidgetDescriptorMeta(config, "read"),
@@ -2043,6 +2065,7 @@ function createMcpServer(
           strategies: req.strategies,
           config,
           installDependencies: req.installDependencies ?? false,
+          allowParentGitRoot: req.allowParentGitRoot === true,
           registerWorktree: (worktreePath: string, sourceRoot: string) =>
             workspaces.registerWorktree(worktreePath, sourceRoot),
         }));
@@ -2077,11 +2100,12 @@ function createMcpServer(
       "tournament_cleanup",
       {
         title: "[ADVANCED] Tournament Cleanup",
-        description: "[Tournament] Tear down tournament worktrees. Optionally keep a winner by specifying its worktree path.",
+        description: "[Tournament] Tear down tournament worktrees. Optionally keep a winner. Set force=true only to discard uncommitted worktree changes.",
         inputSchema: {
           workspaceId: z.string().describe("Workspace ID"),
           tournamentId: z.string().describe("Tournament ID from tournament_spawn"),
           winnerPath: z.string().optional().describe("Optional worktree path to keep as the winner"),
+          force: z.boolean().optional().describe("Explicitly discard uncommitted changes in worktrees being removed."),
         },
         outputSchema: resultOutputSchema(),
         ...toolWidgetDescriptorMeta(config, "read"),
