@@ -4,6 +4,78 @@ export interface CollectPackageScriptsOptions {
   maxDepth?: number;
 }
 
+// ---------------------------------------------------------------------------
+// Canonical invocation patterns we fully understand (group 1 = script name).
+// ---------------------------------------------------------------------------
+// npm  [--silent|-q|--quiet]  run[-script]  [--silent|-q|--quiet]  <name>
+// pnpm [--silent|-q|--quiet]  run[-script]  [--silent|-q|--quiet]  <name>
+const NPM_CANONICAL_RE =
+  /\b(?:npm|pnpm)\s+(?:(?:--silent|-q|--quiet)\s+)?run(?:-script)?\s+(?:(?:--silent|-q|--quiet)\s+)?([a-zA-Z0-9_][a-zA-Z0-9_.:@/-]*)\b/g;
+
+// yarn [run]  <name>
+const YARN_CANONICAL_RE =
+  /\byarn(?:\s+run)?\s+([a-zA-Z0-9_][a-zA-Z0-9_.:@/-]*)\b/g;
+
+// Broad detector — any npm/yarn/pnpm keyword
+const PKG_MGR_RE = /\b(?:npm|pnpm|yarn)\b/g;
+
+/**
+ * Extract all nested script names from `scriptContent`.
+ *
+ * Fail-closed: if any `npm`, `pnpm`, or `yarn` keyword appears at a position
+ * that is NOT covered by a canonical invocation pattern, an error is thrown
+ * instead of silently falling back to literal evaluation.
+ */
+function extractSubScriptNames(scriptContent: string, scriptName: string): string[] {
+  const content = String(scriptContent);
+
+  // Collect positions of all package-manager keywords.
+  const pkgMgrPositions: number[] = [];
+  {
+    const re = new RegExp(PKG_MGR_RE.source, "g");
+    let m: RegExpExecArray | null;
+    while ((m = re.exec(content)) !== null) {
+      pkgMgrPositions.push(m.index);
+    }
+  }
+
+  if (pkgMgrPositions.length === 0) return [];
+
+  // Collect canonical matches and their start positions + script names.
+  const coveredPositions = new Set<number>();
+  const subNames: string[] = [];
+
+  const collect = (re: RegExp) => {
+    const r = new RegExp(re.source, "g");
+    let m: RegExpExecArray | null;
+    while ((m = r.exec(content)) !== null) {
+      coveredPositions.add(m.index);
+      const name = m[1];
+      // Guard: canonical patterns start names with [a-zA-Z0-9_], never with '-'
+      if (name && !name.startsWith("-")) {
+        subNames.push(name);
+      }
+    }
+  };
+
+  collect(NPM_CANONICAL_RE);
+  collect(YARN_CANONICAL_RE);
+
+  // Fail-closed: every pkg-manager keyword must be covered by a canonical match.
+  for (const pos of pkgMgrPositions) {
+    if (!coveredPositions.has(pos)) {
+      const snippet = content.slice(Math.max(0, pos), pos + 60);
+      throw new Error(
+        `Unsupported package-manager invocation in script "${scriptName}" at position ${pos}: "${snippet}". ` +
+          `Only canonical forms (npm run <name>, pnpm run <name>, yarn [run] <name>) are allowed. ` +
+          `Use --silent/-q before or after "run", no other flags.`,
+      );
+    }
+  }
+
+  return subNames;
+}
+
 export function collectPackageScriptCommands({
   packageJson,
   scriptName,
@@ -13,8 +85,6 @@ export function collectPackageScriptCommands({
 
   const visited = new Set<string>();
   const commandsToValidate: string[] = [];
-
-  const subScriptRegex = /(?:npm|yarn|pnpm)(?:\s+(?:--silent|-q|--quiet))?\s+(?:run|run-script)?\s+([a-zA-Z0-9_.:@/-]+)/g;
 
   function expandScript(name: string, depth: number) {
     if (depth > maxDepth) {
@@ -27,16 +97,18 @@ export function collectPackageScriptCommands({
     visited.add(name);
 
     const scriptContent = packageJson.scripts[name];
-    if (!scriptContent) return;
+    if (!scriptContent) {
+      visited.delete(name);
+      return;
+    }
 
-    // Always push the literal script content to be evaluated
+    // Always push the literal script content so the policy can evaluate it.
     commandsToValidate.push(String(scriptContent));
 
-    // Use matchAll to avoid stateful /g regex issues during recursion
-    const matches = Array.from(String(scriptContent).matchAll(subScriptRegex));
-    for (const match of matches) {
-      const subName = match[1];
+    // Extract sub-script names — throws on any unrecognised pkg-manager syntax.
+    const subNames = extractSubScriptNames(String(scriptContent), name);
 
+    for (const subName of subNames) {
       if (packageJson.scripts[subName]) {
         if (packageJson.scripts[`pre${subName}`]) {
           expandScript(`pre${subName}`, depth + 1);
@@ -49,11 +121,8 @@ export function collectPackageScriptCommands({
         }
       }
     }
-    
-    // Once we return from recursion, we must remove it from `visited`
-    // so that other branches in the script tree can legitimately call the same subscript.
-    // Wait, npm run execution graph allows the same script to be run multiple times
-    // in different subtrees. BUT to prevent true infinite cycles, we track the call stack.
+
+    // Remove from the call stack so sibling branches can reuse the same script.
     visited.delete(name);
   }
 
