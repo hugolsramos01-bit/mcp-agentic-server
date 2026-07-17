@@ -24,7 +24,7 @@ interface TournamentVerdict {
   durationMs: number;
 }
 
-const activeTournaments = new Map<string, TournamentEntry[]>();
+export const activeTournaments = new Map<string, TournamentEntry[]>();
 
 // --- tournament_spawn ---
 
@@ -173,7 +173,7 @@ export async function tournamentSpawnTool(input: TournamentSpawnInput): Promise<
 
 export interface TournamentJudgeInput {
   tournamentId: string;
-  verificationScript?: string;
+  verificationScripts?: string[];
 }
 
 export async function tournamentJudgeTool(input: TournamentJudgeInput): Promise<ToolResponse> {
@@ -185,10 +185,11 @@ export async function tournamentJudgeTool(input: TournamentJudgeInput): Promise<
     };
   }
 
-  // Default verification: try typecheck then build
-  const scripts = input.verificationScript
-    ? [input.verificationScript]
-    : ["npm run typecheck 2>&1", "npm run build 2>&1"];
+  // Default verification: typecheck then build (script names only, not shell strings)
+  const scripts =
+    input.verificationScripts && input.verificationScripts.length > 0
+      ? input.verificationScripts
+      : ["typecheck", "build"];
 
   const results: any[] = [];
 
@@ -223,26 +224,42 @@ export async function tournamentJudgeTool(input: TournamentJudgeInput): Promise<
       continue;
     }
 
-        for (const script of scripts) {
+    // Fail-closed: require a readable package.json to identify scripts and their package manager
+    let pkg: Record<string, any>;
+    try {
+      pkg = JSON.parse(readFileSync(join(cwd, "package.json"), "utf8"));
+    } catch (e) {
+      throw new Error(
+        `Cannot read or parse package.json in ${cwd}. Verification refused to proceed (fail-closed).`,
+      );
+    }
+
+    // Detect the package manager from lockfiles
+    const packageManager = existsSync(join(cwd, "yarn.lock"))
+      ? "yarn"
+      : existsSync(join(cwd, "pnpm-lock.yaml"))
+      ? "pnpm"
+      : "npm";
+    const packageManagerCmd =
+      packageManager + (process.platform === "win32" ? ".cmd" : "");
+
+    for (const scriptName of scripts) {
       const start = performance.now();
       try {
-        // Evaluate the script recursively if it calls a package manager
-        const runMatch = script.match(/^(?:npm|yarn|pnpm)\s+(?:run\s+)?([a-zA-Z0-9_.:@/-]+)/);
-        let commandsToValidate = [script];
-        if (runMatch && hasPkgJson) {
-          try {
-            const pkg = JSON.parse(readFileSync(join(cwd, "package.json"), "utf8"));
-            const resolved = collectPackageScriptCommands({ packageJson: pkg, scriptName: runMatch[1], maxDepth: 10 });
-            if (resolved.length > 0) {
-              commandsToValidate = resolved;
-              // Add the outer script execution too just in case it's doing something else
-              commandsToValidate.push(script);
-            }
-          } catch (e) {
-            // pkg json unreadable, fall back to literal evaluation
-          }
+        // Fail-closed: refuse unknown script names
+        if (!pkg.scripts || !pkg.scripts[scriptName]) {
+          throw new Error(
+            `Script "${scriptName}" not found in package.json. Verification refused (fail-closed).`,
+          );
         }
-        
+
+        // Fail-closed: let cycle / depth errors propagate — do NOT catch them
+        const commandsToValidate = collectPackageScriptCommands({
+          packageJson: pkg,
+          scriptName,
+          maxDepth: 10,
+        });
+
         for (const cmd of commandsToValidate) {
           await assertCommandAllowed({
             command: cmd,
@@ -251,11 +268,11 @@ export async function tournamentJudgeTool(input: TournamentJudgeInput): Promise<
             source: "tournament",
           });
         }
-        
-        // shell: true so npm works, timeout 120s per script
+
+        // shell: false — invoke npm/yarn/pnpm directly, no shell interpreter
         const { stdout, stderr } = await execFileAsync(
-          process.platform === "win32" ? "cmd.exe" : "sh",
-          [process.platform === "win32" ? "/c" : "-c", script],
+          packageManagerCmd,
+          ["run", scriptName],
           { cwd, timeout: 120_000, shell: false },
         );
         const durationMs = Math.round(performance.now() - start);

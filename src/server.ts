@@ -2025,7 +2025,12 @@ function createMcpServer(
         inputSchema: {
           workspaceId: z.string().describe("Workspace ID"),
           tournamentId: z.string().describe("Tournament ID from tournament_spawn"),
-          verificationScript: z.string().optional().describe("Optional custom verification script (e.g. 'npm run typecheck && npm run test:smoke')"),
+          verificationScripts: z
+            .array(z.string())
+            .optional()
+            .describe(
+              "Names of package.json scripts to run for verification. Defaults to [\"typecheck\", \"build\"]. Must be exact script names — not shell commands.",
+            ),
         },
         outputSchema: resultOutputSchema(),
         ...toolWidgetDescriptorMeta(config, "read"),

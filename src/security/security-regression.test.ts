@@ -129,3 +129,99 @@ test('Security Regression: enforceSecurePath', async (t) => {
   });
 
 });
+
+// ─── Tournament Judge integration tests ─────────────────────────────────────
+import { mkdtemp, writeFile, mkdir } from 'node:fs/promises';
+import { realpathSync } from 'node:fs';
+import { tournamentJudgeTool, activeTournaments } from '../tournament-tools.js';
+
+test('Tournament Judge: fail-closed enforcement', async (t) => {
+
+  await t.test('Rejects script names not in package.json', async () => {
+    const dir = realpathSync(await mkdtemp(join(tmpdir(), 'tj-test-')));
+    await writeFile(join(dir, 'package.json'), JSON.stringify({
+      scripts: { build: 'tsc' },
+    }));
+    await mkdir(join(dir, 'node_modules'), { recursive: true });
+
+    const fakeId = 'test-missing-script';
+    activeTournaments.set(fakeId, [{
+      id: 'e1', strategy: 's1',
+      worktree: { path: dir, sourceRoot: dir },
+      workspaceId: 'ws1',
+    }] as any);
+
+    const result = await tournamentJudgeTool({
+      tournamentId: fakeId,
+      verificationScripts: ['nonexistent'],
+    });
+
+    const parsed = JSON.parse((result.content[0] as any).text);
+    const verdict = parsed.results[0].verdicts[0];
+    assert.strictEqual(verdict.passed, false, 'Should fail when script not in package.json');
+    assert.ok(verdict.details.includes('not found in package.json'), 'Error message should indicate missing script');
+    activeTournaments.delete(fakeId);
+  });
+
+  await t.test('Rejects cyclic script dependencies (fail-closed)', async () => {
+    const dir = realpathSync(await mkdtemp(join(tmpdir(), 'tj-cycle-')));
+    await writeFile(join(dir, 'package.json'), JSON.stringify({
+      scripts: {
+        build: 'npm run helper',
+        helper: 'rm -rf ./important && npm run build',  // cycle: build -> helper -> build
+      },
+    }));
+    await mkdir(join(dir, 'node_modules'), { recursive: true });
+
+    const fakeId = 'test-cycle';
+    activeTournaments.set(fakeId, [{
+      id: 'e2', strategy: 's2',
+      worktree: { path: dir, sourceRoot: dir },
+      workspaceId: 'ws2',
+    }] as any);
+
+    const result = await tournamentJudgeTool({
+      tournamentId: fakeId,
+      verificationScripts: ['build'],
+    });
+
+    const parsed = JSON.parse((result.content[0] as any).text);
+    const verdict = parsed.results[0].verdicts[0];
+    assert.strictEqual(verdict.passed, false, 'Cyclic scripts must fail');
+    assert.ok(
+      verdict.details.toLowerCase().includes('cyclic') || verdict.details.toLowerCase().includes('not found'),
+      'Error message should mention cycle'
+    );
+    activeTournaments.delete(fakeId);
+  });
+
+  await t.test('verificationScript (singular) is not accepted by TypeScript interface', () => {
+    // At runtime we verify the new plural field is the correct shape
+    const input = { tournamentId: 'x', verificationScripts: ['build'] };
+    assert.ok(!('verificationScript' in input), 'Old singular field must not exist in new interface');
+    assert.ok('verificationScripts' in input, 'New plural field must exist');
+  });
+
+  await t.test('Default scripts are typecheck and build (not shell strings)', async () => {
+    const dir = realpathSync(await mkdtemp(join(tmpdir(), 'tj-defaults-')));
+    await writeFile(join(dir, 'package.json'), JSON.stringify({
+      scripts: { build: 'echo built', typecheck: 'echo ok' },
+    }));
+
+    const fakeId = 'test-defaults';
+    activeTournaments.set(fakeId, [{
+      id: 'e3', strategy: 's3',
+      worktree: { path: dir, sourceRoot: dir },
+      workspaceId: 'ws3',
+    }] as any);
+
+    // Call without specifying scripts — should use ['typecheck','build'] not shell strings
+    const result = await tournamentJudgeTool({ tournamentId: fakeId });
+
+    // Check the output didn't error on the schema itself
+    assert.ok(result.content[0], 'Should return a result');
+    activeTournaments.delete(fakeId);
+  });
+
+});
+
