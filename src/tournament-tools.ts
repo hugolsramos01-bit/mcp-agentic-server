@@ -9,6 +9,7 @@ import { assertCommandAllowed } from "./security/command-executor.js";
 import { collectPackageScriptCommands } from "./security/script-resolver.js";
 
 const execFileAsync = promisify(execFile);
+import { runProcess, type ExecutionStatus } from "./process-runner/index.js";
 
 interface TournamentEntry {
   id: string;
@@ -20,6 +21,7 @@ interface TournamentEntry {
 
 interface TournamentVerdict {
   passed: boolean;
+  status: ExecutionStatus;
   details: string;
   durationMs: number;
 }
@@ -209,6 +211,7 @@ export async function tournamentJudgeTool(input: TournamentJudgeInput): Promise<
     if (hasPkgJson && !hasNodeModules && needsDeps) {
       verdicts.push({
         passed: false,
+        status: "dependencies_missing",
         details: `Dependencies not installed (missing node_modules/). Run worktree_install_deps with workspaceId "${entry.workspaceId ?? '(use open_workspace to get workspaceId)'}" first to hydrate dependencies.`,
         durationMs: 0,
       });
@@ -240,8 +243,6 @@ export async function tournamentJudgeTool(input: TournamentJudgeInput): Promise<
       : existsSync(join(cwd, "pnpm-lock.yaml"))
       ? "pnpm"
       : "npm";
-    const packageManagerCmd =
-      packageManager + (process.platform === "win32" ? ".cmd" : "");
 
     for (const scriptName of scripts) {
       const start = performance.now();
@@ -269,23 +270,29 @@ export async function tournamentJudgeTool(input: TournamentJudgeInput): Promise<
           });
         }
 
-        // shell: false — invoke npm/yarn/pnpm directly, no shell interpreter
-        const { stdout, stderr } = await execFileAsync(
-          packageManagerCmd,
-          ["run", scriptName],
-          { cwd, timeout: 120_000, shell: false },
-        );
-        const durationMs = Math.round(performance.now() - start);
-        const output = stdout + (stderr ? `\nSTDERR:\n${stderr}` : "");
+        const result = await runProcess(packageManager, ["run", scriptName], { cwd, timeoutMs: 120_000 });
+        
+        const passed = result.status === "success";
+        let details = "";
+        
+        if (result.status === "success" || result.status === "command_failed" || result.status === "timeout") {
+           const output = result.stdout + (result.stderr ? `\nSTDERR:\n${result.stderr}` : "");
+           details = output.trim().substring(0, 500) || (passed ? "Passed (no output)" : "Failed (no output)");
+        } else {
+           details = `[${result.status}] ${(result as any).message}`.substring(0, 500);
+        }
+
         verdicts.push({
-          passed: true,
-          details: output.trim().substring(0, 500) || "Passed (no output)",
-          durationMs,
+          passed,
+          status: result.status,
+          details,
+          durationMs: result.durationMs,
         });
       } catch (error: any) {
         const durationMs = Math.round(performance.now() - start);
         verdicts.push({
           passed: false,
+          status: "infrastructure_error",
           details: (error.stdout || error.message || String(error)).substring(0, 500),
           durationMs,
         });
@@ -306,11 +313,22 @@ export async function tournamentJudgeTool(input: TournamentJudgeInput): Promise<
 
   const passedCount = results.filter((r) => r.allPassed).length;
 
-  // If all failed and all have the same node_modules diagnostic, add a top-level hint
-  const allMissingDeps = passedCount === 0 && results.every(r => r.diagnostic?.includes("node_modules"));
-  const judgeNote = allMissingDeps
-    ? "All strategies are missing dependencies. The failures are not due to code issues. Use worktree_install_deps with each workspaceId to install dependencies, then call tournament_judge again."
-    : undefined;
+  const isInfrastructureFailure = (v: any) => 
+    v.status === "infrastructure_error" || v.status === "timeout" || v.status === "dependencies_missing";
+
+  const allInfraFailed = passedCount === 0 && results.every(r => r.verdicts.some(isInfrastructureFailure));
+
+  let summary = `${passedCount}/${results.length} strategies passed all checks.`;
+  let nextStep = passedCount > 0
+    ? "Review the results and call tournament_cleanup to tear down losing worktrees, or declare a winner."
+    : "All strategies failed. Check the details and iterate.";
+  let status = "completed";
+
+  if (allInfraFailed) {
+    status = "inconclusive";
+    summary = "Tournament inconclusive: All strategies failed due to infrastructure or configuration errors, not code issues.";
+    nextStep = "Fix the infrastructure errors (e.g. run worktree_install_deps) and call tournament_judge again.";
+  }
 
   // Store verdicts
   for (let i = 0; i < entries.length; i++) {
@@ -324,12 +342,10 @@ export async function tournamentJudgeTool(input: TournamentJudgeInput): Promise<
         text: JSON.stringify(
           {
             tournamentId: input.tournamentId,
-            summary: `${passedCount}/${results.length} strategies passed all checks.`,
+            status,
+            summary,
             results,
-            nextStep:
-              passedCount > 0
-                ? "Review the results and call tournament_cleanup to tear down losing worktrees, or declare a winner."
-                : "All strategies failed. Check the details and iterate.",
+            nextStep,
           },
           null,
           2,
@@ -355,7 +371,10 @@ export async function tournamentCleanupTool(input: TournamentCleanupInput): Prom
     };
   }
 
+  const { runProcess } = await import("./process-runner/index.js");
+
   const cleaned: string[] = [];
+  const remaining: string[] = [];
   const errors: string[] = [];
   let winnerKept = false;
 
@@ -372,13 +391,31 @@ export async function tournamentCleanupTool(input: TournamentCleanupInput): Prom
         worktreePath: entry.worktree.path,
         sourceRoot: entry.worktree.sourceRoot,
       });
-      cleaned.push(`${entry.id}: ${entry.strategy} — removed`);
+      
+      // Verify via git worktree list
+      const wtList = await runProcess("git", ["worktree", "list", "--porcelain"], { cwd: entry.worktree.sourceRoot });
+      if (wtList.status === "success" && wtList.stdout.includes(entry.worktree.path.replace(/\\/g, "/"))) {
+        errors.push(`${entry.id}: git worktree list still shows path after remove`);
+        remaining.push(entry.worktree.path);
+      } else {
+        cleaned.push(`${entry.id}: ${entry.strategy} — removed`);
+      }
     } catch (error: any) {
       errors.push(`${entry.id}: ${error.message}`);
+      remaining.push(entry.worktree.path);
     }
   }
 
-  activeTournaments.delete(input.tournamentId);
+  let status = "success";
+  if (remaining.length === entries.length - (winnerKept ? 1 : 0) && remaining.length > 0) {
+    status = "failed";
+  } else if (remaining.length > 0) {
+    status = "partial";
+  }
+
+  if (status === "success") {
+    activeTournaments.delete(input.tournamentId);
+  }
 
   return {
     content: [
@@ -387,12 +424,14 @@ export async function tournamentCleanupTool(input: TournamentCleanupInput): Prom
         text: JSON.stringify(
           {
             tournamentId: input.tournamentId,
+            status,
             winnerKept,
             cleaned,
+            remaining: remaining.length > 0 ? remaining : undefined,
             errors: errors.length > 0 ? errors : undefined,
-            message: winnerKept
-              ? "Winner worktree preserved. Use open_workspace to resume working in it."
-              : "All tournament worktrees cleaned up.",
+            message: status === "success" 
+              ? (winnerKept ? "Winner worktree preserved. Use open_workspace to resume working in it." : "All tournament worktrees cleaned up.")
+              : `Cleanup incomplete (${status}). Some worktrees remain.`,
           },
           null,
           2,

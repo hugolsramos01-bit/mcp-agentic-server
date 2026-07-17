@@ -128,6 +128,18 @@ export interface NextRouteMapInput {}
 export async function nextRouteMapTool(cwd: string, basePath?: string): Promise<ToolResponse> {
   // If a basePath is provided (e.g. "apps/web"), search relative to it
   const searchRoot = basePath ? enforceSecurePath(basePath, cwd, [cwd], false) : cwd;
+  
+  // Capability detection: fail fast if not a Next.js project
+  try {
+    const pkg = JSON.parse(readFileSync(join(searchRoot, "package.json"), "utf8"));
+    const deps = { ...pkg.dependencies, ...pkg.devDependencies };
+    if (!deps.next) {
+      return { content: [{ type: "text", text: "This project does not appear to use Next.js (no 'next' dependency in package.json)." }] };
+    }
+  } catch (e) {
+    // If no package.json, proceed with folder detection
+  }
+
   const appDir = existsSync(join(searchRoot, "src/app")) ? join(searchRoot, "src/app") : existsSync(join(searchRoot, "app")) ? join(searchRoot, "app") : null;
   const pagesDir = existsSync(join(searchRoot, "src/pages")) ? join(searchRoot, "src/pages") : existsSync(join(searchRoot, "pages")) ? join(searchRoot, "pages") : null;
   
@@ -219,6 +231,17 @@ export async function payloadSchemaMapTool(cwd: string, basePath?: string): Prom
   // If a basePath is provided (e.g. "apps/web"), search relative to it
   const searchRoot = basePath ? enforceSecurePath(basePath, cwd, [cwd], false) : cwd;
   
+  // Capability detection: fail fast if not a PayloadCMS project
+  try {
+    const pkg = JSON.parse(readFileSync(join(searchRoot, "package.json"), "utf8"));
+    const deps = { ...pkg.dependencies, ...pkg.devDependencies };
+    if (!deps.payload) {
+      return { content: [{ type: "text", text: "This project does not appear to use Payload CMS (no 'payload' dependency in package.json)." }] };
+    }
+  } catch (e) {
+    // If no package.json, proceed with folder detection
+  }
+
   // Common locations for payload collections
   const possibleDirs = [
     join(searchRoot, "src/collections"),

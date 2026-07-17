@@ -360,8 +360,6 @@ export async function runScriptTool(input: RunScriptInput, cwd: string): Promise
       : "npm";
     const fullCommand = `${packageManager} run ${input.script}`;
 
-    const cmdSuffix = process.platform === "win32" ? ".cmd" : "";
-    const packageManagerCmd = packageManager + cmdSuffix;
 
     const commandsToValidate = collectPackageScriptCommands({
       packageJson: pkg,
@@ -385,22 +383,14 @@ export async function runScriptTool(input: RunScriptInput, cwd: string): Promise
       source: "bash",
     });
 
-    let stdout = "";
-    let stderr = "";
-    let exitCode = 0;
-    const startTime = Date.now();
+    const { runProcess } = await import("./process-runner/index.js");
+    const result = await runProcess(packageManager, ["run", input.script], { cwd });
+    
+    let stdout = result.status === "success" || result.status === "command_failed" || result.status === "timeout" ? result.stdout : "";
+    let stderr = result.status === "success" || result.status === "command_failed" || result.status === "timeout" ? result.stderr : (result as any).message || "";
+    let exitCode = result.status === "success" ? 0 : (result.status === "command_failed" ? result.exitCode : -1);
 
-    try {
-      const result = await execFileAsync(packageManagerCmd, ["run", input.script], { cwd, shell: false });
-      stdout = result.stdout;
-      stderr = result.stderr;
-    } catch (e: any) {
-      exitCode = e.code || 1;
-      stdout = e.stdout || "";
-      stderr = e.stderr || "";
-    }
-
-    const duration = Date.now() - startTime;
+    const duration = result.durationMs;
     const output = stdout + (stderr ? `\nSTDERR:\n${stderr}` : "");
 
     if (input.outputMode === "diagnostic-summary") {
@@ -477,7 +467,7 @@ export async function runScriptTool(input: RunScriptInput, cwd: string): Promise
           text: JSON.stringify({
             command: fullCommand,
             packageManager,
-            status: exitCode === 0 ? "success" : "failed",
+            status: result.status,
             exitCode,
             durationMs: duration,
             totalLines: lines.length,
@@ -485,19 +475,22 @@ export async function runScriptTool(input: RunScriptInput, cwd: string): Promise
             output: isLong ? undefined : output.trim(),
           }, null, 2)
         }],
-        isError: exitCode !== 0,
+        isError: result.status !== "success",
+        structuredContent: result,
       };
     }
 
-    if (exitCode !== 0) {
+    if (result.status !== "success") {
        return {
-         content: [{ type: "text", text: output.trim() }],
-         isError: true
+         content: [{ type: "text", text: result.status === "infrastructure_error" || result.status === "timeout" ? `[${result.status}] ${(result as any).message}` : output.trim() }],
+         isError: true,
+         structuredContent: result,
        };
     }
 
     return {
-      content: [{ type: "text", text: output.trim() || "Success (no output)" }]
+      content: [{ type: "text", text: output.trim() || "Success (no output)" }],
+      structuredContent: result,
     };
   } catch (error: any) {
     return {
