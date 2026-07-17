@@ -35,7 +35,7 @@ import {
   checkpointSaveTool, checkpointListTool, checkpointRestoreTool, checkpointDeleteTool,
 } from "./checkpoint-tools.js";
 import { proposePlanTool } from "./contract-tools.js";
-import { checkEditAllowed, recordPlan, recordDryRun, recordCheckpoint, recordChange, markChangesShown, getChangeSummary, resetSession as resetPvdlState } from "./change-session.js";
+import { checkEditAllowed, recordPlan, recordDryRun, recordCheckpoint, recordChange, markChangesShown, getChangeSummary, getSessionActivity, resetSession as resetPvdlState } from "./change-session.js";
 import { semanticPackTool, contextBudgetTool } from "./semantic-tools.js";
 import { knowledgeCaptureTool, knowledgeSearchTool } from "./knowledge-tools.js";
 import { tournamentSpawnTool, tournamentJudgeTool, tournamentCleanupTool } from "./tournament-tools.js";
@@ -64,6 +64,7 @@ import {
   type ToolContent, type ToolLogFields,
 } from "./server/tool-utils.js";
 import { processResult, processOutputSchema, processToolResponse } from "./server/process-tools.js";
+import { agenticDoctor } from "./diagnostics.js";
 
 type Transport = StreamableHTTPServerTransport;
 
@@ -124,6 +125,24 @@ function createMcpServer(
           },
         ],
       };
+    },
+  );
+
+  registerAppTool(
+    server,
+    "agentic_doctor",
+    {
+      title: "Agentic Doctor",
+      description: "Report the running Agentic MCP version, process-runner health, and local package-manager availability without changing a workspace.",
+      inputSchema: {},
+      outputSchema: resultOutputSchema(),
+      ...toolWidgetDescriptorMeta(config, "read"),
+      annotations: READ_TOOL_ANNOTATIONS,
+    },
+    async () => {
+      const report = await agenticDoctor();
+      const text = JSON.stringify(report, null, 2);
+      return { content: [textBlock(text)], structuredContent: report };
     },
   );
 
@@ -225,27 +244,37 @@ function createMcpServer(
         try {
           const fs = await import("node:fs");
           const pathModule = await import("node:path");
-          const cp = await import("node:child_process");
-          const util = await import("node:util");
-          const execFileAsync = util.promisify(cp.execFile);
+          const { runProcess } = await import("./process-runner/index.js");
           
           let cmd = "npm";
-          let args = ["install", "--ignore-scripts"];
+          let args = ["ci", "--ignore-scripts"];
           let pkgManager = "npm";
+
           if (fs.existsSync(pathModule.join(workspace.worktree.path, "pnpm-lock.yaml"))) {
-            cmd = process.platform === "win32" ? "pnpm.cmd" : "pnpm";
+            cmd = "pnpm";
+            args = ["install", "--frozen-lockfile", "--ignore-scripts"];
             pkgManager = "pnpm";
           } else if (fs.existsSync(pathModule.join(workspace.worktree.path, "yarn.lock"))) {
-            cmd = process.platform === "win32" ? "yarn.cmd" : "yarn";
+            cmd = "yarn";
+            args = ["install", "--immutable", "--ignore-scripts"];
             pkgManager = "yarn";
           }
           
-          const startedAt = performance.now();
-          const { stdout, stderr } = await execFileAsync(cmd, args, { cwd: workspace.worktree.path, shell: false });
-          const durationMs = Math.round(performance.now() - startedAt);
+          const result = await runProcess(cmd, args, { cwd: workspace.worktree.path });
+
+          if (result.status !== "success") {
+            const errResult = result.status === "infrastructure_error" || result.status === "timeout"
+              ? `Infrastructure Error: ${result.status === "timeout" ? "Timeout" : (result as any).message}`
+              : `Install Failed (Exit code ${result.status === "command_failed" ? result.exitCode : -1}): ${(result as any).stderr || (result as any).message}`;
+            return {
+              content: [{ type: "text", text: errResult }],
+              isError: true,
+              structuredContent: result
+            };
+          }
 
           // Extract meaningful summary from pnpm/npm output instead of raw progress spam
-          const fullOutput = stdout + "\n" + stderr;
+          const fullOutput = result.stdout + "\n" + result.stderr;
           const lines = fullOutput.split("\n").filter(Boolean);
           
           // Parse pnpm-style summary: "packages: 910", "Done in 42.8s"
@@ -256,7 +285,7 @@ function createMcpServer(
           
           const summary = [
             `Dependencies installed successfully (${pkgManager}).`,
-            durationMs ? `Duration: ${durationMs}ms` : null,
+            result.durationMs ? `Duration: ${result.durationMs}ms` : null,
             packagesDone ? packagesDone.trim() : null,
             doneIn ? doneIn.trim() : null,
             "---",
@@ -268,7 +297,7 @@ function createMcpServer(
             structuredContent: {
               status: "success",
               packageManager: pkgManager,
-              durationMs,
+              durationMs: result.durationMs,
               packages: packagesDone?.replace("packages:", "").trim(),
             }
           };
@@ -1098,12 +1127,13 @@ function createMcpServer(
           workspaceId: z
             .string()
             .describe("Workspace identifier returned by open_workspace."),
+          includeSessionHistory: z.boolean().optional().describe("Include historical edits made during this server session. The primary result always reflects the current workspace state."),
         },
         outputSchema: resultOutputSchema(),
         ...toolWidgetDescriptorMeta(config, "show_changes"),
         annotations: READ_TOOL_ANNOTATIONS,
       },
-      async ({ workspaceId }) => {
+      async ({ workspaceId, includeSessionHistory = false }) => {
         const startedAt = performance.now();
         const workspace = workspaces.getWorkspace(workspaceId);
         const review = await reviewCheckpoints.reviewChanges({
@@ -1140,6 +1170,8 @@ function createMcpServer(
           },
           structuredContent: {
             result: contentText(content),
+            currentWorkspaceChanges: review.files,
+            ...(includeSessionHistory ? { sessionActivity: getSessionActivity(workspaceId) } : {}),
           },
         };
       },

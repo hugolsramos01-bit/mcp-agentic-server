@@ -101,6 +101,12 @@ export function getChangedFiles(workspaceId: string): string[] {
   return [...new Set(s.appliedChanges.map(c => c.path))];
 }
 
+/** Session activity is historical and must never be confused with the current
+ * Git working-tree state returned by show_changes. */
+export function getSessionActivity(workspaceId: string): ChangeRecord[] {
+  return [...getSession(workspaceId).appliedChanges];
+}
+
 // ─── Show Changes ────────────────────────────────────────────
 
 export function markChangesShown(workspaceId: string): void {

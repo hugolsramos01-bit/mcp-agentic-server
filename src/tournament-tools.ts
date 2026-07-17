@@ -1,14 +1,11 @@
 import { join } from "node:path";
 import { existsSync, writeFileSync, readFileSync } from "node:fs";
-import { execFile } from "node:child_process";
-import { promisify } from "node:util";
 import type { ServerConfig } from "./config.js";
 import { createManagedWorktree, removeManagedWorktree, type ManagedWorktree } from "./git-worktrees.js";
 import type { ToolResponse } from "./pi-tools.js";
 import { assertCommandAllowed } from "./security/command-executor.js";
 import { collectPackageScriptCommands } from "./security/script-resolver.js";
 
-const execFileAsync = promisify(execFile);
 import { runProcess, type ExecutionStatus } from "./process-runner/index.js";
 
 interface TournamentEntry {
@@ -92,11 +89,13 @@ export async function tournamentSpawnTool(input: TournamentSpawnInput): Promise<
         const { existsSync } = await import("node:fs");
         const { join } = await import("node:path");
         let cmd = "npm";
-        const args = ["install", "--ignore-scripts"];
+        let args = ["ci", "--ignore-scripts"];
         if (existsSync(join(worktree.path, "pnpm-lock.yaml"))) {
-          cmd = process.platform === "win32" ? "pnpm.cmd" : "pnpm";
+          cmd = "pnpm";
+          args = ["install", "--frozen-lockfile", "--ignore-scripts"];
         } else if (existsSync(join(worktree.path, "yarn.lock"))) {
-          cmd = process.platform === "win32" ? "yarn.cmd" : "yarn";
+          cmd = "yarn";
+          args = ["install", "--immutable", "--ignore-scripts"];
         }
         try {
           const { assertCommandAllowed } = await import("./security/command-executor.js");
@@ -106,7 +105,7 @@ export async function tournamentSpawnTool(input: TournamentSpawnInput): Promise<
             workingDirectory: worktree.path,
             source: "dependency-install",
           });
-          await execFileAsync(cmd, args, { cwd: worktree.path, timeout: 120_000, shell: false });
+          await runProcess(cmd, args, { cwd: worktree.path, timeoutMs: 120_000 });
         } catch {
           // Non-fatal - worktree_install_deps can be called manually
         }
@@ -249,9 +248,13 @@ export async function tournamentJudgeTool(input: TournamentJudgeInput): Promise<
       try {
         // Fail-closed: refuse unknown script names
         if (!pkg.scripts || !pkg.scripts[scriptName]) {
-          throw new Error(
-            `Script "${scriptName}" not found in package.json. Verification refused (fail-closed).`,
-          );
+          verdicts.push({
+            passed: false,
+            status: "script_not_found",
+            details: `Script "${scriptName}" not found in package.json. Verification refused (fail-closed).`,
+            durationMs: Math.round(performance.now() - start),
+          });
+          continue;
         }
 
         // Fail-closed: let cycle / depth errors propagate — do NOT catch them
@@ -290,10 +293,11 @@ export async function tournamentJudgeTool(input: TournamentJudgeInput): Promise<
         });
       } catch (error: any) {
         const durationMs = Math.round(performance.now() - start);
+        const message = error?.message || String(error);
         verdicts.push({
           passed: false,
-          status: "infrastructure_error",
-          details: (error.stdout || error.message || String(error)).substring(0, 500),
+          status: /not allowed|blocked by policy|policy/i.test(message) ? "policy_blocked" : "invalid_configuration",
+          details: (error.stdout || message).substring(0, 500),
           durationMs,
         });
       }
@@ -313,10 +317,13 @@ export async function tournamentJudgeTool(input: TournamentJudgeInput): Promise<
 
   const passedCount = results.filter((r) => r.allPassed).length;
 
-  const isInfrastructureFailure = (v: any) => 
+  const isInfrastructureFailure = (v: any) =>
     v.status === "infrastructure_error" || v.status === "timeout" || v.status === "dependencies_missing";
 
-  const allInfraFailed = passedCount === 0 && results.every(r => r.verdicts.some(isInfrastructureFailure));
+  // A single infrastructure failure must not conceal an actual failing check.
+  const allInfraFailed = passedCount === 0 && results.every(r =>
+    r.verdicts.length > 0 && r.verdicts.every(isInfrastructureFailure),
+  );
 
   let summary = `${passedCount}/${results.length} strategies passed all checks.`;
   let nextStep = passedCount > 0
@@ -394,7 +401,10 @@ export async function tournamentCleanupTool(input: TournamentCleanupInput): Prom
       
       // Verify via git worktree list
       const wtList = await runProcess("git", ["worktree", "list", "--porcelain"], { cwd: entry.worktree.sourceRoot });
-      if (wtList.status === "success" && wtList.stdout.includes(entry.worktree.path.replace(/\\/g, "/"))) {
+      if (wtList.status !== "success") {
+        errors.push(`${entry.id}: could not verify removal (${wtList.status})`);
+        remaining.push(entry.worktree.path);
+      } else if (wtList.stdout.includes(entry.worktree.path.replace(/\\/g, "/"))) {
         errors.push(`${entry.id}: git worktree list still shows path after remove`);
         remaining.push(entry.worktree.path);
       } else {

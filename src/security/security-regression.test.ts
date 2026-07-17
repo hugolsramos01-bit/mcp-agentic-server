@@ -115,15 +115,22 @@ test('Security Regression: enforceSecurePath', async (t) => {
         `"${form}" should resolve to the target script's content`,
       );
     }
+
+    // Workspace syntax is accepted and the literal invocation remains subject
+    // to policy validation; expansion is intentionally limited to the package
+    // whose package.json was supplied to this resolver.
+    for (const form of ["pnpm -F @apps/web target", "pnpm --filter @apps/web run target", "npm --workspace app run target", "yarn workspace app target"]) {
+      const cmds = collectPackageScriptCommands({ packageJson: { scripts: { entry: form } }, scriptName: "entry" });
+      assert.ok(cmds.includes(form), `${form} should be parsed and retained for policy validation`);
+    }
   });
 
   await t.test('Script Resolver: Unsupported syntaxes fail-closed (throw)', () => {
     // These forms contain npm/yarn/pnpm invocations we cannot fully parse — must throw
     const unsupportedForms = [
-      "npm --workspace foo run target",
-      "npm --silent --workspace foo run target",
       "npm --prefix /foo run target",
       "npm --if-present run target",
+      "pnpm --unknown-option target",
     ];
 
     for (const form of unsupportedForms) {
@@ -136,7 +143,7 @@ test('Security Regression: enforceSecurePath', async (t) => {
 
       assert.throws(
         () => collectPackageScriptCommands({ packageJson: pkg, scriptName: "entry" }),
-        /Unsupported package-manager invocation/i,
+        /Unsupported (package-manager invocation|npm option|pnpm option)/i,
         `"${form}" must throw (unsupported syntax)`,
       );
     }

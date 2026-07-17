@@ -1,4 +1,6 @@
 import { spawn } from "node:child_process";
+import { existsSync, readFileSync } from "node:fs";
+import { dirname, join } from "node:path";
 import { resolveExecutable } from "./resolve-executable.js";
 import type { ProcessResult, ProcessRunnerOptions } from "./types.js";
 
@@ -33,30 +35,26 @@ export async function runProcess(
 
     let child;
     try {
-      const isWindows = process.platform === "win32";
-      const isCmd = isWindows && executable.toLowerCase().endsWith(".cmd");
-
       let spawnExe = executable;
       let spawnArgs = args;
-      let windowsVerbatimArguments = false;
-
-      if (isCmd) {
-        spawnExe = "cmd.exe";
-        // To safely run a .cmd file without shell: true, we must invoke cmd.exe manually
-        // and carefully quote the arguments to prevent shell injection.
-        spawnArgs = [
-          "/d", "/s", "/c",
-          `"${executable}"`,
-          ...args.map(a => `"${a.replace(/"/g, '\\"')}"`)
-        ];
-        windowsVerbatimArguments = true;
+      if (process.platform === "win32" && executable.toLowerCase().endsWith(".cmd")) {
+        const entrypoint = findWindowsNodeEntrypoint(executable);
+        if (!entrypoint) {
+          return resolve({
+            status: "infrastructure_error", executable, args, cwd: options.cwd,
+            message: `Could not resolve a Node entrypoint for ${executable}; refusing to invoke cmd.exe.`,
+            durationMs: Date.now() - startTime,
+          });
+        }
+        spawnExe = process.execPath;
+        spawnArgs = [entrypoint, ...args];
       }
 
       child = spawn(spawnExe, spawnArgs, {
         cwd: options.cwd,
         env: options.env ?? process.env,
         shell: false,
-        windowsVerbatimArguments,
+        windowsVerbatimArguments: false,
       });
     } catch (err: any) {
       return resolve({
@@ -151,4 +149,24 @@ export async function runProcess(
       }
     });
   });
+}
+
+/** Batch shims installed by npm, pnpm and yarn contain the path to their Node
+ * CLI. Execute that CLI directly instead of running cmd.exe /c. */
+function findWindowsNodeEntrypoint(executable: string): string | undefined {
+  const candidates = executable.includes("\\") || executable.includes("/")
+    ? [executable]
+    : (process.env.PATH ?? "").split(";").map((part) => join(part, executable));
+  for (const candidate of candidates) {
+    if (!existsSync(candidate)) continue;
+    try {
+      const source = readFileSync(candidate, "utf8");
+      const matches = [...source.matchAll(/%~dp0\\?([^"'\r\n]+?\.(?:c?js|mjs))/gi)];
+      const match = matches.at(-1);
+      if (!match) continue;
+      const entrypoint = join(dirname(candidate), match[1].replace(/\\/g, "/"));
+      if (existsSync(entrypoint)) return entrypoint;
+    } catch { /* try the next PATH entry */ }
+  }
+  return undefined;
 }

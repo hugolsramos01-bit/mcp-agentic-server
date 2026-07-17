@@ -342,14 +342,22 @@ export async function runScriptTool(input: RunScriptInput, cwd: string): Promise
   try {
     const pkgPath = join(cwd, "package.json");
     if (!existsSync(pkgPath)) {
-      throw new Error(`package.json not found in ${cwd}. Cannot run npm scripts.`);
+      return {
+        content: [{ type: "text", text: `package.json not found in ${cwd}. Cannot run package scripts.` }],
+        isError: true,
+        structuredContent: { status: "invalid_configuration", cwd, message: "package.json not found" },
+      };
     }
     const pkgText = readFileSync(pkgPath, 'utf8');
     const pkg = JSON.parse(pkgText);
     const availableScripts = pkg.scripts ? Object.keys(pkg.scripts) : [];
 
     if (!pkg.scripts || !pkg.scripts[input.script]) {
-      throw new Error(`Script "${input.script}" not found in package.json. Available scripts: ${availableScripts.join(', ') || 'none'}`);
+      return {
+        content: [{ type: "text", text: `Script "${input.script}" not found in package.json. Available scripts: ${availableScripts.join(', ') || 'none'}` }],
+        isError: true,
+        structuredContent: { status: "script_not_found", cwd, message: `Script "${input.script}" not found` },
+      };
     }
 
     // Detect the actual package manager from lockfiles
@@ -493,9 +501,15 @@ export async function runScriptTool(input: RunScriptInput, cwd: string): Promise
       structuredContent: result,
     };
   } catch (error: any) {
+    const message = error.message || String(error);
     return {
-      content: [{ type: "text", text: error.message || String(error) }],
-      isError: true
+      content: [{ type: "text", text: message }],
+      isError: true,
+      structuredContent: {
+        status: /not allowed|blocked by policy|policy/i.test(message) ? "policy_blocked" : "invalid_configuration",
+        cwd,
+        message,
+      },
     };
   }
 }
