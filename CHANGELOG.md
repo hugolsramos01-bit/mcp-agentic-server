@@ -5,6 +5,14 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.0.19] - 2026-07-20
+
+### Fixed
+- Store checkpoints outside linked Git worktrees, verify restored file hashes, and cover recovery with an integrated worktree test.
+- Capture the `show_changes` baseline before workspace opening returns so the first newly-created file cannot be omitted.
+- Verify native worktree dependencies through the target worktree resolver instead of `node -e`; lifecycle scripts require explicit opt-in.
+- Align documentation and standard model instructions with canonical tool names and hide deprecated aliases from the default workflow.
+
 ## [1.0.18] - 2026-07-20
 
 ### Fixed
