@@ -124,6 +124,9 @@ export async function checkpointSaveTool(cwd: string, input: CheckpointSaveInput
         description: input.description || `Baseline ${timestamp}`,
         hasUntracked: false,
         isBaseline: true,
+        // A baseline is also a v2 snapshot: restoring it is deterministic and
+        // reusable, rather than creating/mutating a git stash.
+        trackedFiles: [],
         parentId: checkpoints.length > 0 ? checkpoints[0].id : undefined,
       };
       writeFileSync(join(cpDir, "meta.json"), JSON.stringify(meta, null, 2), "utf8");
@@ -301,7 +304,8 @@ export async function checkpointRestoreTool(cwd: string, input: CheckpointRestor
       }
       return { content: [{ type: "text", text: JSON.stringify({ id: input.id, status: warnings.length ? "partial" : "success", message: warnings.length ? "Checkpoint partially restored." : "Checkpoint restored.", warnings, restoredTrackedFiles: meta.trackedFiles.length, restoredUntrackedFiles: savedUntracked.size }, null, 2) }], isError: warnings.length > 0 };
     }
-    // Handle baseline restore (clean workspace snapshot)
+    // Legacy baseline restore (v1 checkpoints only). New baselines are v2
+    // snapshots and take the deterministic branch above.
     if (meta.isBaseline) {
       // 1. Stash any current tracked changes to restore to clean state
       const { stdout: hasChanges } = await execFileAsync("git", ["status", "--porcelain"], { cwd });

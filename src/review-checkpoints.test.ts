@@ -38,6 +38,8 @@ try {
   assert.equal(firstReview.summary.removals, 0);
   assert.equal(firstReview.files.some((file) => file.path === "README.md"), true);
   assert.equal(firstReview.files.some((file) => file.path === "new.txt"), true);
+  assert.equal(firstReview.files.find((file) => file.path === "README.md")?.type, "change");
+  assert.equal(firstReview.files.find((file) => file.path === "new.txt")?.type, "new");
   assert.match(firstReview.patch, /world/);
 
   const stillUnreviewed = await manager.reviewChanges({

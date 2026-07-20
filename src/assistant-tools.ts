@@ -394,8 +394,8 @@ export async function runScriptTool(input: RunScriptInput, cwd: string): Promise
     const { runProcess } = await import("./process-runner/index.js");
     const result = await runProcess(packageManager, ["run", input.script], { cwd });
     
-    let stdout = result.status === "success" || result.status === "command_failed" || result.status === "timeout" ? result.stdout : "";
-    let stderr = result.status === "success" || result.status === "command_failed" || result.status === "timeout" ? result.stderr : (result as any).message || "";
+    let stdout = result.status === "success" || result.status === "command_failed" || result.status === "timeout" || result.status === "cancelled" ? result.stdout : "";
+    let stderr = result.status === "success" || result.status === "command_failed" || result.status === "timeout" || result.status === "cancelled" ? result.stderr : (result as any).message || "";
     let exitCode = result.status === "success" ? 0 : (result.status === "command_failed" ? result.exitCode : -1);
 
     const duration = result.durationMs;
@@ -490,7 +490,11 @@ export async function runScriptTool(input: RunScriptInput, cwd: string): Promise
 
     if (result.status !== "success") {
        return {
-         content: [{ type: "text", text: result.status === "infrastructure_error" || result.status === "timeout" ? `[${result.status}] ${(result as any).message}` : output.trim() }],
+         content: [{ type: "text", text: result.status === "timeout"
+           ? `[timeout] Process exceeded ${(result as any).timeoutMs}ms; termination ${(result as any).termination?.confirmed ? "confirmed" : "requested"}.\n${output.trim()}`
+           : result.status === "cancelled"
+             ? `[cancelled] Process termination ${(result as any).termination?.confirmed ? "confirmed" : "requested"}.\n${output.trim()}`
+             : result.status === "infrastructure_error" ? `[infrastructure_error] ${(result as any).message}` : output.trim() }],
          isError: true,
          structuredContent: result,
        };

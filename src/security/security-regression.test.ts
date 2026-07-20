@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert';
-import { mkdtempSync, mkdirSync, writeFileSync } from 'node:fs';
+import { mkdtempSync, mkdirSync, realpathSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 
@@ -21,7 +21,9 @@ test('Security Regression: enforceSecurePath', async (t) => {
     writeFileSync(secretPath, "SECRET");
 
     const bypassedPath = enforceSecurePath("../app-b/secret.ts", appA, [allowed], false);
-    assert.strictEqual(bypassedPath, secretPath, "Bypass succeeds if allowedRoots is global");
+    // macOS exposes /var through the canonical /private/var path. Compare the
+    // canonical path because enforceSecurePath deliberately resolves symlinks.
+    assert.strictEqual(bypassedPath, realpathSync(secretPath), "Bypass succeeds if allowedRoots is global");
 
     assert.throws(() => {
       enforceSecurePath("../app-b/secret.ts", appA, [appA], false);
@@ -153,7 +155,6 @@ test('Security Regression: enforceSecurePath', async (t) => {
 
 // ─── Tournament Judge integration tests ─────────────────────────────────────
 import { mkdtemp, writeFile, mkdir } from 'node:fs/promises';
-import { realpathSync } from 'node:fs';
 import { tournamentJudgeTool, activeTournaments } from '../tournament-tools.js';
 
 test('Tournament Judge: fail-closed enforcement', async (t) => {

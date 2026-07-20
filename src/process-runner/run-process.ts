@@ -1,12 +1,12 @@
-import { spawn } from "node:child_process";
+import { spawn, type ChildProcess } from "node:child_process";
 import { existsSync, readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { resolveExecutable } from "./resolve-executable.js";
-import type { ProcessResult, ProcessRunnerOptions } from "./types.js";
+import type { ProcessResult, ProcessRunnerOptions, ProcessTermination } from "./types.js";
 
-/**
- * Runs a process multi-platform securely with shell: false.
- */
+const MAX_CAPTURED_OUTPUT = 5 * 1024 * 1024;
+
+/** Runs a process multi-platform securely with shell: false. */
 export async function runProcess(
   rawExecutable: string,
   args: string[],
@@ -14,141 +14,119 @@ export async function runProcess(
 ): Promise<ProcessResult> {
   const startTime = Date.now();
   const timeoutMs = options.timeoutMs ?? 120_000;
-  
   let executable: string;
   try {
     executable = await resolveExecutable(rawExecutable, options.cwd);
   } catch (err: any) {
-    return {
-      status: "infrastructure_error",
-      executable: rawExecutable,
-      args,
-      cwd: options.cwd,
-      message: `Failed to resolve executable: ${err.message}`,
-      durationMs: Date.now() - startTime,
-    };
+    return infrastructureError(rawExecutable, args, options.cwd, err, startTime);
+  }
+
+  if (options.signal?.aborted) {
+    return { status: "cancelled", executable, args, cwd: options.cwd, stdout: "", stderr: "", durationMs: Date.now() - startTime, termination: { requested: true, method: "process", confirmed: true } };
   }
 
   return new Promise<ProcessResult>((resolve) => {
-    let stdoutBuf = "";
-    let stderrBuf = "";
+    let stdout = "";
+    let stderr = "";
+    let settled = false;
+    let stopReason: "timeout" | "cancelled" | undefined;
+    let terminationPromise: Promise<ProcessTermination> | undefined;
+    let child: ChildProcess;
+    let timer: NodeJS.Timeout | undefined;
 
-    let child;
+    const finish = (result: ProcessResult) => {
+      if (settled) return;
+      settled = true;
+      if (timer) clearTimeout(timer);
+      options.signal?.removeEventListener("abort", onAbort);
+      resolve(result);
+    };
+
+    const beginTermination = (reason: "timeout" | "cancelled") => {
+      if (stopReason) return;
+      stopReason = reason;
+      terminationPromise = terminateProcessTree(child);
+    };
+    const onAbort = () => beginTermination("cancelled");
+
     try {
       let spawnExe = executable;
       let spawnArgs = args;
       if (process.platform === "win32" && executable.toLowerCase().endsWith(".cmd")) {
         const entrypoint = findWindowsNodeEntrypoint(executable);
         if (!entrypoint) {
-          return resolve({
-            status: "infrastructure_error", executable, args, cwd: options.cwd,
-            message: `Could not resolve a Node entrypoint for ${executable}; refusing to invoke cmd.exe.`,
-            durationMs: Date.now() - startTime,
-          });
+          finish({ status: "infrastructure_error", executable, args, cwd: options.cwd, message: `Could not resolve a Node entrypoint for ${executable}; refusing to invoke cmd.exe.`, durationMs: Date.now() - startTime });
+          return;
         }
         spawnExe = process.execPath;
         spawnArgs = [entrypoint, ...args];
       }
-
       child = spawn(spawnExe, spawnArgs, {
         cwd: options.cwd,
         env: options.env ?? process.env,
         shell: false,
         windowsVerbatimArguments: false,
+        // A separate POSIX process group lets timeout/cancellation include descendants.
+        detached: process.platform !== "win32",
       });
     } catch (err: any) {
-      return resolve({
-        status: "infrastructure_error",
-        executable,
-        args,
-        cwd: options.cwd,
-        code: err.code,
-        message: err.message,
-        durationMs: Date.now() - startTime,
-      });
+      finish(infrastructureError(executable, args, options.cwd, err, startTime));
+      return;
     }
 
-    let isTimeout = false;
-    const timer = setTimeout(() => {
-      isTimeout = true;
-      child.kill("SIGKILL");
-    }, timeoutMs);
+    timer = setTimeout(() => beginTermination("timeout"), timeoutMs);
+    options.signal?.addEventListener("abort", onAbort, { once: true });
 
-    if (child.stdout) {
-      child.stdout.on("data", (chunk) => {
-        stdoutBuf += chunk.toString();
-        // Prevent unbounded memory growth in case of massive outputs
-        if (stdoutBuf.length > 5 * 1024 * 1024) {
-          stdoutBuf = stdoutBuf.slice(0, 5 * 1024 * 1024) + "\n[... stdout truncated ...]";
-        }
-      });
-    }
+    child.stdout?.on("data", (chunk) => { stdout = appendOutput(stdout, chunk.toString(), "stdout"); });
+    child.stderr?.on("data", (chunk) => { stderr = appendOutput(stderr, chunk.toString(), "stderr"); });
 
-    if (child.stderr) {
-      child.stderr.on("data", (chunk) => {
-        stderrBuf += chunk.toString();
-        if (stderrBuf.length > 5 * 1024 * 1024) {
-          stderrBuf = stderrBuf.slice(0, 5 * 1024 * 1024) + "\n[... stderr truncated ...]";
-        }
-      });
-    }
-
-    child.on("error", (err: any) => {
-      clearTimeout(timer);
-      resolve({
-        status: "infrastructure_error",
-        executable,
-        args,
-        cwd: options.cwd,
-        code: err.code,
-        message: err.message,
-        durationMs: Date.now() - startTime,
-      });
-    });
-
-    child.on("close", (code, signal) => {
-      clearTimeout(timer);
+    child.on("error", (err: any) => finish(infrastructureError(executable, args, options.cwd, err, startTime)));
+    child.on("close", async (code) => {
       const durationMs = Date.now() - startTime;
-
-      if (isTimeout) {
-        return resolve({
-          status: "timeout",
-          executable,
-          args,
-          cwd: options.cwd,
-          timeoutMs,
-          stdout: stdoutBuf,
-          stderr: stderrBuf,
-          durationMs,
-        });
+      if (stopReason) {
+        const termination = await (terminationPromise ?? Promise.resolve({ requested: true, method: "process" as const, confirmed: false }));
+        finish(stopReason === "timeout"
+          ? { status: "timeout", executable, args, cwd: options.cwd, timeoutMs, stdout, stderr, durationMs, pid: child.pid, termination }
+          : { status: "cancelled", executable, args, cwd: options.cwd, stdout, stderr, durationMs, pid: child.pid, termination });
+        return;
       }
-
-      if (code === 0) {
-        resolve({
-          status: "success",
-          executable,
-          args,
-          cwd: options.cwd,
-          exitCode: 0,
-          stdout: stdoutBuf,
-          stderr: stderrBuf,
-          durationMs,
-        });
-      } else {
-        // Includes non-zero exits or killed by signal (code null)
-        resolve({
-          status: "command_failed",
-          executable,
-          args,
-          cwd: options.cwd,
-          exitCode: code ?? -1,
-          stdout: stdoutBuf,
-          stderr: stderrBuf,
-          durationMs,
-        });
-      }
+      finish(code === 0
+        ? { status: "success", executable, args, cwd: options.cwd, exitCode: 0, stdout, stderr, durationMs }
+        : { status: "command_failed", executable, args, cwd: options.cwd, exitCode: code ?? -1, stdout, stderr, durationMs });
     });
   });
+}
+
+function infrastructureError(executable: string, args: string[], cwd: string, err: any, startTime: number): ProcessResult {
+  return { status: "infrastructure_error", executable, args, cwd, code: err?.code, message: err?.message ?? String(err), durationMs: Date.now() - startTime };
+}
+
+function appendOutput(current: string, next: string, stream: "stdout" | "stderr"): string {
+  if (current.length >= MAX_CAPTURED_OUTPUT) return current;
+  const combined = current + next;
+  return combined.length > MAX_CAPTURED_OUTPUT
+    ? combined.slice(0, MAX_CAPTURED_OUTPUT) + `\n[... ${stream} truncated ...]`
+    : combined;
+}
+
+async function terminateProcessTree(child: ChildProcess): Promise<ProcessTermination> {
+  if (!child.pid) return { requested: true, method: "process", confirmed: false };
+  if (process.platform === "win32") {
+    const confirmed = await new Promise<boolean>((resolve) => {
+      const killer = spawn("taskkill", ["/pid", String(child.pid), "/T", "/F"], { shell: false, windowsHide: true });
+      killer.once("error", () => resolve(false));
+      killer.once("close", (code) => resolve(code === 0));
+    });
+    return { requested: true, method: "taskkill", confirmed };
+  }
+  try {
+    process.kill(-child.pid, "SIGKILL");
+    // POSIX has no portable synchronous tree-kill acknowledgement. The caller
+    // still receives the close event before the result is returned.
+    return { requested: true, method: "process_group", confirmed: false };
+  } catch {
+    return { requested: true, method: "process", confirmed: child.kill("SIGKILL") };
+  }
 }
 
 /** Batch shims installed by npm, pnpm and yarn contain the path to their Node
@@ -161,11 +139,7 @@ function findWindowsNodeEntrypoint(executable: string): string | undefined {
     if (!existsSync(candidate)) continue;
     try {
       const source = readFileSync(candidate, "utf8");
-      const patterns = [
-        /%~dp0\\([^"'\r\n]+?\.(?:c?js|mjs))/gi,
-        /%dp0%\\([^"'\r\n]+?\.(?:c?js|mjs))/gi,
-      ];
-      for (const pattern of patterns) {
+      for (const pattern of [/%~dp0\\([^"'\r\n]+?\.(?:c?js|mjs))/gi, /%dp0%\\([^"'\r\n]+?\.(?:c?js|mjs))/gi]) {
         const match = [...source.matchAll(pattern)].at(-1);
         if (!match) continue;
         const entrypoint = join(dirname(candidate), match[1].replace(/\\/g, "/"));

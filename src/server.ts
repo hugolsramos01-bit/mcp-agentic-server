@@ -35,7 +35,7 @@ import {
   checkpointSaveTool, checkpointListTool, checkpointRestoreTool, checkpointDeleteTool,
 } from "./checkpoint-tools.js";
 import { proposePlanTool } from "./contract-tools.js";
-import { checkEditAllowed, recordPlan, recordDryRun, recordCheckpoint, recordChange, markChangesShown, getChangeSummary, getSessionActivity, resetSession as resetPvdlState } from "./change-session.js";
+import { checkEditAllowed, recordPlan, recordDryRun, recordCheckpoint, recordCheckpointRestore, recordChange, markChangesShown, getChangeSummary, getSessionActivity, getSessionLedger, resetSession as resetPvdlState } from "./change-session.js";
 import { semanticPackTool, contextBudgetTool } from "./semantic-tools.js";
 import { knowledgeCaptureTool, knowledgeSearchTool } from "./knowledge-tools.js";
 import { tournamentSpawnTool, tournamentJudgeTool, tournamentCleanupTool } from "./tournament-tools.js";
@@ -186,7 +186,10 @@ function createMcpServer(
       {
         title: "Worktree Sync Changes",
         description: "[General] Copies uncommitted changes from the main workspace to this managed worktree sandbox.",
-        inputSchema: { workspaceId: z.string() },
+        inputSchema: {
+          workspaceId: z.string(),
+          verify: z.boolean().optional().describe("Optionally load known native runtime dependencies after installation. Installs always skip lifecycle scripts."),
+        },
         ...toolWidgetDescriptorMeta(config, "shell"),
       } as any,
       async (req: any) => {
@@ -265,8 +268,8 @@ function createMcpServer(
           const result = await runProcess(cmd, args, { cwd: workspace.worktree.path });
 
           if (result.status !== "success") {
-            const errResult = result.status === "infrastructure_error" || result.status === "timeout"
-              ? `Infrastructure Error: ${result.status === "timeout" ? "Timeout" : (result as any).message}`
+            const errResult = result.status === "infrastructure_error" || result.status === "timeout" || result.status === "cancelled"
+              ? `Infrastructure Error: ${result.status === "timeout" ? `Timeout after ${result.timeoutMs}ms` : result.status === "cancelled" ? "Cancelled" : (result as any).message}`
               : `Install Failed (Exit code ${result.status === "command_failed" ? result.exitCode : -1}): ${(result as any).stderr || (result as any).message}`;
             return {
               content: [{ type: "text", text: errResult }],
@@ -285,8 +288,28 @@ function createMcpServer(
           const progressLines = lines.filter((l: string) => !l.startsWith("Progress:") && !l.startsWith("Scope:"));
           const summaryLines = progressLines.slice(Math.max(0, progressLines.length - 5));
           
+          let verification: { status: "installed_unverified" | "installed_verified" | "verification_skipped" | "verification_failed"; packages?: string[]; message: string } = {
+            status: "installed_unverified",
+            message: "Lifecycle scripts were skipped, so native/runtime dependencies were not loaded. Use verify: true to run a focused smoke check when supported.",
+          };
+          if (req.verify) {
+            const packageJsonPath = pathModule.join(workspace.worktree.path, "package.json");
+            const packageJson = fs.existsSync(packageJsonPath) ? JSON.parse(fs.readFileSync(packageJsonPath, "utf8")) : {};
+            const allDependencies = { ...(packageJson.dependencies ?? {}), ...(packageJson.optionalDependencies ?? {}) };
+            const nativeCandidates = Object.keys(allDependencies).filter((name) => /^(better-sqlite3|sqlite3|node-pty|sharp|canvas|bcrypt|argon2|esbuild)$/.test(name));
+            if (nativeCandidates.length === 0) {
+              verification = { status: "verification_skipped", message: "No supported native dependency was declared for a meaningful runtime smoke check; installation remains unverified." };
+            } else {
+              const smoke = await runProcess("node", ["-e", "for (const name of JSON.parse(process.argv[1])) require(name)", JSON.stringify(nativeCandidates)], { cwd: workspace.worktree.path, timeoutMs: 30_000 });
+              verification = smoke.status === "success"
+                ? { status: "installed_verified", packages: nativeCandidates, message: "Native runtime dependency smoke check passed." }
+                : { status: "verification_failed", packages: nativeCandidates, message: `Install completed, but runtime verification failed: ${(smoke as any).stderr || (smoke as any).message || smoke.status}` };
+            }
+          }
+
           const summary = [
-            `Dependencies installed successfully (${pkgManager}).`,
+            `Dependencies installed with lifecycle scripts disabled (${pkgManager}).`,
+            `Status: ${verification.status}. ${verification.message}`,
             result.durationMs ? `Duration: ${result.durationMs}ms` : null,
             packagesDone ? packagesDone.trim() : null,
             doneIn ? doneIn.trim() : null,
@@ -296,11 +319,14 @@ function createMcpServer(
 
           return {
             content: [{ type: "text", text: summary }],
+            isError: verification.status === "verification_failed",
             structuredContent: {
-              status: "success",
+              status: verification.status,
               packageManager: pkgManager,
               durationMs: result.durationMs,
               packages: packagesDone?.replace("packages:", "").trim(),
+              lifecycleScriptsSkipped: true,
+              verification,
             }
           };
         } catch (e: any) {
@@ -1177,7 +1203,7 @@ function createMcpServer(
           structuredContent: {
             result: contentText(content),
             currentWorkspaceChanges: review.files,
-            ...(includeSessionHistory ? { sessionActivity: getSessionActivity(workspaceId) } : {}),
+            ...(includeSessionHistory ? { sessionLedger: getSessionLedger(workspaceId), sessionActivity: getSessionActivity(workspaceId) } : {}),
           },
         };
       },
@@ -1702,7 +1728,9 @@ function createMcpServer(
       } as any,
       async (req: any) => {
         const workspace = workspaces.getWorkspace(req.workspaceId);
-        return wrap("checkpoint_restore", req, await checkpointRestoreTool(workspace.root, req));
+        const result = await checkpointRestoreTool(workspace.root, req);
+        if (!result.isError) recordCheckpointRestore(req.workspaceId, req.id);
+        return wrap("checkpoint_restore", req, result);
       }
     );
     registerAppTool(

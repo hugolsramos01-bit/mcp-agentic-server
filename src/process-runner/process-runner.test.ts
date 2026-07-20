@@ -32,11 +32,23 @@ test('Process Runner', async (t) => {
     }
   });
 
-  await t.test('Handles timeouts', async () => {
-    // node -e "setTimeout(() => console.log('done'), 5000)"
-    const result = await runProcess("node", ["-e", "setTimeout(() => console.log('done'), 5000)"], { cwd: process.cwd(), timeoutMs: 100 });
+  await t.test('Preserves partial output and reports termination on timeout', async () => {
+    const result = await runProcess("node", ["-e", "console.log('before timeout'); setTimeout(() => console.log('done'), 5000)"], { cwd: process.cwd(), timeoutMs: 100 });
     
     assert.strictEqual(result.status, "timeout");
+    if (result.status === "timeout") {
+      assert.ok(result.stdout.includes("before timeout"));
+      assert.strictEqual(result.termination.requested, true);
+    }
+  });
+
+  await t.test('Cancels an in-flight process with partial output', async () => {
+    const controller = new AbortController();
+    const pending = runProcess("node", ["-e", "console.log('before cancel'); setTimeout(() => {}, 5000)"], { cwd: process.cwd(), signal: controller.signal });
+    setTimeout(() => controller.abort(), 100);
+    const result = await pending;
+    assert.strictEqual(result.status, "cancelled");
+    if (result.status === "cancelled") assert.ok(result.stdout.includes("before cancel"));
   });
 
   await t.test('Resolves Windows .cmd extensions for package managers', async () => {

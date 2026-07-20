@@ -5,6 +5,7 @@ export type ExecutionStatus =
   | "policy_blocked"
   | "dependencies_missing"
   | "timeout"
+  | "cancelled"
   | "invalid_configuration"
   | "script_not_found";
 
@@ -48,6 +49,19 @@ export type ProcessResult =
       stdout: string;
       stderr: string;
       durationMs: number;
+      pid?: number;
+      termination: ProcessTermination;
+    }
+  | {
+      status: "cancelled";
+      executable: string;
+      args: string[];
+      cwd: string;
+      stdout: string;
+      stderr: string;
+      durationMs: number;
+      pid?: number;
+      termination: ProcessTermination;
     }
   | {
       status: "policy_blocked" | "dependencies_missing" | "invalid_configuration" | "script_not_found";
@@ -62,4 +76,14 @@ export interface ProcessRunnerOptions {
   cwd: string;
   timeoutMs?: number;
   env?: NodeJS.ProcessEnv;
+  /** Cancels the child process and its descendants when aborted. */
+  signal?: AbortSignal;
+}
+
+/** What was attempted to stop a process after timeout or cancellation. */
+export interface ProcessTermination {
+  requested: true;
+  method: "taskkill" | "process_group" | "process";
+  /** True only when the operating system acknowledged a tree-kill command. */
+  confirmed: boolean;
 }
