@@ -1,5 +1,5 @@
 import { join, relative } from "node:path";
-import { existsSync, statSync } from "node:fs";
+import { existsSync, statSync, readFileSync } from "node:fs";
 import { readdir } from "node:fs/promises";
 import { secureFs } from "./security/secure-fs.js";
 import type { ToolResponse } from "./pi-tools.js";
@@ -179,6 +179,14 @@ export async function semanticPackTool(
   const fastApi = await discoverFastApi(cwd);
   if (fastApi.detected) pack.fastApi = fastApi;
 
+  // Vite metadata — plugins, aliases, config file
+  const vite = discoverViteMetadata(cwd);
+  if (vite.detected) pack.vite = vite;
+
+  // Workspace boundaries (monorepo apps/packages)
+  const boundaries = discoverWorkspaceBoundaries(cwd);
+  if (boundaries.length > 0) pack.workspaceBoundaries = boundaries;
+
   // Framework maps are intentionally additive. A React/Vite or plain JS
   // project still has an architecture even when it has no Next/Payload routes.
   const genericEntrypoints = discoverGenericEntrypoints(cwd);
@@ -346,3 +354,120 @@ function discoverGenericEntrypoints(cwd: string): string[] {
   ];
   return candidates.filter((path) => existsSync(join(cwd, path)));
 }
+
+// ─── Vite Plugin Detection ───────────────────────────────────
+
+interface ViteMetadata {
+  detected: boolean;
+  configFile?: string;
+  plugins?: string[];
+  aliases?: Record<string, string>;
+  confidence: "high" | "medium" | "low";
+}
+
+export function discoverViteMetadata(cwd: string): ViteMetadata {
+  const configFiles = ["vite.config.ts", "vite.config.js", "vite.config.mts", "vite.config.mjs"];
+  let configFile: string | undefined;
+
+  for (const cf of configFiles) {
+    if (existsSync(join(cwd, cf))) {
+      configFile = cf;
+      break;
+    }
+  }
+
+  // Also check package.json for vite dep
+  let hasViteDep = false;
+  try {
+    const pkg = JSON.parse(readFileSync(join(cwd, "package.json"), "utf8"));
+    hasViteDep = !!(pkg.dependencies?.vite || pkg.devDependencies?.vite);
+  } catch {}
+
+  if (!configFile && !hasViteDep) {
+    return { detected: false, confidence: "low" };
+  }
+
+  const plugins: string[] = [];
+  const aliases: Record<string, string> = {};
+
+  if (configFile) {
+    try {
+      const content = readFileSync(join(cwd, configFile), "utf8");
+
+      // Extract plugin names from import statements
+      const importMatches = content.matchAll(/import\s+(\w+)\s+from\s+['"]([^'"]+)['"]/g);
+      for (const [, name, from] of importMatches) {
+        if (from.includes("plugin") || from.includes("@vitejs/") || from.startsWith("vite-plugin")) {
+          plugins.push(name);
+        }
+      }
+
+      // Extract aliases: { '@': resolve(..., 'src') } style
+      const aliasBlock = content.match(/alias\s*:\s*\{([^}]+)\}/s);
+      if (aliasBlock) {
+        const aliasMatches = aliasBlock[1].matchAll(/['"]([^'"]+)['"]\s*:\s*(?:resolve|join)\s*\([^)]+,\s*['"]([^'"]+)['"]\)/g);
+        for (const [, aliasKey, aliasTarget] of aliasMatches) {
+          aliases[aliasKey] = aliasTarget;
+        }
+      }
+    } catch {}
+  }
+
+  return {
+    detected: true,
+    configFile,
+    plugins: plugins.length > 0 ? plugins : undefined,
+    aliases: Object.keys(aliases).length > 0 ? aliases : undefined,
+    confidence: configFile ? "high" : "medium",
+  };
+}
+
+// ─── Workspace Boundary Detection ────────────────────────────
+
+interface WorkspaceBoundary {
+  type: "app" | "package";
+  name: string;
+  path: string;
+  hasOwnPackageJson: boolean;
+}
+
+export function discoverWorkspaceBoundaries(cwd: string): WorkspaceBoundary[] {
+  const boundaries: WorkspaceBoundary[] = [];
+
+  try {
+    const pkg = JSON.parse(readFileSync(join(cwd, "package.json"), "utf8"));
+    const workspaces: string[] = typeof pkg.workspaces === "object" && !Array.isArray(pkg.workspaces)
+      ? pkg.workspaces.packages ?? []
+      : pkg.workspaces ?? [];
+
+    for (const pattern of workspaces) {
+      // Handle simple patterns like "apps/*" or "packages/*"
+      const [dir] = pattern.split("/*");
+      if (!dir) continue;
+      const fullDir = join(cwd, dir);
+      if (!existsSync(fullDir)) continue;
+
+      try {
+        const { readdirSync } = require("node:fs") as typeof import("node:fs");
+        const entries = readdirSync(fullDir, { withFileTypes: true });
+        for (const entry of entries) {
+          if (!entry.isDirectory()) continue;
+          const entryPath = join(fullDir, entry.name);
+          const relPath = `${dir}/${entry.name}`;
+          const hasPkg = existsSync(join(entryPath, "package.json"));
+          const type: "app" | "package" = dir.startsWith("app") ? "app" : "package";
+          let name = entry.name;
+          if (hasPkg) {
+            try {
+              name = JSON.parse(readFileSync(join(entryPath, "package.json"), "utf8")).name ?? entry.name;
+            } catch {}
+          }
+          boundaries.push({ type, name, path: relPath, hasOwnPackageJson: hasPkg });
+        }
+      } catch {}
+    }
+  } catch {}
+
+  return boundaries;
+}
+

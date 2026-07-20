@@ -8,6 +8,7 @@ import { enforceSecurePath } from "./pi-tools.js";
 import { execFile } from "node:child_process";
 import ts from "typescript";
 import type { ToolResponse } from "./pi-tools.js";
+import { resolveFileDependencies } from "./import-resolver.js";
 
 // --- Cache Mechanism ---
 const astCache = new Map<string, { mtimeMs: number; size: number; data: any }>();
@@ -228,8 +229,10 @@ export async function nextRouteMapTool(cwd: string, basePath?: string): Promise<
 // --- Payload Schema Map ---
 
 export interface PayloadSchemaMapInput {
-  /** Compact is the default to avoid duplicating hierarchical and flat field data. */
-  detailLevel?: "compact" | "full";
+  /** summary: slug + root fields + relations only (≤10% of full).
+   *  compact: full tree, no flat index duplication (≤35% of full).
+   *  full: tree + flat index + all metadata. Default: compact. */
+  detailLevel?: "summary" | "compact" | "full";
 }
 
 export async function payloadSchemaMapTool(cwd: string, basePath?: string, input: PayloadSchemaMapInput = {}): Promise<ToolResponse> {
@@ -299,15 +302,27 @@ export async function payloadSchemaMapTool(cwd: string, basePath?: string, input
   return { content: [{ type: "text", text: JSON.stringify({ collections: formatPayloadCollections(collections, detailLevel), detailLevel, capabilities: { payload } }, null, 2) }] };
 }
 
-function formatPayloadCollections(collections: any[], detailLevel: "compact" | "full"): any[] {
+function formatPayloadCollections(collections: any[], detailLevel: "summary" | "compact" | "full"): any[] {
   if (detailLevel === "full") return collections;
-  return collections.map(({ fieldsTree, flatFields, ...collection }) => ({
-    ...collection,
-    rootFields: (fieldsTree ?? []).map(({ children, ...field }: any) => field),
-    relationships: (flatFields ?? [])
-      .filter((field: any) => field.type === "relationship")
-      .map(({ path, name, relationTo, required }: any) => ({ path, name, relationTo, ...(required ? { required: true } : {}) })),
-  }));
+
+  if (detailLevel === "summary") {
+    return collections.map(({ slug, fieldsTree, flatFields, access, hooks, tenantScoped, file }) => ({
+      slug,
+      file,
+      ...(tenantScoped ? { tenantScoped: true } : {}),
+      rootFields: (fieldsTree ?? []).filter((f: any) => !f.type || !["group", "array", "tabs", "blocks"].includes(f.type))
+        .slice(0, 10)
+        .map(({ name, type, required, unique, relationTo }: any) => ({ name, type, ...(required ? { required: true } : {}), ...(unique ? { unique: true } : {}), ...(relationTo ? { relationTo } : {}) })),
+      relationships: (flatFields ?? [])
+        .filter((field: any) => field.type === "relationship")
+        .map(({ path, name, relationTo, required }: any) => ({ path, name, relationTo, ...(required ? { required: true } : {}) })),
+      access: access?.length > 0 ? access : undefined,
+      hooks: hooks?.length > 0 ? hooks : undefined,
+    }));
+  }
+
+  // compact: tree without flat index (no duplication)
+  return collections.map(({ flatFields: _flat, ...collection }) => collection);
 }
 
 function parseCollectionFile(content: string): any {
@@ -488,77 +503,70 @@ function parseCollectionFile(content: string): any {
   return null;
 }
 
-export async function fileDependenciesTool(cwd: string, targetPath: string): Promise<ToolResponse> {
-  const execAsync = promisify(exec);
-  
+export async function fileDependenciesTool(
+  cwd: string,
+  targetPath: string,
+  opts: { transitiveDepth?: number; maxFiles?: number } = {},
+): Promise<ToolResponse> {
   const fullPath = join(cwd, targetPath);
   if (!existsSync(fullPath)) {
     return { content: [{ type: "text", text: `File not found: ${targetPath}` }] };
   }
-  
-  const content = secureFs.readFile(cwd, targetPath);
-  
-  // 1. Outward dependencies — use AST to resolve actual imports
-  const sourceFile = ts.createSourceFile(targetPath, content, ts.ScriptTarget.Latest, true);
-  const outwards = new Set<string>();
-  
-  function visitImports(node: ts.Node) {
-    if (ts.isImportDeclaration(node) && node.moduleSpecifier && ts.isStringLiteral(node.moduleSpecifier)) {
-      outwards.add(node.moduleSpecifier.text);
-    }
-    if (ts.isExportDeclaration(node) && node.moduleSpecifier && ts.isStringLiteral(node.moduleSpecifier)) {
-      outwards.add(node.moduleSpecifier.text);
-    }
-    // Dynamic imports: import("module")
-    if (ts.isCallExpression(node) && node.expression.kind === ts.SyntaxKind.ImportKeyword && node.arguments.length > 0) {
-      const arg = node.arguments[0];
-      if (ts.isStringLiteral(arg)) {
-        outwards.add(arg.text);
-      }
-    }
-    ts.forEachChild(node, visitImports);
-  }
-  visitImports(sourceFile);
-  
-  // 2. Inward dependencies — parse source imports and resolve relative paths
-  // and the common @/ alias against each app root. Textual mentions in prose
-  // remain excluded because only actual module specifiers are considered.
-  const inwards: string[] = [];
+
+  // Enumerate all tracked files for inward scan
   const execFileAsync = promisify(execFile);
+  let allTrackedFiles: string[] = [];
   try {
-    const { stdout } = await execFileAsync("git", ["ls-files", "--cached", "--others", "--exclude-standard"], { cwd, maxBuffer: 1024 * 1024 * 10 });
-    const target = moduleIdentity(targetPath);
-    const files = stdout.split("\n").map((line) => line.trim()).filter((file) => /\.(?:[cm]?[jt]sx?)$/i.test(file));
-    for (const file of files) {
-      if (moduleIdentity(file) === target) continue;
-      let importer: ts.SourceFile;
-      try {
-        importer = ts.createSourceFile(file, secureFs.readFile(cwd, file), ts.ScriptTarget.Latest, true);
-      } catch {
-        continue;
-      }
-      const specifiers = collectModuleSpecifiers(importer);
-      if (specifiers.some((specifier) => resolvesToTarget(cwd, file, specifier, target))) {
-        inwards.push(file.replace(/\\/g, "/"));
-      }
-    }
+    const { stdout } = await execFileAsync(
+      "git",
+      ["ls-files", "--cached", "--others", "--exclude-standard"],
+      { cwd, maxBuffer: 1024 * 1024 * 10 },
+    );
+    allTrackedFiles = stdout.split("\n").map(l => l.trim()).filter(f => f.length > 0);
   } catch {
-    // Git enumeration is unavailable; do not fall back to textual documents.
+    // git unavailable — inward scan will be empty
   }
-  
+
+  const result = await resolveFileDependencies({
+    workspaceRoot: cwd,
+    targetRelPath: targetPath,
+    allTrackedFiles,
+    transitiveDepth: opts.transitiveDepth ?? 3,
+    maxFiles: opts.maxFiles ?? 300,
+  });
+
+  // Build a clean barrel map: specifier → via barrel path
+  const barrelMap: Record<string, string> = {};
+  for (const imp of result.outwardDirect) {
+    if (imp.viaBarre && imp.resolvedRelative) {
+      barrelMap[imp.specifier] = imp.viaBarre;
+    }
+  }
+
   return {
     content: [{
       type: "text",
       text: JSON.stringify({
         target: targetPath,
-        outward_dependencies: Array.from(outwards),
-        inward_dependencies: inwards,
+        outward_dependencies: result.outwardDirect
+          .filter(i => !i.external)
+          .map(i => i.resolvedRelative ?? i.specifier),
+        outward_dependencies_external: result.outwardDirect
+          .filter(i => i.external)
+          .map(i => i.specifier),
+        inward_dependencies: result.inwardDirect,
+        transitive_dependencies: result.transitiveOutward,
+        barrel_reexports: Object.keys(barrelMap).length > 0 ? barrelMap : undefined,
+        unresolved: result.unresolvedSpecifiers.length > 0 ? result.unresolvedSpecifiers : undefined,
+        cycles: result.hasCycles ? result : undefined,
         analysis: {
-          confidence: "high",
-          coverage: "tracked and untracked TypeScript/JavaScript module specifiers; prose and unsupported module syntaxes are excluded",
+          confidence: result.confidence,
+          coverage: result.coverage,
+          elapsedMs: result.metrics.elapsedMs,
+          filesAnalyzed: result.metrics.filesAnalyzed,
         },
-      }, null, 2)
-    }]
+      }, null, 2),
+    }],
   };
 }
 
