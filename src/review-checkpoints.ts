@@ -101,7 +101,12 @@ export function createReviewCheckpointManager(): ReviewCheckpointManager {
       const numstat = (await git(state.gitRoot, ["diff", "--numstat", "-z", baseline, current, "--", ".", ...AGENTIC_METADATA_EXCLUSIONS], {
         maxBuffer: 50 * 1024 * 1024,
       })).stdout;
-      const files = parseNumstat(numstat);
+      const nameStatus = (await git(state.gitRoot, ["diff", "--name-status", "-z", baseline, current, "--", ".", ...AGENTIC_METADATA_EXCLUSIONS], {
+        maxBuffer: 50 * 1024 * 1024,
+      })).stdout;
+      // Numstat describes line counts only. File operation type must come from
+      // Git's name-status output; a modified file that only adds lines is not new.
+      const files = mergeFileMetadata(parseNameStatus(nameStatus), parseNumstat(numstat));
       const summary = summarizeFiles(files);
 
       if (markReviewed) {
@@ -165,9 +170,9 @@ function parseNumstat(output: string): ReviewFile[] {
     const additions = parseStatNumber(parts[0]);
     const removals = parseStatNumber(parts[1]);
 
-    if (parts.length >= 3) {
+    if (parts.length >= 3 && parts[2]) {
       const path = parts[2] ?? "";
-      if (path) files.push({ path, type: fileType(path, undefined, additions, removals), additions, removals });
+      if (path) files.push({ path, type: "change", additions, removals });
       continue;
     }
 
@@ -178,7 +183,7 @@ function parseNumstat(output: string): ReviewFile[] {
     files.push({
       path,
       previousPath,
-      type: fileType(path, previousPath, additions, removals),
+      type: previousPath ? (additions === 0 && removals === 0 ? "rename-pure" : "rename-changed") : "change",
       additions,
       removals,
     });
@@ -193,16 +198,32 @@ function parseStatNumber(value: string | undefined): number {
   return Number.isFinite(parsed) ? parsed : 0;
 }
 
-function fileType(
-  path: string,
-  previousPath: string | undefined,
-  additions: number,
-  removals: number,
-): ReviewFile["type"] {
-  if (previousPath) return additions === 0 && removals === 0 ? "rename-pure" : "rename-changed";
-  if (additions > 0 && removals === 0) return "new";
-  if (additions === 0 && removals > 0) return "deleted";
-  return "change";
+function parseNameStatus(output: string): ReviewFile[] {
+  const fields = output.split("\0").filter(Boolean);
+  const files: ReviewFile[] = [];
+  for (let index = 0; index < fields.length;) {
+    const header = fields[index++]!;
+    const [status, inlinePath] = header.split("\t", 2);
+    if (status.startsWith("R") || status.startsWith("C")) {
+      const previousPath = inlinePath ?? fields[index++];
+      const path = fields[index++];
+      if (path) files.push({ path, previousPath, type: status.startsWith("R") ? "rename-pure" : "new", additions: 0, removals: 0 });
+      continue;
+    }
+    const path = inlinePath ?? fields[index++];
+    if (!path) continue;
+    files.push({ path, type: status === "A" ? "new" : status === "D" ? "deleted" : "change", additions: 0, removals: 0 });
+  }
+  return files;
+}
+
+function mergeFileMetadata(statusFiles: ReviewFile[], statFiles: ReviewFile[]): ReviewFile[] {
+  const stats = new Map(statFiles.map((file) => [file.path, file]));
+  return statusFiles.map((file) => {
+    const stat = stats.get(file.path);
+    const type = file.type === "rename-pure" && ((stat?.additions ?? 0) > 0 || (stat?.removals ?? 0) > 0) ? "rename-changed" : file.type;
+    return { ...file, type, additions: stat?.additions ?? 0, removals: stat?.removals ?? 0 };
+  });
 }
 
 function summarizeFiles(files: ReviewFile[]): ReviewSummary {

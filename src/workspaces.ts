@@ -66,6 +66,7 @@ export interface OpenWorkspaceInput {
   path: string;
   mode?: WorkspaceMode;
   baseRef?: string;
+  allowParentGitRoot?: boolean;
 }
 
 type PathStats = Stats;
@@ -87,7 +88,7 @@ export class WorkspaceRegistry {
     const mode = options.mode ?? "checkout";
 
     if (mode === "worktree") {
-      return this.openWorktreeWorkspace(options.path, options.baseRef);
+      return this.openWorktreeWorkspace(options.path, options.baseRef, options.allowParentGitRoot);
     }
 
     return this.openCheckoutWorkspace(options.path);
@@ -246,11 +247,12 @@ export class WorkspaceRegistry {
     return this.createWorkspaceContext({ root, mode: "checkout" });
   }
 
-  private async openWorktreeWorkspace(path: string, baseRef: string | undefined): Promise<WorkspaceContext> {
+  private async openWorktreeWorkspace(path: string, baseRef: string | undefined, allowParentGitRoot = false): Promise<WorkspaceContext> {
     const worktree = await createManagedWorktree({
       sourcePath: path,
       baseRef,
       config: this.config,
+      allowParentGitRoot,
     });
 
     return this.createWorkspaceContext({

@@ -68,6 +68,7 @@ export type ToolResponse<TDetails = unknown> = {
   content: McpContent[];
   details?: TDetails;
   isError?: boolean;
+  structuredContent?: any;
 };
 
 interface ToolContext {

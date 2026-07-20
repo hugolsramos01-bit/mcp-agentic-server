@@ -35,11 +35,20 @@ export interface CheckpointRecord {
   timestamp: number;
 }
 
+export interface SessionLedgerEntry {
+  type: "edit" | "write" | "apply_patch" | "checkpoint_save" | "checkpoint_restore";
+  timestamp: number;
+  path?: string;
+  checkpointId?: string;
+  summary?: string;
+}
+
 export interface ChangeSession {
   plan?: ChangePlan;
   checkpoints: CheckpointRecord[];
   dryRuns: DryRunRecord[];
   appliedChanges: ChangeRecord[];
+  ledger: SessionLedgerEntry[];
   shownChanges: boolean;
 }
 
@@ -51,6 +60,7 @@ function getSession(workspaceId: string): ChangeSession {
       checkpoints: [],
       dryRuns: [],
       appliedChanges: [],
+      ledger: [],
       shownChanges: false,
     });
   }
@@ -87,6 +97,11 @@ export function recordDryRun(workspaceId: string, path: string, edits: any): voi
 export function recordCheckpoint(workspaceId: string, id: string, description?: string): void {
   const s = getSession(workspaceId);
   s.checkpoints.push({ id, description, timestamp: Date.now() });
+  s.ledger.push({ type: "checkpoint_save", checkpointId: id, summary: description, timestamp: Date.now() });
+}
+
+export function recordCheckpointRestore(workspaceId: string, id: string, summary?: string): void {
+  getSession(workspaceId).ledger.push({ type: "checkpoint_restore", checkpointId: id, summary, timestamp: Date.now() });
 }
 
 // ─── Edit ────────────────────────────────────────────────────
@@ -94,11 +109,22 @@ export function recordCheckpoint(workspaceId: string, id: string, description?: 
 export function recordChange(workspaceId: string, path: string, tool: "edit" | "write" | "apply_patch", summary?: string): void {
   const s = getSession(workspaceId);
   s.appliedChanges.push({ path, tool, timestamp: Date.now(), summary });
+  s.ledger.push({ type: tool, path, summary, timestamp: Date.now() });
 }
 
 export function getChangedFiles(workspaceId: string): string[] {
   const s = getSession(workspaceId);
   return [...new Set(s.appliedChanges.map(c => c.path))];
+}
+
+/** Session activity is historical and must never be confused with the current
+ * Git working-tree state returned by show_changes. */
+export function getSessionActivity(workspaceId: string): ChangeRecord[] {
+  return [...getSession(workspaceId).appliedChanges];
+}
+
+export function getSessionLedger(workspaceId: string): SessionLedgerEntry[] {
+  return [...getSession(workspaceId).ledger];
 }
 
 // ─── Show Changes ────────────────────────────────────────────

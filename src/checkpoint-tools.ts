@@ -1,4 +1,4 @@
-import { join } from "node:path";
+import { join, dirname } from "node:path";
 import { existsSync, mkdirSync, readFileSync, writeFileSync, readdirSync, rmSync, copyFileSync, appendFileSync } from "node:fs";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
@@ -89,6 +89,23 @@ export async function checkpointSaveTool(cwd: string, input: CheckpointSaveInput
     const { stdout: stagedDiff } = await execFileAsync("git", ["diff", "--cached"], { cwd });
     // Capture untracked files
     const { stdout: untracked } = await execFileAsync("git", ["ls-files", "--others", "--exclude-standard"], { cwd });
+    // Save the exact changed tracked-file state as well. A diff alone cannot
+    // reliably restore a checkpoint after later edits have changed its context.
+    const { stdout: changedTracked } = await execFileAsync("git", ["diff", "--name-only", "HEAD"], { cwd });
+    const trackedFiles = changedTracked.trim() ? changedTracked.trim().split("\n").map((path) => ({
+      path,
+      existed: existsSync(join(cwd, path)),
+    })) : [];
+    if (trackedFiles.length) {
+      const trackedDir = join(cpDir, "tracked");
+      for (const entry of trackedFiles) {
+        if (!entry.existed) continue;
+        const source = join(cwd, entry.path);
+        const target = join(trackedDir, entry.path);
+        mkdirSync(dirname(target), { recursive: true });
+        copyFileSync(source, target);
+      }
+    }
 
     const combined = [
       diff ? `# UNSTAGED CHANGES\n${diff}` : "",
@@ -102,10 +119,14 @@ export async function checkpointSaveTool(cwd: string, input: CheckpointSaveInput
       // Allow saving a baseline checkpoint (clean workspace baseline)
       writeFileSync(join(cpDir, "patch.diff"), "# BASELINE — no changes\n", "utf8");
       const meta = {
+        version: 2,
         timestamp: new Date().toISOString(),
         description: input.description || `Baseline ${timestamp}`,
         hasUntracked: false,
         isBaseline: true,
+        // A baseline is also a v2 snapshot: restoring it is deterministic and
+        // reusable, rather than creating/mutating a git stash.
+        trackedFiles: [],
         parentId: checkpoints.length > 0 ? checkpoints[0].id : undefined,
       };
       writeFileSync(join(cpDir, "meta.json"), JSON.stringify(meta, null, 2), "utf8");
@@ -143,9 +164,11 @@ export async function checkpointSaveTool(cwd: string, input: CheckpointSaveInput
     }
 
     const meta = {
+      version: 2,
       timestamp: new Date().toISOString(),
       description: input.description || `Checkpoint ${timestamp}`,
       hasUntracked: untracked.trim().length > 0,
+      trackedFiles,
       parentId: checkpoints.length > 0 ? checkpoints[0].id : undefined,
     };
     writeFileSync(join(cpDir, "meta.json"), JSON.stringify(meta, null, 2), "utf8");
@@ -220,14 +243,6 @@ export async function checkpointRestoreTool(cwd: string, input: CheckpointRestor
     };
   }
 
-  const patchPath = join(cpDir, "patch.diff");
-  if (!existsSync(patchPath)) {
-    return {
-      content: [{ type: "text", text: `Checkpoint "${input.id}" has no patch data.` }],
-      isError: true,
-    };
-  }
-
   // Load metadata to understand what was saved
   let meta: any = {};
   try {
@@ -235,7 +250,61 @@ export async function checkpointRestoreTool(cwd: string, input: CheckpointRestor
   } catch {}
 
   try {
-    // Handle baseline restore (clean workspace snapshot)
+    // V2 uses file snapshots for modified tracked files, which is deterministic
+    // even when a later edit means that a reverse patch would no longer apply.
+    if (meta.version === 2 && Array.isArray(meta.trackedFiles)) {
+      const warnings: string[] = [];
+      await execFileAsync("git", ["restore", "--source=HEAD", "--staged", "--worktree", "--", "."], { cwd });
+      const trackedDir = join(cpDir, "tracked");
+      for (const entry of meta.trackedFiles as { path: string; existed: boolean }[]) {
+        const target = join(cwd, entry.path);
+        if (!entry.existed) {
+          try { rmSync(target, { force: true }); } catch (error: any) { warnings.push(`Could not remove ${entry.path}: ${error.message}`); }
+          continue;
+        }
+        const snapshot = join(trackedDir, entry.path);
+        try {
+          mkdirSync(dirname(target), { recursive: true });
+          copyFileSync(snapshot, target);
+        } catch (error: any) { warnings.push(`Could not restore ${entry.path}: ${error.message}`); }
+      }
+
+      const untrackedDir = join(cpDir, "untracked");
+      const savedUntracked = new Set<string>();
+      if (existsSync(untrackedDir)) {
+        const walk = (dir: string, prefix = "") => readdirSync(dir, { withFileTypes: true }).forEach((entry) => {
+          const rel = prefix ? join(prefix, entry.name) : entry.name;
+          if (entry.isDirectory()) walk(join(dir, entry.name), rel);
+          else savedUntracked.add(rel.replace(/\\/g, "/"));
+        });
+        walk(untrackedDir);
+      }
+      const { stdout: currentUntracked } = await execFileAsync("git", ["ls-files", "--others", "--exclude-standard"], { cwd });
+      for (const raw of currentUntracked.split("\n")) {
+        const rel = raw.trim();
+        if (rel && !savedUntracked.has(rel.replace(/\\/g, "/"))) {
+          try { rmSync(join(cwd, rel), { recursive: true, force: true }); } catch (error: any) { warnings.push(`Could not remove ${rel}: ${error.message}`); }
+        }
+      }
+      if (existsSync(untrackedDir)) {
+        const restore = (dir: string, prefix = "") => readdirSync(dir, { withFileTypes: true }).forEach((entry) => {
+          const rel = prefix ? join(prefix, entry.name) : entry.name;
+          if (entry.isDirectory()) restore(join(dir, entry.name), rel);
+          else { const target = join(cwd, rel); mkdirSync(dirname(target), { recursive: true }); copyFileSync(join(dir, entry.name), target); }
+        });
+        restore(untrackedDir);
+      }
+      return { content: [{ type: "text", text: JSON.stringify({ id: input.id, status: warnings.length ? "partial" : "success", message: warnings.length ? "Checkpoint partially restored." : "Checkpoint restored.", warnings, restoredTrackedFiles: meta.trackedFiles.length, restoredUntrackedFiles: savedUntracked.size }, null, 2) }], isError: warnings.length > 0 };
+    }
+    const patchPath = join(cpDir, "patch.diff");
+    if (!existsSync(patchPath)) {
+      return {
+        content: [{ type: "text", text: `Checkpoint "${input.id}" is a legacy checkpoint without patch data and cannot be restored safely.` }],
+        isError: true,
+      };
+    }
+    // Legacy baseline restore (v1 checkpoints only). New baselines are v2
+    // snapshots and take the deterministic branch above.
     if (meta.isBaseline) {
       // 1. Stash any current tracked changes to restore to clean state
       const { stdout: hasChanges } = await execFileAsync("git", ["status", "--porcelain"], { cwd });

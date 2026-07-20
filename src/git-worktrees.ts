@@ -13,6 +13,7 @@ export class GitWorktreeError extends Error {
     readonly code:
       | "GIT_NOT_AVAILABLE"
       | "GIT_REPOSITORY_NOT_FOUND"
+      | "GIT_PARENT_ROOT_NOT_ALLOWED"
       | "GIT_REPOSITORY_HAS_NO_COMMITS"
       | "GIT_INVALID_BASE_REF"
       | "GIT_WORKTREE_CREATE_FAILED",
@@ -44,6 +45,8 @@ export async function createManagedWorktree(input: {
   baseRef?: string;
   config: ServerConfig;
   uniqueSuffix?: string;
+  /** Explicit opt-in for a requested subdirectory of a parent Git repository. */
+  allowParentGitRoot?: boolean;
 }): Promise<ManagedWorktree> {
   const sourcePath = assertAllowedPath(input.sourcePath, input.config.allowedRoots);
 
@@ -64,6 +67,19 @@ export async function createManagedWorktree(input: {
   }
 
   const sourceRoot = await resolveGitRoot(sourcePath, input.config.allowedRoots);
+  const requestedRoot = await realpath(sourcePath);
+  const detectedRoot = await realpath(sourceRoot);
+  if (!input.allowParentGitRoot && requestedRoot !== detectedRoot) {
+    throw new GitWorktreeError(
+      "GIT_PARENT_ROOT_NOT_ALLOWED",
+      [
+        "The requested directory is not a Git repository root.",
+        `Requested: ${sourcePath}`,
+        `Detected parent Git root: ${sourceRoot}`,
+        "Reopen using the parent root or explicitly set allowParentGitRoot=true.",
+      ].join("\n"),
+    );
+  }
   const baseRef = input.baseRef ?? "HEAD";
   const baseSha = await resolveBaseCommit(sourceRoot, baseRef);
   const dirtySource = (await git(["status", "--porcelain=v1"], sourceRoot)).trim().length > 0;
