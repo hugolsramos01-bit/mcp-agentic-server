@@ -227,9 +227,13 @@ export async function nextRouteMapTool(cwd: string, basePath?: string): Promise<
 
 // --- Payload Schema Map ---
 
-export interface PayloadSchemaMapInput {}
+export interface PayloadSchemaMapInput {
+  /** Compact is the default to avoid duplicating hierarchical and flat field data. */
+  detailLevel?: "compact" | "full";
+}
 
-export async function payloadSchemaMapTool(cwd: string, basePath?: string): Promise<ToolResponse> {
+export async function payloadSchemaMapTool(cwd: string, basePath?: string, input: PayloadSchemaMapInput = {}): Promise<ToolResponse> {
+  const detailLevel = input.detailLevel ?? "compact";
   // If a basePath is provided (e.g. "apps/web"), search relative to it
   const searchRoot = basePath ? enforceSecurePath(basePath, cwd, [cwd], false) : cwd;
   
@@ -259,7 +263,7 @@ export async function payloadSchemaMapTool(cwd: string, basePath?: string): Prom
   // Try cache
   const cached = getCachedCollections(collectionsDir);
   if (cached) {
-      return { content: [{ type: "text", text: JSON.stringify({ collections: cached, cached: true, capabilities: { payload } }, null, 2) }] };
+      return { content: [{ type: "text", text: JSON.stringify({ collections: formatPayloadCollections(cached, detailLevel), cached: true, detailLevel, capabilities: { payload } }, null, 2) }] };
   }
 
   const collections: any[] = [];
@@ -292,7 +296,18 @@ export async function payloadSchemaMapTool(cwd: string, basePath?: string): Prom
   // Save to cache
   if (collections.length > 0) setCachedCollections(collectionsDir, collections);
   
-  return { content: [{ type: "text", text: JSON.stringify({ collections, capabilities: { payload } }, null, 2) }] };
+  return { content: [{ type: "text", text: JSON.stringify({ collections: formatPayloadCollections(collections, detailLevel), detailLevel, capabilities: { payload } }, null, 2) }] };
+}
+
+function formatPayloadCollections(collections: any[], detailLevel: "compact" | "full"): any[] {
+  if (detailLevel === "full") return collections;
+  return collections.map(({ fieldsTree, flatFields, ...collection }) => ({
+    ...collection,
+    rootFields: (fieldsTree ?? []).map(({ children, ...field }: any) => field),
+    relationships: (flatFields ?? [])
+      .filter((field: any) => field.type === "relationship")
+      .map(({ path, name, relationTo, required }: any) => ({ path, name, relationTo, ...(required ? { required: true } : {}) })),
+  }));
 }
 
 function parseCollectionFile(content: string): any {
@@ -537,7 +552,11 @@ export async function fileDependenciesTool(cwd: string, targetPath: string): Pro
       text: JSON.stringify({
         target: targetPath,
         outward_dependencies: Array.from(outwards),
-        inward_dependencies: inwards
+        inward_dependencies: inwards,
+        analysis: {
+          confidence: "high",
+          coverage: "tracked and untracked TypeScript/JavaScript module specifiers; prose and unsupported module syntaxes are excluded",
+        },
       }, null, 2)
     }]
   };

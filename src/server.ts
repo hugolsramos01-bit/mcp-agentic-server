@@ -13,7 +13,7 @@ import { isInitializeRequest } from "@modelcontextprotocol/sdk/types.js";
 import { checkResourceAllowed, resourceUrlFromServerUrl } from "@modelcontextprotocol/sdk/shared/auth-utils.js";
 import {
   registerAppResource,
-  registerAppTool,
+  registerAppTool as registerExtAppTool,
   RESOURCE_MIME_TYPE,
 } from "@modelcontextprotocol/ext-apps/server";
 import express from "express";
@@ -74,6 +74,16 @@ interface RunningServer {
   config: ServerConfig;
   localAgentProviders: LocalAgentProviderAvailability[];
   close(): void;
+}
+
+// Capture a monotonic start time at the public tool boundary. Handlers can
+// await filesystem, Git, or process work before producing their envelope, so
+// measuring at wrap() entry incorrectly reported 0ms for most calls.
+function registerAppTool(server: McpServer, name: string, definition: any, handler: (request: any) => any): void {
+  registerExtAppTool(server, name, definition, async (request: any) => {
+    request.__startedAt = performance.now();
+    return handler(request);
+  });
 }
 
 
@@ -1607,7 +1617,7 @@ function createMcpServer(
       {
         title: "[ADVANCED] Next.js Route Map",
         description: "[Architecture] Read-only bounded summary of Next.js route files (app/ and pages/) inside the opened workspace. Does not execute code, does not write files, returns a compact limited result.",
-        inputSchema: { workspaceId: z.string().describe("Workspace ID"), appPath: z.string().optional().describe("Optional subdirectory for monorepos (e.g. 'apps/web')") },
+        inputSchema: { workspaceId: z.string().describe("Workspace ID"), appPath: z.string().optional().describe("Optional subdirectory for monorepos (e.g. 'apps/web')"), detailLevel: z.enum(["compact", "full"]).optional().describe("compact (default) returns root fields and relationships; full includes the complete field tree and index.") },
         outputSchema: resultOutputSchema(),
         ...toolWidgetDescriptorMeta(config, "read"),
         annotations: READ_TOOL_ANNOTATIONS,
@@ -1646,7 +1656,7 @@ function createMcpServer(
       } as any,
       async (req: any) => {
         const workspace = workspaces.getWorkspace(req.workspaceId);
-        return wrap("payload_schema_map", req, await payloadSchemaMapTool(workspace.root, req.appPath));
+        return wrap("payload_schema_map", req, await payloadSchemaMapTool(workspace.root, req.appPath, { detailLevel: req.detailLevel }));
       }
     );
     if (config.legacyAliases) registerAppTool(
@@ -1655,14 +1665,14 @@ function createMcpServer(
       {
         title: "⚠️ DEPRECATED — Payload Collections Summary (use payload_schema_map)",
         description: "⚠️ DEPRECATED — use payload_schema_map instead. This alias is kept for backward compatibility but will be removed in a future version.",
-        inputSchema: { workspaceId: z.string().describe("Workspace ID"), appPath: z.string().optional().describe("Optional subdirectory for monorepos") },
+        inputSchema: { workspaceId: z.string().describe("Workspace ID"), appPath: z.string().optional().describe("Optional subdirectory for monorepos"), detailLevel: z.enum(["compact", "full"]).optional() },
         outputSchema: resultOutputSchema(),
         ...toolWidgetDescriptorMeta(config, "read"),
         annotations: READ_TOOL_ANNOTATIONS,
       } as any,
       async (req: any) => {
         const workspace = workspaces.getWorkspace(req.workspaceId);
-        return wrap("payload_collections_summary", req, await payloadSchemaMapTool(workspace.root, req.appPath));
+        return wrap("payload_collections_summary", req, await payloadSchemaMapTool(workspace.root, req.appPath, { detailLevel: req.detailLevel }));
       }
     );
     registerAppTool(

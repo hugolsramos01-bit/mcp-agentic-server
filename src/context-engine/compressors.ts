@@ -9,6 +9,8 @@ export interface Omission {
 
 export interface CompressionMetadata {
   level: CompressionLevel;
+  /** The level that materially changed the output; none means the source was retained. */
+  effectiveLevel: CompressionLevel;
   originalTokensEstimate: number;
   outputTokensEstimate: number;
   compressionEffective: boolean;
@@ -81,6 +83,7 @@ export function compressAST(
       omissions: [],
       metadata: {
         level: "none",
+        effectiveLevel: "none",
         originalTokensEstimate: Math.ceil(lfContent.length / 4),
         outputTokensEstimate: Math.ceil(lfContent.length / 4),
         compressionEffective: false,
@@ -250,6 +253,7 @@ export function compressAST(
     omissions: resultOmissions,
     metadata: {
       level,
+      effectiveLevel: compressionEffective ? level : "none",
       originalTokensEstimate: originalTokens,
       outputTokensEstimate: outputTokens,
       compressionEffective,
@@ -302,6 +306,7 @@ function buildSkeletalOutline(sourceFile: ts.SourceFile, original: string, fileP
     omissions,
     metadata: {
       level: "skeletal",
+      effectiveLevel: originalTokens - outputTokens >= Math.max(50, originalTokens * 0.4) ? "skeletal" : "none",
       originalTokensEstimate: originalTokens,
       outputTokensEstimate: outputTokens,
       compressionEffective: originalTokens - outputTokens >= Math.max(50, originalTokens * 0.4),

@@ -90,7 +90,7 @@ The tool surface depends on the `AGENTIC_TOOL_MODE` setting.
 | `read` | Hardened file reader with `startLine`, `endLine`, `offset`, `limit`. |
 | `write` | Create or overwrite files. |
 | `edit` | Targeted string replacements. |
-| `bash` | Shell commands for tests, builds, git. |
+| `bash` | Fallback for shell interactions that have no typed tool; prefer `run_package_script` for package scripts and the Git tools for Git. |
 
 ### Assistant tools (mode: `assistant`)
 
@@ -123,6 +123,10 @@ If you are building an autonomous agent or using Claude/ChatGPT for coding, inst
 3. Use `context_budget` to estimate token cost before reading multiple files.
 4. Use `mode="worktree"` if the task involves running complex shell commands or destructive tests.
 5. Use `edit_dry_run` before performing multi-line regex or exact string replacements.
+
+## Isolation boundaries
+
+A managed worktree is an **isolated Git checkout**, not an operating-system sandbox. It keeps experiments out of the primary checkout, but it does not restrict network access, subprocesses, credentials, CPU/memory use, or paths that are otherwise allowed to the server. Treat scripts as real local commands and use the typed Git/script tools first. Git tools only operate when the opened workspace itself is the repository root; an ancestor repository is rejected rather than exposing sibling projects.
 
 ## 📝 License & Acknowledgements
 
