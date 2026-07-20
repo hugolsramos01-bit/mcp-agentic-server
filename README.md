@@ -25,7 +25,7 @@ The server parses TypeScript and JavaScript dynamically (with an in-memory LRU c
 * **`file_dependencies`**: Maps outward (what a file imports) and inward (who imports the file) dependencies instantly.
 
 ### 4. Safe Editing & Dry-Runs
-* **`preview_edit`**: A dry-run tool that simulates replacements to validate exact string matching and uniqueness, returning the surrounding context of the would-be edit *without* saving to disk.
+* **`edit_dry_run`**: Simulates replacements to validate exact string matching and uniqueness, returning the surrounding context of the would-be edit *without* saving to disk.
 * **`changed_files_summary`**: Fast, accurate summaries of modified and newly staged files using `git status --porcelain`.
 
 ### 5. Checkpoint System
@@ -75,7 +75,7 @@ The tool surface depends on the `AGENTIC_TOOL_MODE` setting.
 
 | Mode | Tools included | Use case |
 |------|---------------|----------|
-| **`assistant`** (default) | `open_workspace`, `read`, `write`, `edit`, `bash`, `grep`, `glob`, `ls`, `tree`, `coding_context`, `read_many`, `safe_file_preview`, `git_status/diff/log`, `run_package_script`, `next_route_map`, `payload_schema_map`, `file_dependencies`, `checkpoint_*`, `edit_dry_run`, `show_changes`, `worktree_*`, `suggest_checks`, `risk_assess_command`, `propose_plan` | Full coding-agent workflow |
+| **`assistant`** (default) | Canonical coding workflow: workspace, context, read/search, Git, checkpoints, edit/dry-run, package scripts, worktrees, diagnostics, and semantic maps. | Full coding-agent workflow with curated model instructions. |
 | **`full`** | Base tools + `grep`, `glob`, `ls` | Manual inspection via shell |
 | **`minimal`** | `open_workspace`, `read`, `write`, `edit`, `bash` | Restricted surface |
 
@@ -104,13 +104,15 @@ The tool surface depends on the `AGENTIC_TOOL_MODE` setting.
 | `checkpoint_*` | Save, restore, list snapshots. |
 | `edit_dry_run` | Preview edits without writing. |
 | `worktree_*` | Manage isolated git worktrees. |
+| `worktree_install_deps` | Install dependencies in a managed worktree; use `verify: true` to load native bindings. `allowLifecycleScripts: true` is explicit opt-in for packages that must build. |
+| `agentic_doctor` | Diagnose Node, package managers, Git and native SQLite availability. |
 | `semantic_pack` | Compact goal-relevant summary with token budget. |
 | `context_budget` | Estimate token count for files. |
 | `expand_compressed_block` | Expand omitted blocks from read_compressed. |
 | `token_audit` | Analyze token usage across files read. |
 | `risk_assess_command` | Preview policy assessment before bash. |
 
-Deprecated compatibility aliases are hidden by default. Existing clients can temporarily opt in with `AGENTIC_LEGACY_ALIASES=1`; they will be removed in the next major release. New clients must use the canonical tool names shown above.
+Deprecated compatibility aliases are hidden by default and never appear in the model's standard workflow. Existing clients can temporarily opt in with `AGENTIC_LEGACY_ALIASES=1`; they will be removed in the next major release. New clients must use the canonical names above: `edit_dry_run`, `next_route_map`, `payload_schema_map`, `suggest_checks`, `changed_files_summary`, and `project_bootstrap`.
 
 ## 🧠 Mental Model for Agents
 

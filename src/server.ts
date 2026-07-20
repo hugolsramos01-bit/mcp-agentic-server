@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto";
+import { verifyNativeDependencies } from "./native-dependency-verifier.js";
 import { assertCommandAllowed } from "./security/command-executor.js";
 import { readFileSync } from "node:fs";
 import { realpath } from "node:fs/promises";
@@ -235,7 +236,8 @@ function createMcpServer(
         description: "[General] Hydrates dependencies (e.g., npm install or pnpm install) inside a managed git worktree sandbox.",
         inputSchema: {
           workspaceId: z.string(),
-          verify: z.boolean().optional().describe("Load declared native runtime dependencies after installation. Installs always skip lifecycle scripts."),
+          verify: z.boolean().optional().describe("Load declared native runtime dependencies after installation to verify the installed binding."),
+          allowLifecycleScripts: z.boolean().optional().describe("Explicitly permit package lifecycle scripts in this isolated worktree. Required when native packages must build during installation."),
         },
         ...toolWidgetDescriptorMeta(config, "shell"),
       } as any,
@@ -252,16 +254,17 @@ function createMcpServer(
           const { runProcess } = await import("./process-runner/index.js");
           
           let cmd = "npm";
-          let args = ["ci", "--ignore-scripts"];
+          const skipLifecycleScripts = !req.allowLifecycleScripts;
+          let args = ["ci", ...(skipLifecycleScripts ? ["--ignore-scripts"] : [])];
           let pkgManager = "npm";
 
           if (fs.existsSync(pathModule.join(workspace.worktree.path, "pnpm-lock.yaml"))) {
             cmd = "pnpm";
-            args = ["install", "--frozen-lockfile", "--ignore-scripts"];
+            args = ["install", "--frozen-lockfile", ...(skipLifecycleScripts ? ["--ignore-scripts"] : [])];
             pkgManager = "pnpm";
           } else if (fs.existsSync(pathModule.join(workspace.worktree.path, "yarn.lock"))) {
             cmd = "yarn";
-            args = ["install", "--immutable", "--ignore-scripts"];
+            args = ["install", "--immutable", ...(skipLifecycleScripts ? ["--ignore-scripts"] : [])];
             pkgManager = "yarn";
           }
           
@@ -300,15 +303,15 @@ function createMcpServer(
             if (nativeCandidates.length === 0) {
               verification = { status: "verification_skipped", message: "No supported native dependency was declared for a meaningful runtime smoke check; installation remains unverified." };
             } else {
-              const smoke = await runProcess("node", ["-e", "for (const name of JSON.parse(process.argv[1])) require(name)", JSON.stringify(nativeCandidates)], { cwd: workspace.worktree.path, timeoutMs: 30_000 });
-              verification = smoke.status === "success"
+              const smoke = verifyNativeDependencies(workspace.worktree.path, nativeCandidates);
+              verification = smoke.ok
                 ? { status: "installed_verified", packages: nativeCandidates, message: "Native runtime dependency smoke check passed." }
-                : { status: "verification_failed", packages: nativeCandidates, message: `Install completed, but runtime verification failed: ${(smoke as any).stderr || (smoke as any).message || smoke.status}` };
+                : { status: "verification_failed", packages: nativeCandidates, message: `Install completed, but runtime verification failed: ${smoke.failures.map((failure) => `${failure.name}: ${failure.message}`).join("; ")}. Re-run with allowLifecycleScripts: true only if you trust this worktree and the dependency needs to build.` };
             }
           }
 
           const summary = [
-            `Dependencies installed with lifecycle scripts disabled (${pkgManager}).`,
+            `Dependencies installed with lifecycle scripts ${skipLifecycleScripts ? "disabled" : "enabled by explicit request"} (${pkgManager}).`,
             `Status: ${verification.status}. ${verification.message}`,
             result.durationMs ? `Duration: ${result.durationMs}ms` : null,
             packagesDone ? packagesDone.trim() : null,
@@ -325,7 +328,7 @@ function createMcpServer(
               packageManager: pkgManager,
               durationMs: result.durationMs,
               packages: packagesDone?.replace("packages:", "").trim(),
-              lifecycleScriptsSkipped: true,
+              lifecycleScriptsSkipped: skipLifecycleScripts,
               verification,
             }
           };
@@ -415,7 +418,10 @@ function createMcpServer(
       const startedAt = performance.now();
       const { workspace, agentsFiles, availableAgentsFiles } = await workspaces.openWorkspace({ path, mode, baseRef, allowParentGitRoot });
       if (config.widgets === "changes") {
-        void reviewCheckpoints.initializeWorkspace({
+        // The baseline must be captured before open_workspace returns. Running
+        // this in the background races the first edit: a newly-created source
+        // file can be absorbed into the baseline and omitted by show_changes.
+        await reviewCheckpoints.initializeWorkspace({
           workspaceId: workspace.id,
           root: workspace.root,
         });
