@@ -21,6 +21,7 @@ export interface ContextBudgetInput {
 
 export async function contextBudgetTool(input: ContextBudgetInput, cwd: string): Promise<ToolResponse> {
   const results: { path: string; lines?: number; chars?: number; estimatedTokens?: number; notFound?: boolean }[] = [];
+  const compressionBenchmarks: { path: string; originalTokens: number; balancedTokens: number; skeletalTokens: number; balancedEffectiveLevel: string; skeletalEffectiveLevel: string }[] = [];
   let totalTokens = 0;
 
   for (const p of input.paths) {
@@ -40,6 +41,20 @@ export async function contextBudgetTool(input: ContextBudgetInput, cwd: string):
       const tokens = estimateTokens(content, p.endsWith(".ts") || p.endsWith(".js") || p.endsWith(".tsx"));
       totalTokens += tokens;
       results.push({ path: p, lines, chars: content.length, estimatedTokens: tokens });
+      if (/\.(?:[cm]?[jt]sx?)$/i.test(p)) {
+        const { compressAST } = await import("./context-engine/compressors.js");
+        const stat = secureFs.stat(cwd, p);
+        const balanced = compressAST(content, "balanced", undefined, fullPath, stat.mtimeMs);
+        const skeletal = compressAST(content, "skeletal", undefined, fullPath, stat.mtimeMs);
+        compressionBenchmarks.push({
+          path: p,
+          originalTokens: tokens,
+          balancedTokens: balanced.metadata.outputTokensEstimate,
+          skeletalTokens: skeletal.metadata.outputTokensEstimate,
+          balancedEffectiveLevel: balanced.metadata.effectiveLevel,
+          skeletalEffectiveLevel: skeletal.metadata.effectiveLevel,
+        });
+      }
     } catch {
       results.push({ path: p, notFound: true, estimatedTokens: 0 });
     }
@@ -48,7 +63,7 @@ export async function contextBudgetTool(input: ContextBudgetInput, cwd: string):
   return {
     content: [{
       type: "text",
-      text: JSON.stringify({ files: results, totalEstimatedTokens: totalTokens }, null, 2),
+      text: JSON.stringify({ files: results, totalEstimatedTokens: totalTokens, compressionBenchmarks }, null, 2),
     }],
   };
 }
@@ -164,10 +179,23 @@ export async function semanticPackTool(
   const fastApi = await discoverFastApi(cwd);
   if (fastApi.detected) pack.fastApi = fastApi;
 
+  // Framework maps are intentionally additive. A React/Vite or plain JS
+  // project still has an architecture even when it has no Next/Payload routes.
+  const genericEntrypoints = discoverGenericEntrypoints(cwd);
+  if (genericEntrypoints.length > 0) {
+    pack.genericArchitecture = {
+      confidence: "medium",
+      coverage: "conventional JavaScript/TypeScript entrypoints detected by filename; inspect imports before editing",
+      entrypoints: genericEntrypoints,
+    };
+  }
+
   // ─── Recommended Files ──────────────────────────────────────
   // Surface the relevance-tagged files from coding_context
   if (recommendedFiles.length > 0) {
     pack.recommendedFiles = recommendedFiles.slice(0, 15);
+  } else if (genericEntrypoints.length > 0) {
+    pack.recommendedFiles = genericEntrypoints.map((path) => ({ path, relevanceTier: "structural", reason: "Conventional application entrypoint" }));
   }
 
   // ─── Recommended Workflow ──────────────────────────────────
@@ -308,4 +336,13 @@ export async function semanticPackTool(
   return {
     content: [{ type: "text", text: JSON.stringify(pack, null, 2) }],
   };
+}
+
+function discoverGenericEntrypoints(cwd: string): string[] {
+  const candidates = [
+    "src/main.ts", "src/main.tsx", "src/main.js", "src/main.jsx",
+    "src/index.ts", "src/index.tsx", "src/index.js", "src/index.jsx",
+    "src/App.tsx", "src/App.jsx", "vite.config.ts", "vite.config.js",
+  ];
+  return candidates.filter((path) => existsSync(join(cwd, path)));
 }

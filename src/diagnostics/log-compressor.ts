@@ -1,5 +1,6 @@
 export interface DiagnosticSummary {
   status: "success" | "failed";
+  diagnosticConfidence: "high" | "medium" | "low";
   command: string;
   summary: {
     errors: number;
@@ -248,6 +249,7 @@ export function compressLog(command: string, rawLog: string, exitCode: number, o
 
   return {
     status: exitCode === 0 ? "success" : "failed",
+    diagnosticConfidence: exitCode === 0 || vitestTotalFailed > 0 ? "high" : primaryError?.file ? "medium" : "low",
     command,
     summary: {
       errors: Math.max(errors, exitCode !== 0 ? 1 : 0),
