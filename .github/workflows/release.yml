@@ -41,8 +41,10 @@ jobs:
           npm install --prefix .release-smoke "./$PACKAGE_TGZ"
           node .release-smoke/node_modules/mcp-agentic-server/dist/cli.js doctor
 
-      - name: Publish with provenance
-        run: npm publish --provenance
+      # NPM_TOKEN authentication does not provide the OIDC identity required by
+      # `--provenance`. Switch to npm Trusted Publishing before re-enabling it.
+      - name: Publish package
+        run: npm publish
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
 
