@@ -36,9 +36,9 @@ jobs:
 
       - name: Pack and smoke-test the published artifact
         run: |
-          PACKAGE_TGZ=$(npm pack --json | node -e "let d='';process.stdin.on('data',c=>d+=c).on('end',()=>process.stdout.write(JSON.parse(d)[0].filename))")
+          PACKAGE_TGZ=$(npm pack --json | node scripts/pack-name.mjs)
           mkdir .release-smoke
-          npm install --prefix .release-smoke "../$PACKAGE_TGZ"
+          npm install --prefix .release-smoke "./$PACKAGE_TGZ"
           node .release-smoke/node_modules/mcp-agentic-server/dist/cli.js doctor
 
       - name: Publish with provenance
