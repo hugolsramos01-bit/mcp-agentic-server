@@ -5,6 +5,7 @@ import { secureFs } from "./security/secure-fs.js";
 import type { ToolResponse } from "./pi-tools.js";
 import { codingContextTool } from "./bootstrap-tools.js";
 import { nextRouteMapTool, payloadSchemaMapTool } from "./ast-tools.js";
+import { discoverFastApi } from "./fastapi-tools.js";
 
 // ─── Token Budget Estimation ─────────────────────────────────
 // Rough estimation: ~4 chars/token for code, ~6 chars/token for prose
@@ -159,6 +160,9 @@ export async function semanticPackTool(
     collections: collections.slice(0, 10),
     keyDependencies: context.dependencies?.slice(0, 30),
   };
+
+  const fastApi = await discoverFastApi(cwd);
+  if (fastApi.detected) pack.fastApi = fastApi;
 
   // ─── Recommended Files ──────────────────────────────────────
   // Surface the relevance-tagged files from coding_context

@@ -5,6 +5,34 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.0.17] - 2026-07-20
+
+### Added
+- True skeletal compression outlines with regression coverage for meaningful token savings.
+- FastAPI discovery in semantic packs, including entrypoints, routers, and decorated routes.
+- Native dependency runtime verification option for `worktree_install_deps` and a package smoke command.
+
+### Fixed
+- Replaced the policy-blocked `node -e` build cleanup with a dedicated script.
+- Made v2 checkpoint restoration independent of a legacy `patch.diff` file.
+- Corrected `show_changes` operation classification and made Payload output use one canonical field tree.
+- Removed textual filename fallback from `file_dependencies` to avoid false dependency reports.
+- Exposed `risk_assess_command` and hid deprecated aliases unless `AGENTIC_LEGACY_ALIASES=1` is set.
+
+## [1.0.16] - 2026-07-17
+
+### Added
+- Cross-platform Process Runner with normalized execution results and Windows package-manager shim support.
+- `agentic_doctor` MCP diagnostics and an automated tag-driven npm release workflow with package smoke testing.
+- Explicit `allowParentGitRoot` opt-in for worktree creation when a requested directory belongs to a parent Git repository.
+
+### Fixed
+- Distinguished command, infrastructure, dependency, policy, timeout, and missing-script outcomes in package scripts and tournament verification.
+- Made tournament cleanup truthful, force-capable, and stateful when preserving a winner.
+- Prevented implicit worktree scope expansion to a parent repository.
+- Stabilized Windows npm, pnpm, and yarn execution without a `cmd.exe` shell wrapper.
+- Improved checkpoint restoration, current-workspace change reporting, Payload schema hierarchy, and framework capability diagnostics.
+
 ## [1.0.4] - 2026-07-14
 
 ### Added

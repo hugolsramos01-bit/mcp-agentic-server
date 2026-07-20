@@ -35,7 +35,7 @@ import {
   checkpointSaveTool, checkpointListTool, checkpointRestoreTool, checkpointDeleteTool,
 } from "./checkpoint-tools.js";
 import { proposePlanTool } from "./contract-tools.js";
-import { checkEditAllowed, recordPlan, recordDryRun, recordCheckpoint, recordChange, markChangesShown, getChangeSummary, resetSession as resetPvdlState } from "./change-session.js";
+import { checkEditAllowed, recordPlan, recordDryRun, recordCheckpoint, recordCheckpointRestore, recordChange, markChangesShown, getChangeSummary, getSessionActivity, getSessionLedger, resetSession as resetPvdlState } from "./change-session.js";
 import { semanticPackTool, contextBudgetTool } from "./semantic-tools.js";
 import { knowledgeCaptureTool, knowledgeSearchTool } from "./knowledge-tools.js";
 import { tournamentSpawnTool, tournamentJudgeTool, tournamentCleanupTool } from "./tournament-tools.js";
@@ -64,6 +64,7 @@ import {
   type ToolContent, type ToolLogFields,
 } from "./server/tool-utils.js";
 import { processResult, processOutputSchema, processToolResponse } from "./server/process-tools.js";
+import { agenticDoctor } from "./diagnostics.js";
 
 type Transport = StreamableHTTPServerTransport;
 
@@ -124,6 +125,26 @@ function createMcpServer(
           },
         ],
       };
+    },
+  );
+
+  registerAppTool(
+    server,
+    "agentic_doctor",
+    {
+      title: "Agentic Doctor",
+      description: "Report the running Agentic MCP version, process-runner health, and local package-manager availability without changing a workspace.",
+      inputSchema: {},
+      outputSchema: resultOutputSchema(),
+      ...toolWidgetDescriptorMeta(config, "read"),
+      annotations: READ_TOOL_ANNOTATIONS,
+    },
+      async () => {
+      const report = await agenticDoctor();
+      const text = JSON.stringify(report, null, 2);
+      // resultOutputSchema requires a result field. Keep the full report in the
+      // text payload and provide the schema-compatible summary field as well.
+      return { content: [textBlock(text)], structuredContent: { result: text } };
     },
   );
 
@@ -212,7 +233,10 @@ function createMcpServer(
       {
         title: "Worktree Install Dependencies",
         description: "[General] Hydrates dependencies (e.g., npm install or pnpm install) inside a managed git worktree sandbox.",
-        inputSchema: { workspaceId: z.string() },
+        inputSchema: {
+          workspaceId: z.string(),
+          verify: z.boolean().optional().describe("Load declared native runtime dependencies after installation. Installs always skip lifecycle scripts."),
+        },
         ...toolWidgetDescriptorMeta(config, "shell"),
       } as any,
       async (req: any) => {
@@ -225,27 +249,37 @@ function createMcpServer(
         try {
           const fs = await import("node:fs");
           const pathModule = await import("node:path");
-          const cp = await import("node:child_process");
-          const util = await import("node:util");
-          const execFileAsync = util.promisify(cp.execFile);
+          const { runProcess } = await import("./process-runner/index.js");
           
           let cmd = "npm";
-          let args = ["install", "--ignore-scripts"];
+          let args = ["ci", "--ignore-scripts"];
           let pkgManager = "npm";
+
           if (fs.existsSync(pathModule.join(workspace.worktree.path, "pnpm-lock.yaml"))) {
-            cmd = process.platform === "win32" ? "pnpm.cmd" : "pnpm";
+            cmd = "pnpm";
+            args = ["install", "--frozen-lockfile", "--ignore-scripts"];
             pkgManager = "pnpm";
           } else if (fs.existsSync(pathModule.join(workspace.worktree.path, "yarn.lock"))) {
-            cmd = process.platform === "win32" ? "yarn.cmd" : "yarn";
+            cmd = "yarn";
+            args = ["install", "--immutable", "--ignore-scripts"];
             pkgManager = "yarn";
           }
           
-          const startedAt = performance.now();
-          const { stdout, stderr } = await execFileAsync(cmd, args, { cwd: workspace.worktree.path, shell: false });
-          const durationMs = Math.round(performance.now() - startedAt);
+          const result = await runProcess(cmd, args, { cwd: workspace.worktree.path });
+
+          if (result.status !== "success") {
+            const errResult = result.status === "infrastructure_error" || result.status === "timeout" || result.status === "cancelled"
+              ? `Infrastructure Error: ${result.status === "timeout" ? `Timeout after ${result.timeoutMs}ms` : result.status === "cancelled" ? "Cancelled" : (result as any).message}`
+              : `Install Failed (Exit code ${result.status === "command_failed" ? result.exitCode : -1}): ${(result as any).stderr || (result as any).message}`;
+            return {
+              content: [{ type: "text", text: errResult }],
+              isError: true,
+              structuredContent: result
+            };
+          }
 
           // Extract meaningful summary from pnpm/npm output instead of raw progress spam
-          const fullOutput = stdout + "\n" + stderr;
+          const fullOutput = result.stdout + "\n" + result.stderr;
           const lines = fullOutput.split("\n").filter(Boolean);
           
           // Parse pnpm-style summary: "packages: 910", "Done in 42.8s"
@@ -254,9 +288,29 @@ function createMcpServer(
           const progressLines = lines.filter((l: string) => !l.startsWith("Progress:") && !l.startsWith("Scope:"));
           const summaryLines = progressLines.slice(Math.max(0, progressLines.length - 5));
           
+          let verification: { status: "installed_unverified" | "installed_verified" | "verification_skipped" | "verification_failed"; packages?: string[]; message: string } = {
+            status: "installed_unverified",
+            message: "Lifecycle scripts were skipped, so native/runtime dependencies were not loaded. Use verify: true to run a focused smoke check when supported.",
+          };
+          if (req.verify) {
+            const packageJsonPath = pathModule.join(workspace.worktree.path, "package.json");
+            const packageJson = fs.existsSync(packageJsonPath) ? JSON.parse(fs.readFileSync(packageJsonPath, "utf8")) : {};
+            const allDependencies = { ...(packageJson.dependencies ?? {}), ...(packageJson.optionalDependencies ?? {}) };
+            const nativeCandidates = Object.keys(allDependencies).filter((name) => /^(better-sqlite3|sqlite3|node-pty|sharp|canvas|bcrypt|argon2|esbuild)$/.test(name));
+            if (nativeCandidates.length === 0) {
+              verification = { status: "verification_skipped", message: "No supported native dependency was declared for a meaningful runtime smoke check; installation remains unverified." };
+            } else {
+              const smoke = await runProcess("node", ["-e", "for (const name of JSON.parse(process.argv[1])) require(name)", JSON.stringify(nativeCandidates)], { cwd: workspace.worktree.path, timeoutMs: 30_000 });
+              verification = smoke.status === "success"
+                ? { status: "installed_verified", packages: nativeCandidates, message: "Native runtime dependency smoke check passed." }
+                : { status: "verification_failed", packages: nativeCandidates, message: `Install completed, but runtime verification failed: ${(smoke as any).stderr || (smoke as any).message || smoke.status}` };
+            }
+          }
+
           const summary = [
-            `Dependencies installed successfully (${pkgManager}).`,
-            durationMs ? `Duration: ${durationMs}ms` : null,
+            `Dependencies installed with lifecycle scripts disabled (${pkgManager}).`,
+            `Status: ${verification.status}. ${verification.message}`,
+            result.durationMs ? `Duration: ${result.durationMs}ms` : null,
             packagesDone ? packagesDone.trim() : null,
             doneIn ? doneIn.trim() : null,
             "---",
@@ -265,11 +319,14 @@ function createMcpServer(
 
           return {
             content: [{ type: "text", text: summary }],
+            isError: verification.status === "verification_failed",
             structuredContent: {
-              status: "success",
+              status: verification.status,
               packageManager: pkgManager,
-              durationMs,
+              durationMs: result.durationMs,
               packages: packagesDone?.replace("packages:", "").trim(),
+              lifecycleScriptsSkipped: true,
+              verification,
             }
           };
         } catch (e: any) {
@@ -323,6 +380,10 @@ function createMcpServer(
           .string()
           .optional()
           .describe("Git ref to base a worktree on. Only used with mode=\"worktree\". Defaults to HEAD."),
+        allowParentGitRoot: z
+          .boolean()
+          .optional()
+          .describe("Only for mode=\"worktree\": explicitly allow a requested subdirectory to be promoted to its parent Git root, expanding workspace scope."),
       },
       outputSchema: {
         workspaceId: z.string(),
@@ -350,9 +411,9 @@ function createMcpServer(
       ...toolWidgetDescriptorMeta(config, "workspace"),
       annotations: READ_TOOL_ANNOTATIONS,
     },
-    async ({ path, mode, baseRef }) => {
+    async ({ path, mode, baseRef, allowParentGitRoot }) => {
       const startedAt = performance.now();
-      const { workspace, agentsFiles, availableAgentsFiles } = await workspaces.openWorkspace({ path, mode, baseRef });
+      const { workspace, agentsFiles, availableAgentsFiles } = await workspaces.openWorkspace({ path, mode, baseRef, allowParentGitRoot });
       if (config.widgets === "changes") {
         void reviewCheckpoints.initializeWorkspace({
           workspaceId: workspace.id,
@@ -921,7 +982,7 @@ function createMcpServer(
       };
     },
   );
-    registerAppTool(
+    if (config.legacyAliases) registerAppTool(
       server,
       "preview_edit",
       {
@@ -1098,12 +1159,13 @@ function createMcpServer(
           workspaceId: z
             .string()
             .describe("Workspace identifier returned by open_workspace."),
+          includeSessionHistory: z.boolean().optional().describe("Include historical edits made during this server session. The primary result always reflects the current workspace state."),
         },
         outputSchema: resultOutputSchema(),
         ...toolWidgetDescriptorMeta(config, "show_changes"),
         annotations: READ_TOOL_ANNOTATIONS,
       },
-      async ({ workspaceId }) => {
+      async ({ workspaceId, includeSessionHistory = false }) => {
         const startedAt = performance.now();
         const workspace = workspaces.getWorkspace(workspaceId);
         const review = await reviewCheckpoints.reviewChanges({
@@ -1140,6 +1202,8 @@ function createMcpServer(
           },
           structuredContent: {
             result: contentText(content),
+            currentWorkspaceChanges: review.files,
+            ...(includeSessionHistory ? { sessionLedger: getSessionLedger(workspaceId), sessionActivity: getSessionActivity(workspaceId) } : {}),
           },
         };
       },
@@ -1196,8 +1260,23 @@ function createMcpServer(
         }
 
         // Post-process: apply limit/offset client-side since Pi SDK doesn't support them
-        let resultText = contentText(response.content) || "";
-        let lines = resultText.split("\n").filter(l => l.includes(":"));
+        const resultText = contentText(response.content) || "";
+        // Normalize and sort the complete match set before paginating. The Pi
+        // backend may return duplicates or filesystem-order-dependent output;
+        // paging that raw stream creates overlapping pages.
+        const matches = new Map<string, { line: string; path: string; row: number; column: number }>();
+        for (const line of resultText.split("\n")) {
+          const parsed = line.match(/^(.*):(\d+)(?::(\d+))?:(.*)$/);
+          if (!parsed) continue;
+          const path = parsed[1].replace(/\\/g, "/");
+          const row = Number(parsed[2]);
+          const column = Number(parsed[3] ?? 0);
+          const key = `${path}\u0000${row}\u0000${column}\u0000${parsed[4]}`;
+          matches.set(key, { line, path, row, column });
+        }
+        let lines = [...matches.values()]
+          .sort((a, b) => a.path.localeCompare(b.path) || a.row - b.row || a.column - b.column || a.line.localeCompare(b.line))
+          .map((match) => match.line);
         
         // Apply offset: skip first N results
         const offset = userOffset ?? 0;
@@ -1532,7 +1611,7 @@ function createMcpServer(
         return wrap("next_route_map", req, await nextRouteMapTool(workspace.root, req.appPath));
       }
     );
-    registerAppTool(
+    if (config.legacyAliases) registerAppTool(
       server,
       "next_routes_summary",
       {
@@ -1564,7 +1643,7 @@ function createMcpServer(
         return wrap("payload_schema_map", req, await payloadSchemaMapTool(workspace.root, req.appPath));
       }
     );
-    registerAppTool(
+    if (config.legacyAliases) registerAppTool(
       server,
       "payload_collections_summary",
       {
@@ -1649,7 +1728,9 @@ function createMcpServer(
       } as any,
       async (req: any) => {
         const workspace = workspaces.getWorkspace(req.workspaceId);
-        return wrap("checkpoint_restore", req, await checkpointRestoreTool(workspace.root, req));
+        const result = await checkpointRestoreTool(workspace.root, req);
+        if (!result.isError) recordCheckpointRestore(req.workspaceId, req.id);
+        return wrap("checkpoint_restore", req, result);
       }
     );
     registerAppTool(
@@ -1702,6 +1783,22 @@ function createMcpServer(
       }
     );
     registerAppTool(
+      server,
+      "risk_assess_command",
+      {
+        title: "Risk Assess Command",
+        description: "[Security] Preview the active command-policy verdict without executing a command.",
+        inputSchema: { workspaceId: z.string().describe("Workspace ID"), command: z.string().describe("Command to assess") },
+        outputSchema: resultOutputSchema(),
+        ...toolWidgetDescriptorMeta(config, "read"),
+        annotations: READ_TOOL_ANNOTATIONS,
+      } as any,
+      async (req: any) => {
+        const assessment = assessCommand(req.command);
+        return wrap("risk_assess_command", req, { content: [{ type: "text", text: JSON.stringify(assessment, null, 2) }] });
+      },
+    );
+    if (config.legacyAliases) registerAppTool(
       server,
       "check_recommendations",
       {
@@ -1770,7 +1867,7 @@ function createMcpServer(
         return wrap("changed_files_summary", req, await changedFilesSummaryTool(workspace.root));
       }
     );
-    registerAppTool(
+    if (config.legacyAliases) registerAppTool(
       server,
       "git_changes_summary",
       {
@@ -1852,7 +1949,7 @@ function createMcpServer(
       }
     );
 
-    registerAppTool(
+    if (config.legacyAliases) registerAppTool(
       server,
       "workspace_summary",
       {
@@ -1999,6 +2096,7 @@ function createMcpServer(
           workspaceId: z.string().describe("Workspace ID of the source project"),
           strategies: z.array(z.string()).min(2).max(5).describe("2-5 strategies to test in parallel. Each strategy should be a concise description of the approach."),
           installDependencies: z.boolean().optional().describe("Auto-install dependencies in each worktree after creation (default: false)"),
+          allowParentGitRoot: z.boolean().optional().describe("Explicitly allow promotion from a requested subdirectory to its parent Git root. This expands the worktree scope."),
         },
         outputSchema: resultOutputSchema(),
         ...toolWidgetDescriptorMeta(config, "read"),
@@ -2011,6 +2109,7 @@ function createMcpServer(
           strategies: req.strategies,
           config,
           installDependencies: req.installDependencies ?? false,
+          allowParentGitRoot: req.allowParentGitRoot === true,
           registerWorktree: (worktreePath: string, sourceRoot: string) =>
             workspaces.registerWorktree(worktreePath, sourceRoot),
         }));
@@ -2045,11 +2144,12 @@ function createMcpServer(
       "tournament_cleanup",
       {
         title: "[ADVANCED] Tournament Cleanup",
-        description: "[Tournament] Tear down tournament worktrees. Optionally keep a winner by specifying its worktree path.",
+        description: "[Tournament] Tear down tournament worktrees. Optionally keep a winner. Set force=true only to discard uncommitted worktree changes.",
         inputSchema: {
           workspaceId: z.string().describe("Workspace ID"),
           tournamentId: z.string().describe("Tournament ID from tournament_spawn"),
           winnerPath: z.string().optional().describe("Optional worktree path to keep as the winner"),
+          force: z.boolean().optional().describe("Explicitly discard uncommitted changes in worktrees being removed."),
         },
         outputSchema: resultOutputSchema(),
         ...toolWidgetDescriptorMeta(config, "read"),

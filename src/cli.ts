@@ -38,6 +38,7 @@ import {
   type AgenticUserConfig,
 } from "./user-config.js";
 import { expandHomePath } from "./roots.js";
+import { runProcess } from "./process-runner/index.js";
 
 type Command = "serve" | "init" | "doctor" | "config" | "agents" | "help" | "version";
 const require = createRequire(import.meta.url);
@@ -240,7 +241,17 @@ async function serve(): Promise<void> {
 
 async function runDoctor(): Promise<void> {
   const files = loadAgenticFiles();
+  const pkg = require("../package.json") as { version?: string };
+  const check = async (executable: string) => {
+    const result = await runProcess(executable, ["--version"], { cwd: process.cwd(), timeoutMs: 10_000 });
+    return result.status === "success" ? result.stdout.trim() : `${result.status}: ${"message" in result ? result.message : result.stderr.trim()}`;
+  };
+  const gitSha = await runProcess("git", ["rev-parse", "--short", "HEAD"], { cwd: process.cwd(), timeoutMs: 10_000 });
   console.log(`Config dir: ${files.dir}`);
+  console.log(`Agentic MCP version: ${pkg.version ?? "unknown"}`);
+  console.log(`Git commit: ${gitSha.status === "success" ? gitSha.stdout.trim() : "unavailable"}`);
+  console.log(`Executable: ${process.execPath}`);
+  console.log(`Working directory: ${process.cwd()}`);
   console.log(`Config file: ${files.configExists ? files.configPath : "missing"}`);
   console.log(`Auth file: ${files.authExists ? files.authPath : "missing"}`);
   console.log(`Node: ${process.version} (${nodeVersionStatus()})`);
@@ -249,6 +260,10 @@ async function runDoctor(): Promise<void> {
   console.log(`Git: ${checkGitAvailable()}`);
   console.log(`Bash shell: ${checkBashShell()}`);
   console.log(`SQLite native dependency: ${checkSqliteNative()}`);
+  console.log(`npm: ${await check("npm")}`);
+  console.log(`pnpm: ${await check("pnpm")}`);
+  console.log(`yarn: ${await check("yarn")}`);
+  console.log(`Process runner self-test: ${await check(process.execPath)}`);
 
   try {
     const config = loadConfig();

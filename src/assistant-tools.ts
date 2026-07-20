@@ -342,14 +342,22 @@ export async function runScriptTool(input: RunScriptInput, cwd: string): Promise
   try {
     const pkgPath = join(cwd, "package.json");
     if (!existsSync(pkgPath)) {
-      throw new Error(`package.json not found in ${cwd}. Cannot run npm scripts.`);
+      return {
+        content: [{ type: "text", text: `package.json not found in ${cwd}. Cannot run package scripts.` }],
+        isError: true,
+        structuredContent: { status: "invalid_configuration", cwd, message: "package.json not found" },
+      };
     }
     const pkgText = readFileSync(pkgPath, 'utf8');
     const pkg = JSON.parse(pkgText);
     const availableScripts = pkg.scripts ? Object.keys(pkg.scripts) : [];
 
     if (!pkg.scripts || !pkg.scripts[input.script]) {
-      throw new Error(`Script "${input.script}" not found in package.json. Available scripts: ${availableScripts.join(', ') || 'none'}`);
+      return {
+        content: [{ type: "text", text: `Script "${input.script}" not found in package.json. Available scripts: ${availableScripts.join(', ') || 'none'}` }],
+        isError: true,
+        structuredContent: { status: "script_not_found", cwd, message: `Script "${input.script}" not found` },
+      };
     }
 
     // Detect the actual package manager from lockfiles
@@ -360,8 +368,6 @@ export async function runScriptTool(input: RunScriptInput, cwd: string): Promise
       : "npm";
     const fullCommand = `${packageManager} run ${input.script}`;
 
-    const cmdSuffix = process.platform === "win32" ? ".cmd" : "";
-    const packageManagerCmd = packageManager + cmdSuffix;
 
     const commandsToValidate = collectPackageScriptCommands({
       packageJson: pkg,
@@ -385,22 +391,14 @@ export async function runScriptTool(input: RunScriptInput, cwd: string): Promise
       source: "bash",
     });
 
-    let stdout = "";
-    let stderr = "";
-    let exitCode = 0;
-    const startTime = Date.now();
+    const { runProcess } = await import("./process-runner/index.js");
+    const result = await runProcess(packageManager, ["run", input.script], { cwd });
+    
+    let stdout = result.status === "success" || result.status === "command_failed" || result.status === "timeout" || result.status === "cancelled" ? result.stdout : "";
+    let stderr = result.status === "success" || result.status === "command_failed" || result.status === "timeout" || result.status === "cancelled" ? result.stderr : (result as any).message || "";
+    let exitCode = result.status === "success" ? 0 : (result.status === "command_failed" ? result.exitCode : -1);
 
-    try {
-      const result = await execFileAsync(packageManagerCmd, ["run", input.script], { cwd, shell: false });
-      stdout = result.stdout;
-      stderr = result.stderr;
-    } catch (e: any) {
-      exitCode = e.code || 1;
-      stdout = e.stdout || "";
-      stderr = e.stderr || "";
-    }
-
-    const duration = Date.now() - startTime;
+    const duration = result.durationMs;
     const output = stdout + (stderr ? `\nSTDERR:\n${stderr}` : "");
 
     if (input.outputMode === "diagnostic-summary") {
@@ -477,7 +475,7 @@ export async function runScriptTool(input: RunScriptInput, cwd: string): Promise
           text: JSON.stringify({
             command: fullCommand,
             packageManager,
-            status: exitCode === 0 ? "success" : "failed",
+            status: result.status,
             exitCode,
             durationMs: duration,
             totalLines: lines.length,
@@ -485,24 +483,37 @@ export async function runScriptTool(input: RunScriptInput, cwd: string): Promise
             output: isLong ? undefined : output.trim(),
           }, null, 2)
         }],
-        isError: exitCode !== 0,
+        isError: result.status !== "success",
+        structuredContent: result,
       };
     }
 
-    if (exitCode !== 0) {
+    if (result.status !== "success") {
        return {
-         content: [{ type: "text", text: output.trim() }],
-         isError: true
+         content: [{ type: "text", text: result.status === "timeout"
+           ? `[timeout] Process exceeded ${(result as any).timeoutMs}ms; termination ${(result as any).termination?.confirmed ? "confirmed" : "requested"}.\n${output.trim()}`
+           : result.status === "cancelled"
+             ? `[cancelled] Process termination ${(result as any).termination?.confirmed ? "confirmed" : "requested"}.\n${output.trim()}`
+             : result.status === "infrastructure_error" ? `[infrastructure_error] ${(result as any).message}` : output.trim() }],
+         isError: true,
+         structuredContent: result,
        };
     }
 
     return {
-      content: [{ type: "text", text: output.trim() || "Success (no output)" }]
+      content: [{ type: "text", text: output.trim() || "Success (no output)" }],
+      structuredContent: result,
     };
   } catch (error: any) {
+    const message = error.message || String(error);
     return {
-      content: [{ type: "text", text: error.message || String(error) }],
-      isError: true
+      content: [{ type: "text", text: message }],
+      isError: true,
+      structuredContent: {
+        status: /not allowed|blocked by policy|policy/i.test(message) ? "policy_blocked" : "invalid_configuration",
+        cwd,
+        message,
+      },
     };
   }
 }

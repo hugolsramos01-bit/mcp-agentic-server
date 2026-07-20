@@ -29,6 +29,7 @@ export interface ServerConfig {
   agenticSkillsDir: string;
   agenticAgentsDir: string;
   subagents: boolean;
+  legacyAliases: boolean;
   agentDir: string;
   logging: LoggingConfig;
 }
@@ -246,6 +247,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): ServerConfig {
       env.AGENTIC_SUBAGENTS === undefined
         ? files.config.subagents === true
         : parseBoolean(env.AGENTIC_SUBAGENTS),
+    legacyAliases: parseBoolean(env.AGENTIC_LEGACY_ALIASES),
     agentDir: resolve(expandHomePath(env.AGENTIC_AGENT_DIR ?? files.config.agentDir ?? defaultAgentDir())),
     logging: parseLoggingConfig(env),
   };

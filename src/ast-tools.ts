@@ -1,4 +1,4 @@
-import { join, basename, relative, extname } from "node:path";
+import { join, relative, extname } from "node:path";
 import { existsSync, readFileSync, statSync } from "node:fs";
 import { secureFs } from "./security/secure-fs.js";
 import { readdir } from "node:fs/promises";
@@ -125,14 +125,28 @@ function setCachedCollections(dir: string, collections: any[]): void {
 
 export interface NextRouteMapInput {}
 
+function capability(cwd: string, dependency: string, configNames: string[] = []) {
+  const evidence: string[] = [];
+  try {
+    const pkg = JSON.parse(readFileSync(join(cwd, "package.json"), "utf8"));
+    if (pkg.dependencies?.[dependency] || pkg.devDependencies?.[dependency]) evidence.push(`package.json dependency: ${dependency}`);
+  } catch { /* reported as no evidence; callers remain structured */ }
+  for (const name of configNames) if (existsSync(join(cwd, name))) evidence.push(name);
+  return { detected: evidence.length > 0, confidence: evidence.length > 0 ? "high" : "low", evidence };
+}
+
 export async function nextRouteMapTool(cwd: string, basePath?: string): Promise<ToolResponse> {
   // If a basePath is provided (e.g. "apps/web"), search relative to it
   const searchRoot = basePath ? enforceSecurePath(basePath, cwd, [cwd], false) : cwd;
+  
+  const nextjs = capability(searchRoot, "next", ["next.config.js", "next.config.mjs", "next.config.ts"]);
+  if (!nextjs.detected) return { content: [{ type: "text", text: JSON.stringify({ routes: [], capabilities: { nextjs }, message: "No supported Next.js project was confirmed." }, null, 2) }] };
+
   const appDir = existsSync(join(searchRoot, "src/app")) ? join(searchRoot, "src/app") : existsSync(join(searchRoot, "app")) ? join(searchRoot, "app") : null;
   const pagesDir = existsSync(join(searchRoot, "src/pages")) ? join(searchRoot, "src/pages") : existsSync(join(searchRoot, "pages")) ? join(searchRoot, "pages") : null;
   
   if (!appDir && !pagesDir) {
-    return { content: [{ type: "text", text: "No app/ or pages/ directory found in the workspace." }] };
+    return { content: [{ type: "text", text: JSON.stringify({ routes: [], capabilities: { nextjs }, message: "Next.js was detected, but no app/ or pages/ directory was found." }, null, 2) }] };
   }
 
   // Try cache for the primary app directory
@@ -140,7 +154,7 @@ export async function nextRouteMapTool(cwd: string, basePath?: string): Promise<
   if (cacheDir) {
     const cached = getCachedRouteManifest(cacheDir);
     if (cached) {
-      return { content: [{ type: "text", text: JSON.stringify({ routes: cached, cached: true }, null, 2) }] };
+      return { content: [{ type: "text", text: JSON.stringify({ routes: cached, cached: true, capabilities: { nextjs } }, null, 2) }] };
     }
   }
 
@@ -208,7 +222,7 @@ export async function nextRouteMapTool(cwd: string, basePath?: string): Promise<
     setCachedRouteManifest(cacheDir, routes);
   }
 
-  return { content: [{ type: "text", text: JSON.stringify({ routes }, null, 2) }] };
+  return { content: [{ type: "text", text: JSON.stringify({ routes, capabilities: { nextjs } }, null, 2) }] };
 }
 
 // --- Payload Schema Map ---
@@ -219,6 +233,9 @@ export async function payloadSchemaMapTool(cwd: string, basePath?: string): Prom
   // If a basePath is provided (e.g. "apps/web"), search relative to it
   const searchRoot = basePath ? enforceSecurePath(basePath, cwd, [cwd], false) : cwd;
   
+  const payload = capability(searchRoot, "payload", ["payload.config.ts", "payload.config.js"]);
+  if (!payload.detected) return { content: [{ type: "text", text: JSON.stringify({ collections: [], capabilities: { payload }, message: "No supported Payload project was confirmed." }, null, 2) }] };
+
   // Common locations for payload collections
   const possibleDirs = [
     join(searchRoot, "src/collections"),
@@ -236,13 +253,13 @@ export async function payloadSchemaMapTool(cwd: string, basePath?: string): Prom
   }
   
   if (!collectionsDir) {
-    return { content: [{ type: "text", text: "No collections directory found (checked src/collections, collections, etc)." }] };
+    return { content: [{ type: "text", text: JSON.stringify({ collections: [], capabilities: { payload }, message: "No collections directory found." }, null, 2) }] };
   }
 
   // Try cache
   const cached = getCachedCollections(collectionsDir);
   if (cached) {
-    return { content: [{ type: "text", text: JSON.stringify({ collections: cached, cached: true }, null, 2) }] };
+      return { content: [{ type: "text", text: JSON.stringify({ collections: cached, cached: true, capabilities: { payload } }, null, 2) }] };
   }
 
   const collections: any[] = [];
@@ -275,7 +292,7 @@ export async function payloadSchemaMapTool(cwd: string, basePath?: string): Prom
   // Save to cache
   if (collections.length > 0) setCachedCollections(collectionsDir, collections);
   
-  return { content: [{ type: "text", text: JSON.stringify({ collections }, null, 2) }] };
+  return { content: [{ type: "text", text: JSON.stringify({ collections, capabilities: { payload } }, null, 2) }] };
 }
 
 function parseCollectionFile(content: string): any {
@@ -441,7 +458,17 @@ function parseCollectionFile(content: string): any {
   visit(sourceFile);
   
   if (slug) {
-    return { slug, tenantScoped, fieldsTree, access, hooks };
+    const flatFields: any[] = [];
+    const flatten = (nodes: any[], parent = "") => nodes.forEach((node) => {
+      const segment = node.type === "array" ? `${node.name}[]` : node.name;
+      const path = parent ? `${parent}.${segment}` : segment;
+      flatFields.push({ ...node, children: undefined, path });
+      if (node.children) flatten(node.children, path);
+    });
+    flatten(fieldsTree);
+    // `fieldsTree` is the canonical hierarchy. `flatFields` is explicitly a
+    // path-addressed index, so nested fields are never mistaken for roots.
+    return { slug, tenantScoped, fieldsTree, flatFields, access, hooks };
   }
   return null;
 }
@@ -498,16 +525,10 @@ export async function fileDependenciesTool(cwd: string, targetPath: string): Pro
     for (const f of files) {
        if (!inwards.includes(f)) inwards.push(f);
     }
-  } catch (e) {
-    // If grep fails, fallback to simple filename-based search
-    try {
-      const fileBase = basename(targetPath, ext);
-      const { stdout } = await execFileAsync("git", ["grep", "--name-only", fileBase], { cwd, maxBuffer: 1024 * 1024 * 10 });
-      const files = stdout.split('\n').map((l: string) => l.trim()).filter((l: string) => l && l !== targetPath.replace(/\\/g, '/'));
-      for (const f of files) {
-         if (!inwards.includes(f)) inwards.push(f);
-      }
-    } catch {}
+  } catch {
+    // No filename/text fallback: a mention in a document or test is not an
+    // executable dependency. Return an empty inbound set when Git cannot
+    // perform the import-specific query.
   }
   
   return {
