@@ -186,10 +186,7 @@ function createMcpServer(
       {
         title: "Worktree Sync Changes",
         description: "[General] Copies uncommitted changes from the main workspace to this managed worktree sandbox.",
-        inputSchema: {
-          workspaceId: z.string(),
-          verify: z.boolean().optional().describe("Optionally load known native runtime dependencies after installation. Installs always skip lifecycle scripts."),
-        },
+        inputSchema: { workspaceId: z.string() },
         ...toolWidgetDescriptorMeta(config, "shell"),
       } as any,
       async (req: any) => {
@@ -236,7 +233,10 @@ function createMcpServer(
       {
         title: "Worktree Install Dependencies",
         description: "[General] Hydrates dependencies (e.g., npm install or pnpm install) inside a managed git worktree sandbox.",
-        inputSchema: { workspaceId: z.string() },
+        inputSchema: {
+          workspaceId: z.string(),
+          verify: z.boolean().optional().describe("Load declared native runtime dependencies after installation. Installs always skip lifecycle scripts."),
+        },
         ...toolWidgetDescriptorMeta(config, "shell"),
       } as any,
       async (req: any) => {
@@ -982,7 +982,7 @@ function createMcpServer(
       };
     },
   );
-    registerAppTool(
+    if (config.legacyAliases) registerAppTool(
       server,
       "preview_edit",
       {
@@ -1611,7 +1611,7 @@ function createMcpServer(
         return wrap("next_route_map", req, await nextRouteMapTool(workspace.root, req.appPath));
       }
     );
-    registerAppTool(
+    if (config.legacyAliases) registerAppTool(
       server,
       "next_routes_summary",
       {
@@ -1643,7 +1643,7 @@ function createMcpServer(
         return wrap("payload_schema_map", req, await payloadSchemaMapTool(workspace.root, req.appPath));
       }
     );
-    registerAppTool(
+    if (config.legacyAliases) registerAppTool(
       server,
       "payload_collections_summary",
       {
@@ -1784,6 +1784,22 @@ function createMcpServer(
     );
     registerAppTool(
       server,
+      "risk_assess_command",
+      {
+        title: "Risk Assess Command",
+        description: "[Security] Preview the active command-policy verdict without executing a command.",
+        inputSchema: { workspaceId: z.string().describe("Workspace ID"), command: z.string().describe("Command to assess") },
+        outputSchema: resultOutputSchema(),
+        ...toolWidgetDescriptorMeta(config, "read"),
+        annotations: READ_TOOL_ANNOTATIONS,
+      } as any,
+      async (req: any) => {
+        const assessment = assessCommand(req.command);
+        return wrap("risk_assess_command", req, { content: [{ type: "text", text: JSON.stringify(assessment, null, 2) }] });
+      },
+    );
+    if (config.legacyAliases) registerAppTool(
+      server,
       "check_recommendations",
       {
         title: "⚠️ DEPRECATED — Check Recommendations (use suggest_checks)",
@@ -1851,7 +1867,7 @@ function createMcpServer(
         return wrap("changed_files_summary", req, await changedFilesSummaryTool(workspace.root));
       }
     );
-    registerAppTool(
+    if (config.legacyAliases) registerAppTool(
       server,
       "git_changes_summary",
       {
@@ -1933,7 +1949,7 @@ function createMcpServer(
       }
     );
 
-    registerAppTool(
+    if (config.legacyAliases) registerAppTool(
       server,
       "workspace_summary",
       {

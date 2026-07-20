@@ -109,6 +109,13 @@ export function compressAST(
     sourceFile = ts.createSourceFile(filePath || "temp.ts", normalizedContent, ts.ScriptTarget.Latest, true);
   }
 
+  // Skeletal is intentionally a declaration outline, not merely aggressive
+  // compression. The previous implementation often returned almost the entire
+  // file when functions were short or declarations were not object literals.
+  if (level === "skeletal") {
+    return buildSkeletalOutline(sourceFile, normalizedContent, filePath);
+  }
+
   const omissionsToApply: { start: number; end: number; lines: string; reason: string; risk: "low" | "medium" | "high" }[] = [];
   let protectedBlocksPreserved = 0;
 
@@ -124,7 +131,7 @@ export function compressAST(
   }
 
   function visit(node: ts.Node) {
-    const isAggressive = level === "aggressive" || level === "skeletal";
+    const isAggressive = level === "aggressive";
     const isBalanced = level === "balanced" || isAggressive;
     const isLight = level === "light" || isBalanced;
 
@@ -248,10 +255,67 @@ export function compressAST(
       compressionEffective,
       protectedBlocksPreserved,
       omittedBlocks: omissionsToApply.length,
-      risk: level === "aggressive" || level === "skeletal" ? "high" : (level === "balanced" ? "medium" : "low"),
+      risk: level === "aggressive" ? "high" : (level === "balanced" ? "medium" : "low"),
       mustExpandBeforeEdit: mustExpand
     }
   };
+}
+
+function buildSkeletalOutline(sourceFile: ts.SourceFile, original: string, filePath?: string): CompressionResult {
+  const lines: string[] = [`// Skeletal outline${filePath ? `: ${filePath}` : ""}`];
+  const omissions: Omission[] = [];
+
+  for (const statement of sourceFile.statements) {
+    const startLine = sourceFile.getLineAndCharacterOfPosition(statement.getStart(sourceFile)).line + 1;
+    const endLine = sourceFile.getLineAndCharacterOfPosition(statement.getEnd()).line + 1;
+    const text = statement.getText(sourceFile).trim();
+    let outline: string;
+
+    if (ts.isImportDeclaration(statement) || ts.isExportDeclaration(statement) || ts.isInterfaceDeclaration(statement) || ts.isTypeAliasDeclaration(statement) || ts.isEnumDeclaration(statement)) {
+      outline = trimDeclaration(text);
+    } else if (ts.isFunctionDeclaration(statement)) {
+      outline = `${text.slice(0, text.indexOf("{")).trim()} { /* body omitted */ }`;
+    } else if (ts.isClassDeclaration(statement)) {
+      const name = statement.name?.text ?? "AnonymousClass";
+      const modifiers = statement.modifiers?.map((m) => m.getText(sourceFile)).join(" ") ?? "";
+      const heritage = statement.heritageClauses?.map((clause) => clause.getText(sourceFile)).join(" ") ?? "";
+      outline = `${modifiers} class ${name}${heritage ? ` ${heritage}` : ""} { /* members omitted */ }`.trim();
+    } else if (ts.isVariableStatement(statement)) {
+      const declaration = statement.declarationList.declarations.map((d) => d.name.getText(sourceFile)).join(", ");
+      const keyword = statement.declarationList.flags & ts.NodeFlags.Const ? "const" : statement.declarationList.flags & ts.NodeFlags.Let ? "let" : "var";
+      outline = `${keyword} ${declaration} = /* initializer omitted */;`;
+    } else {
+      outline = `/* ${ts.SyntaxKind[statement.kind]} omitted */`;
+    }
+
+    lines.push(outline);
+    if (endLine > startLine || outline !== text) {
+      omissions.push({ lines: `${startLine}-${endLine}`, reason: "top-level implementation omitted" });
+    }
+  }
+
+  const output = lines.join("\n") + "\n";
+  const originalTokens = Math.ceil(original.length / 4);
+  const outputTokens = Math.ceil(output.length / 4);
+  return {
+    output,
+    omissions,
+    metadata: {
+      level: "skeletal",
+      originalTokensEstimate: originalTokens,
+      outputTokensEstimate: outputTokens,
+      compressionEffective: originalTokens - outputTokens >= Math.max(50, originalTokens * 0.4),
+      protectedBlocksPreserved: 0,
+      omittedBlocks: omissions.length,
+      risk: "high",
+      mustExpandBeforeEdit: omissions,
+    },
+  };
+}
+
+function trimDeclaration(text: string): string {
+  const maxLength = 500;
+  return text.length > maxLength ? `${text.slice(0, maxLength)} /* declaration truncated */` : text;
 }
 
 /**

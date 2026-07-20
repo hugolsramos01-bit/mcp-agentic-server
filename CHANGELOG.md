@@ -5,6 +5,20 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.0.17] - 2026-07-20
+
+### Added
+- True skeletal compression outlines with regression coverage for meaningful token savings.
+- FastAPI discovery in semantic packs, including entrypoints, routers, and decorated routes.
+- Native dependency runtime verification option for `worktree_install_deps` and a package smoke command.
+
+### Fixed
+- Replaced the policy-blocked `node -e` build cleanup with a dedicated script.
+- Made v2 checkpoint restoration independent of a legacy `patch.diff` file.
+- Corrected `show_changes` operation classification and made Payload output use one canonical field tree.
+- Removed textual filename fallback from `file_dependencies` to avoid false dependency reports.
+- Exposed `risk_assess_command` and hid deprecated aliases unless `AGENTIC_LEGACY_ALIASES=1` is set.
+
 ## [1.0.16] - 2026-07-17
 
 ### Added

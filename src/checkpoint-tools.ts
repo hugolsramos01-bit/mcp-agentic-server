@@ -243,14 +243,6 @@ export async function checkpointRestoreTool(cwd: string, input: CheckpointRestor
     };
   }
 
-  const patchPath = join(cpDir, "patch.diff");
-  if (!existsSync(patchPath)) {
-    return {
-      content: [{ type: "text", text: `Checkpoint "${input.id}" has no patch data.` }],
-      isError: true,
-    };
-  }
-
   // Load metadata to understand what was saved
   let meta: any = {};
   try {
@@ -303,6 +295,13 @@ export async function checkpointRestoreTool(cwd: string, input: CheckpointRestor
         restore(untrackedDir);
       }
       return { content: [{ type: "text", text: JSON.stringify({ id: input.id, status: warnings.length ? "partial" : "success", message: warnings.length ? "Checkpoint partially restored." : "Checkpoint restored.", warnings, restoredTrackedFiles: meta.trackedFiles.length, restoredUntrackedFiles: savedUntracked.size }, null, 2) }], isError: warnings.length > 0 };
+    }
+    const patchPath = join(cpDir, "patch.diff");
+    if (!existsSync(patchPath)) {
+      return {
+        content: [{ type: "text", text: `Checkpoint "${input.id}" is a legacy checkpoint without patch data and cannot be restored safely.` }],
+        isError: true,
+      };
     }
     // Legacy baseline restore (v1 checkpoints only). New baselines are v2
     // snapshots and take the deterministic branch above.

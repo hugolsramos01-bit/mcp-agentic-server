@@ -25,6 +25,8 @@ assert.equal(loadConfig(baseEnv).skillsEnabled, true);
 assert.equal(loadConfig(baseEnv).agenticSkillsDir, join(emptyConfigDir, "skills"));
 assert.equal(loadConfig(baseEnv).agenticAgentsDir, join(emptyConfigDir, "agents"));
 assert.equal(loadConfig(baseEnv).subagents, false);
+assert.equal(loadConfig(baseEnv).legacyAliases, false);
+assert.equal(loadConfig({ ...baseEnv, AGENTIC_LEGACY_ALIASES: "1" }).legacyAliases, true);
 assert.equal(loadConfig({ ...baseEnv, AGENTIC_SKILLS: "0" }).skillsEnabled, false);
 assert.equal(loadConfig({ ...baseEnv, AGENTIC_SKILLS: "1" }).skillsEnabled, true);
 assert.equal(

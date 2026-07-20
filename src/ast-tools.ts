@@ -1,4 +1,4 @@
-import { join, basename, relative, extname } from "node:path";
+import { join, relative, extname } from "node:path";
 import { existsSync, readFileSync, statSync } from "node:fs";
 import { secureFs } from "./security/secure-fs.js";
 import { readdir } from "node:fs/promises";
@@ -466,7 +466,9 @@ function parseCollectionFile(content: string): any {
       if (node.children) flatten(node.children, path);
     });
     flatten(fieldsTree);
-    return { slug, tenantScoped, fields: fieldsTree, fieldsTree, flatFields, access, hooks };
+    // `fieldsTree` is the canonical hierarchy. `flatFields` is explicitly a
+    // path-addressed index, so nested fields are never mistaken for roots.
+    return { slug, tenantScoped, fieldsTree, flatFields, access, hooks };
   }
   return null;
 }
@@ -523,16 +525,10 @@ export async function fileDependenciesTool(cwd: string, targetPath: string): Pro
     for (const f of files) {
        if (!inwards.includes(f)) inwards.push(f);
     }
-  } catch (e) {
-    // If grep fails, fallback to simple filename-based search
-    try {
-      const fileBase = basename(targetPath, ext);
-      const { stdout } = await execFileAsync("git", ["grep", "--name-only", fileBase], { cwd, maxBuffer: 1024 * 1024 * 10 });
-      const files = stdout.split('\n').map((l: string) => l.trim()).filter((l: string) => l && l !== targetPath.replace(/\\/g, '/'));
-      for (const f of files) {
-         if (!inwards.includes(f)) inwards.push(f);
-      }
-    } catch {}
+  } catch {
+    // No filename/text fallback: a mention in a document or test is not an
+    // executable dependency. Return an empty inbound set when Git cannot
+    // perform the import-specific query.
   }
   
   return {
