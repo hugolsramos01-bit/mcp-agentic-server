@@ -3,6 +3,7 @@ import { existsSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { loadConfig } from "./config.js";
+import { serverInstructions } from "./server/tool-utils.js";
 import { ensureAgenticDefaultSkills, resolveSubagentsFlag } from "./user-config.js";
 
 const emptyConfigDir = mkdtempSync(join(tmpdir(), "agentic-empty-config-test-"));
@@ -27,6 +28,9 @@ assert.equal(loadConfig(baseEnv).agenticAgentsDir, join(emptyConfigDir, "agents"
 assert.equal(loadConfig(baseEnv).subagents, false);
 assert.equal(loadConfig(baseEnv).legacyAliases, false);
 assert.equal(loadConfig({ ...baseEnv, AGENTIC_LEGACY_ALIASES: "1" }).legacyAliases, true);
+const assistantInstructions = serverInstructions(loadConfig(baseEnv));
+assert.doesNotMatch(assistantInstructions, /preview_edit|next_routes_summary|payload_collections_summary|check_recommendations|git_changes_summary|workspace_summary/);
+assert.match(assistantInstructions, /edit_dry_run/);
 assert.equal(loadConfig({ ...baseEnv, AGENTIC_SKILLS: "0" }).skillsEnabled, false);
 assert.equal(loadConfig({ ...baseEnv, AGENTIC_SKILLS: "1" }).skillsEnabled, true);
 assert.equal(

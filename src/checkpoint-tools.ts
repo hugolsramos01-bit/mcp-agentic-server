@@ -1,27 +1,25 @@
 import { join, dirname } from "node:path";
-import { existsSync, mkdirSync, readFileSync, writeFileSync, readdirSync, rmSync, copyFileSync, appendFileSync } from "node:fs";
-import { execFile } from "node:child_process";
+import { existsSync, mkdirSync, readFileSync, writeFileSync, readdirSync, rmSync, copyFileSync } from "node:fs";
+import { execFile, execFileSync } from "node:child_process";
+import { createHash } from "node:crypto";
 import { promisify } from "node:util";
 import type { ToolResponse } from "./pi-tools.js";
 
 const execFileAsync = promisify(execFile);
-const CHECKPOINT_DIR = ".agentic-checkpoints";
+const CHECKPOINT_DIR = "agentic-checkpoints";
 
 function checkpointDir(cwd: string): string {
-  const dir = join(cwd, CHECKPOINT_DIR);
-  if (!existsSync(dir)) {
-    mkdirSync(dir, { recursive: true });
-    // Add to git exclude so checkpoints never appear as untracked files in git_status,
-    // changed_files_summary, or show_changes — they are internal metadata, not project changes.
-    const excludePath = join(cwd, ".git", "info", "exclude");
-    try {
-      const excludeContent = readFileSync(excludePath, "utf8");
-      if (!excludeContent.includes(CHECKPOINT_DIR)) {
-        appendFileSync(excludePath, `\n# Agentic MCP checkpoints\n${CHECKPOINT_DIR}/\n`);
-      }
-    } catch { /* git info/exclude not available — non-fatal */ }
-  }
+  // In a Git worktree .git is a file, not the administrative directory. Put
+  // checkpoints beside that directory so Git never sees its own recovery data
+  // as untracked workspace content (and restore cannot delete the snapshot).
+  const dir = execFileSync("git", ["rev-parse", "--path-format=absolute", "--git-path", CHECKPOINT_DIR], { cwd, encoding: "utf8" }).trim();
+  if (!dir) throw new Error("Git did not resolve its administrative directory for checkpoint storage.");
+  if (!existsSync(dir)) mkdirSync(dir, { recursive: true });
   return dir;
+}
+
+function hashFile(path: string): string {
+  return createHash("sha256").update(readFileSync(path)).digest("hex");
 }
 
 function listCheckpoints(cwd: string): { id: string; timestamp: string; description: string }[] {
@@ -65,7 +63,15 @@ export async function checkpointSaveTool(cwd: string, input: CheckpointSaveInput
     };
   }
 
-  const dir = checkpointDir(cwd);
+  let dir: string;
+  try {
+    dir = checkpointDir(cwd);
+  } catch (error: any) {
+    return {
+      content: [{ type: "text", text: `Error creating checkpoint: ${error.message}` }],
+      isError: true,
+    };
+  }
   const timestamp = new Date().toISOString().replace(/[:.]/g, "-");
   const cpDir = join(dir, `cp-${timestamp}`);
   mkdirSync(cpDir, { recursive: true });
@@ -95,6 +101,7 @@ export async function checkpointSaveTool(cwd: string, input: CheckpointSaveInput
     const trackedFiles = changedTracked.trim() ? changedTracked.trim().split("\n").map((path) => ({
       path,
       existed: existsSync(join(cwd, path)),
+      sha256: existsSync(join(cwd, path)) ? hashFile(join(cwd, path)) : undefined,
     })) : [];
     if (trackedFiles.length) {
       const trackedDir = join(cpDir, "tracked");
@@ -127,6 +134,7 @@ export async function checkpointSaveTool(cwd: string, input: CheckpointSaveInput
         // A baseline is also a v2 snapshot: restoring it is deterministic and
         // reusable, rather than creating/mutating a git stash.
         trackedFiles: [],
+        untrackedFiles: [],
         parentId: checkpoints.length > 0 ? checkpoints[0].id : undefined,
       };
       writeFileSync(join(cpDir, "meta.json"), JSON.stringify(meta, null, 2), "utf8");
@@ -143,6 +151,7 @@ export async function checkpointSaveTool(cwd: string, input: CheckpointSaveInput
     writeFileSync(join(cpDir, "patch.diff"), combined, "utf8");
 
     // Save untracked file contents
+    const untrackedFiles: { path: string; sha256: string }[] = [];
     if (untracked.trim()) {
       const untrackedDir = join(cpDir, "untracked");
       mkdirSync(untrackedDir, { recursive: true });
@@ -160,6 +169,7 @@ export async function checkpointSaveTool(cwd: string, input: CheckpointSaveInput
         const targetDir = parentDir ? join(untrackedDir, parentDir) : untrackedDir;
         if (!existsSync(targetDir)) mkdirSync(targetDir, { recursive: true });
         writeFileSync(join(untrackedDir, file), readFileSync(filePath));
+        untrackedFiles.push({ path: file.replace(/\\/g, "/"), sha256: hashFile(filePath) });
       }
     }
 
@@ -169,6 +179,7 @@ export async function checkpointSaveTool(cwd: string, input: CheckpointSaveInput
       description: input.description || `Checkpoint ${timestamp}`,
       hasUntracked: untracked.trim().length > 0,
       trackedFiles,
+      untrackedFiles,
       parentId: checkpoints.length > 0 ? checkpoints[0].id : undefined,
     };
     writeFileSync(join(cpDir, "meta.json"), JSON.stringify(meta, null, 2), "utf8");
@@ -210,7 +221,12 @@ export async function checkpointSaveTool(cwd: string, input: CheckpointSaveInput
 export interface CheckpointListInput {}
 
 export async function checkpointListTool(cwd: string): Promise<ToolResponse> {
-  const dir = join(cwd, CHECKPOINT_DIR);
+  let dir: string;
+  try {
+    dir = checkpointDir(cwd);
+  } catch (error: any) {
+    return { content: [{ type: "text", text: `Cannot list checkpoints: ${error.message}` }], isError: true };
+  }
   if (!existsSync(dir)) {
     return {
       content: [{ type: "text", text: JSON.stringify({ checkpoints: [] }, null, 2) }],
@@ -233,7 +249,12 @@ export interface CheckpointRestoreInput {
 }
 
 export async function checkpointRestoreTool(cwd: string, input: CheckpointRestoreInput): Promise<ToolResponse> {
-  const dir = checkpointDir(cwd);
+  let dir: string;
+  try {
+    dir = checkpointDir(cwd);
+  } catch (error: any) {
+    return { content: [{ type: "text", text: `Cannot restore checkpoint: ${error.message}` }], isError: true };
+  }
   const cpDir = join(dir, input.id);
 
   if (!existsSync(cpDir)) {
@@ -294,7 +315,16 @@ export async function checkpointRestoreTool(cwd: string, input: CheckpointRestor
         });
         restore(untrackedDir);
       }
-      return { content: [{ type: "text", text: JSON.stringify({ id: input.id, status: warnings.length ? "partial" : "success", message: warnings.length ? "Checkpoint partially restored." : "Checkpoint restored.", warnings, restoredTrackedFiles: meta.trackedFiles.length, restoredUntrackedFiles: savedUntracked.size }, null, 2) }], isError: warnings.length > 0 };
+      for (const entry of meta.trackedFiles as { path: string; existed: boolean; sha256?: string }[]) {
+        const target = join(cwd, entry.path);
+        if (!entry.existed && existsSync(target)) warnings.push(`Verification failed: ${entry.path} should be absent.`);
+        if (entry.existed && (!existsSync(target) || (entry.sha256 && hashFile(target) !== entry.sha256))) warnings.push(`Verification failed: ${entry.path} does not match the checkpoint.`);
+      }
+      for (const entry of (meta.untrackedFiles ?? []) as { path: string; sha256: string }[]) {
+        const target = join(cwd, entry.path);
+        if (!existsSync(target) || hashFile(target) !== entry.sha256) warnings.push(`Verification failed: ${entry.path} does not match the checkpoint.`);
+      }
+      return { content: [{ type: "text", text: JSON.stringify({ id: input.id, status: warnings.length ? "partial" : "success", message: warnings.length ? "Checkpoint partially restored; verification found mismatches." : "Checkpoint restored and verified.", warnings, restoredTrackedFiles: meta.trackedFiles.length, restoredUntrackedFiles: savedUntracked.size }, null, 2) }], isError: warnings.length > 0 };
     }
     const patchPath = join(cpDir, "patch.diff");
     if (!existsSync(patchPath)) {
@@ -462,7 +492,12 @@ export interface CheckpointDeleteInput {
 }
 
 export async function checkpointDeleteTool(cwd: string, input: CheckpointDeleteInput): Promise<ToolResponse> {
-  const dir = checkpointDir(cwd);
+  let dir: string;
+  try {
+    dir = checkpointDir(cwd);
+  } catch (error: any) {
+    return { content: [{ type: "text", text: `Cannot delete checkpoint: ${error.message}` }], isError: true };
+  }
   const cpDir = join(dir, input.id);
 
   if (!existsSync(cpDir)) {

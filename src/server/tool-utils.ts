@@ -120,7 +120,6 @@ export function serverInstructions(config: ServerConfig): string {
     ? `Tools are organized by visibility:
 [CORE] — Always use these first: open_workspace, project_bootstrap, semantic_pack, grep, read_adaptive (auto-compresses!), read, read_many, git_status, git_diff, propose_plan, edit_dry_run, checkpoint_save, edit, write, run_package_script, show_changes, file_dependencies, tree.
 [ADVANCED] — Use when core tools are insufficient: tournament_*, knowledge_*, set_policy, reset_policy, token_audit, context_budget, payload_schema_map, next_route_map, monorepo_map, safe_file_preview, apply_patch.
-[DEPRECATED] — Avoid; use the replacement instead (preview_edit→edit_dry_run, next_routes_summary→next_route_map, payload_collections_summary→payload_schema_map, check_recommendations→suggest_checks, git_changes_summary→changed_files_summary, workspace_summary→project_bootstrap).
 
 Prefer read_adaptive over read for most cases — it automatically picks the right compression level. Use read only when you need explicit line range control. Use read_compressed only when you need explicit compression level. Use read_many to batch reads.
 
