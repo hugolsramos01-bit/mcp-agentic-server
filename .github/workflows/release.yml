@@ -47,7 +47,19 @@ jobs:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
 
       - name: Verify registry version
-        run: test "$(npm view mcp-agentic-server version)" = "$(node -p "require('./package.json').version")"
+        run: |
+          EXPECTED_VERSION=$(node -p "require('./package.json').version")
+          for attempt in {1..12}; do
+            ACTUAL_VERSION=$(npm view mcp-agentic-server version 2>/dev/null || true)
+            if test "$ACTUAL_VERSION" = "$EXPECTED_VERSION"; then
+              echo "Registry confirms $EXPECTED_VERSION."
+              exit 0
+            fi
+            echo "Registry reports '${ACTUAL_VERSION:-unavailable}' (attempt $attempt/12); retrying in 10 seconds."
+            sleep 10
+          done
+          echo "Registry did not report $EXPECTED_VERSION after two minutes."
+          exit 1
 
       - name: Create GitHub release
         uses: softprops/action-gh-release@v2
