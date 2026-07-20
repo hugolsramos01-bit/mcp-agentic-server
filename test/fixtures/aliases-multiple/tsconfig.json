@@ -1,0 +1,1 @@
+{"compilerOptions":{"baseUrl":".","paths":{"@ui/*":["src/ui/*"],"@lib/*":["src/lib/*"],"@types/*":["src/types/*"]}}}
