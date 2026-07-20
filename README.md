@@ -4,6 +4,9 @@
 
 This project is an advanced, high-performance [Model Context Protocol (MCP)](https://modelcontextprotocol.io/) server designed specifically for Agentic Coding. It gives LLMs secure access to your local repositories, but unlike naive implementations that simply dump file contents into the context window and trigger limits, this server is built with **Context Anti-Bloat**, **AST Semantic Navigation**, and **True Git Worktree Sandboxing**.
 
+> [!WARNING]
+> **Security Notice**: This tool runs on your local machine and can execute shell commands. A managed Git worktree provides an isolated Git checkout to prevent polluting your main repository, but it is **not** an operating system sandbox. It does not restrict network access or subprocesses. Always review what the LLM intends to run.
+
 ---
 
 ## 🔥 Key Innovations
@@ -37,11 +40,29 @@ For long autonomous sessions, the agent can save point-in-time snapshots of the 
 
 Requirements: Node `>=22.12.0 <27`
 
+### Quick Start via NPX
+The easiest way to configure and run the server is using `npx`:
+
 ```bash
-npm install
+npx -y mcp-agentic-server init
+npx -y mcp-agentic-server serve
+```
+
+### Manual Clone & Build
+If you prefer to run from source:
+```bash
+git clone https://github.com/hugolsramos01-bit/mcp-agentic-server.git
+cd mcp-agentic-server
+npm ci
 npm run build
 npm run start
 ```
+
+### Dependencies
+- **Mandatory**: Node.js and standard OS utilities (Git).
+- **Optional (`node-pty`)**: Used for interactive pseudo-terminals when running interactive shell commands. If it fails to install, the server safely falls back to standard child process execution.
+
+---
 
 ### Setting up the Server
 
@@ -61,11 +82,14 @@ Configure your MCP client to start the server. Add the following to your MCP con
 }
 ```
 
-**For Cloud-hosted Clients (ChatGPT Web, Claude Web):**
+<details>
+<summary><strong>Advanced: For Cloud-hosted Clients (ChatGPT Web, Claude Web)</strong></summary>
+
 To connect cloud-hosted agents to your local machine, use a secure tunnel (e.g., Cloudflare Tunnel, ngrok, Pinggy).
 1. Start your tunnel (e.g., pointing to port 7676).
-2. Start the MCP server: `npm run start`
+2. Start the MCP server: `npx -y mcp-agentic-server serve`
 3. Connect your MCP client to the public `/mcp` URL.
+</details>
 
 ---
 
