@@ -237,6 +237,15 @@ export function compressLog(command: string, rawLog: string, exitCode: number, o
     filteredLines.unshift(failureSummary);
   }
 
+  // A successful process is authoritative. Test runners often send expected
+  // exceptions, TAP diagnostics, or deprecation text to stderr; presenting
+  // those as errors after exit code 0 sends agents on a false investigation.
+  if (exitCode === 0) {
+    errors = 0;
+    primaryError = undefined;
+    suggestedReads.length = 0;
+  }
+
   return {
     status: exitCode === 0 ? "success" : "failed",
     command,

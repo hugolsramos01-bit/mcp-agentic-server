@@ -1,4 +1,4 @@
-import { join, relative, extname } from "node:path";
+import { join, relative, extname, dirname, normalize, resolve } from "node:path";
 import { existsSync, readFileSync, statSync } from "node:fs";
 import { secureFs } from "./security/secure-fs.js";
 import { readdir } from "node:fs/promises";
@@ -505,30 +505,30 @@ export async function fileDependenciesTool(cwd: string, targetPath: string): Pro
   }
   visitImports(sourceFile);
   
-  // 2. Inward dependencies — use git grep with exact import pattern instead of filename match
-  // Search for: import ... from 'relative/path/to/target' or import 'relative/path/to/target'
+  // 2. Inward dependencies — parse source imports and resolve relative paths
+  // and the common @/ alias against each app root. Textual mentions in prose
+  // remain excluded because only actual module specifiers are considered.
   const inwards: string[] = [];
   const execFileAsync = promisify(execFile);
-  const ext = extname(targetPath);
-  // Build possible import paths (without extension, with index, etc.)
-  const importVariants = [
-    targetPath.replace(/\\/g, '/').replace(ext, ''),
-    targetPath.replace(/\\/g, '/'),
-    './' + targetPath.replace(/\\/g, '/').replace(ext, ''),
-    '../' + targetPath.replace(/\\/g, '/').replace(ext, ''),
-  ];
-  
   try {
-    const searchPatterns = importVariants.map(v => `from ['"\`]${v}['"\`]`).join('|');
-    const { stdout } = await execFileAsync("git", ["grep", "--name-only", "-E", searchPatterns], { cwd, maxBuffer: 1024 * 1024 * 10 });
-    const files = stdout.split('\n').map((l: string) => l.trim()).filter((l: string) => l && l !== targetPath.replace(/\\/g, '/'));
-    for (const f of files) {
-       if (!inwards.includes(f)) inwards.push(f);
+    const { stdout } = await execFileAsync("git", ["ls-files", "--cached", "--others", "--exclude-standard"], { cwd, maxBuffer: 1024 * 1024 * 10 });
+    const target = moduleIdentity(targetPath);
+    const files = stdout.split("\n").map((line) => line.trim()).filter((file) => /\.(?:[cm]?[jt]sx?)$/i.test(file));
+    for (const file of files) {
+      if (moduleIdentity(file) === target) continue;
+      let importer: ts.SourceFile;
+      try {
+        importer = ts.createSourceFile(file, secureFs.readFile(cwd, file), ts.ScriptTarget.Latest, true);
+      } catch {
+        continue;
+      }
+      const specifiers = collectModuleSpecifiers(importer);
+      if (specifiers.some((specifier) => resolvesToTarget(cwd, file, specifier, target))) {
+        inwards.push(file.replace(/\\/g, "/"));
+      }
     }
   } catch {
-    // No filename/text fallback: a mention in a document or test is not an
-    // executable dependency. Return an empty inbound set when Git cannot
-    // perform the import-specific query.
+    // Git enumeration is unavailable; do not fall back to textual documents.
   }
   
   return {
@@ -541,6 +541,69 @@ export async function fileDependenciesTool(cwd: string, targetPath: string): Pro
       }, null, 2)
     }]
   };
+}
+
+function collectModuleSpecifiers(source: ts.SourceFile): string[] {
+  const specifiers: string[] = [];
+  const visit = (node: ts.Node) => {
+    if ((ts.isImportDeclaration(node) || ts.isExportDeclaration(node)) && node.moduleSpecifier && ts.isStringLiteral(node.moduleSpecifier)) {
+      specifiers.push(node.moduleSpecifier.text);
+    } else if (ts.isCallExpression(node) && node.expression.kind === ts.SyntaxKind.ImportKeyword && ts.isStringLiteral(node.arguments[0])) {
+      specifiers.push(node.arguments[0].text);
+    }
+    ts.forEachChild(node, visit);
+  };
+  visit(source);
+  return specifiers;
+}
+
+function moduleIdentity(path: string): string {
+  const normalized = normalize(path).replace(/\\/g, "/").replace(/^\.\//, "");
+  return normalized.replace(/\.(?:[cm]?[jt]sx?)$/i, "").replace(/\/index$/, "");
+}
+
+function resolvesToTarget(cwd: string, importer: string, specifier: string, target: string): boolean {
+  const importerPath = join(cwd, importer);
+  const resolved = ts.resolveModuleName(
+    specifier,
+    importerPath,
+    compilerOptionsFor(importerPath, cwd),
+    ts.sys,
+  ).resolvedModule?.resolvedFileName;
+  if (resolved) return moduleIdentity(relative(cwd, resolved)) === target;
+
+  // Keep a lightweight fallback for JavaScript projects without a tsconfig.
+  if (specifier.startsWith(".")) return moduleIdentity(join(dirname(importer), specifier)) === target;
+  if (specifier.startsWith("@/")) {
+    const appRoot = importer.replace(/\\/g, "/").match(/^(apps\/[^/]+)\//)?.[1];
+    return appRoot !== undefined && moduleIdentity(`${appRoot}/${specifier.slice(2)}`) === target;
+  }
+  return moduleIdentity(specifier) === target;
+}
+
+const compilerOptionsCache = new Map<string, ts.CompilerOptions>();
+
+function compilerOptionsFor(importerPath: string, workspaceRoot: string): ts.CompilerOptions {
+  let directory = dirname(importerPath);
+  const root = resolve(workspaceRoot);
+  while (true) {
+    const configPath = join(directory, "tsconfig.json");
+    if (existsSync(configPath)) {
+      const cached = compilerOptionsCache.get(configPath);
+      if (cached) return cached;
+      const config = ts.readConfigFile(configPath, ts.sys.readFile);
+      const options = config.error
+        ? {}
+        : ts.parseJsonConfigFileContent(config.config, ts.sys, dirname(configPath)).options;
+      compilerOptionsCache.set(configPath, options);
+      return options;
+    }
+    if (resolve(directory) === root) break;
+    const parent = dirname(directory);
+    if (parent === directory) break;
+    directory = parent;
+  }
+  return {};
 }
 
 
