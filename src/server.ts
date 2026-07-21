@@ -81,8 +81,34 @@ interface RunningServer {
 // measuring at wrap() entry incorrectly reported 0ms for most calls.
 function registerAppTool(server: McpServer, name: string, definition: any, handler: (request: any) => any): void {
   registerExtAppTool(server, name, definition, async (request: any) => {
-    request.__startedAt = performance.now();
-    return handler(request);
+    const startedAt = performance.now();
+    request.__startedAt = startedAt;
+    const response = await handler(request);
+    const text = contentText(response.content ?? []);
+    let parsed: any = text;
+    try { parsed = JSON.parse(text); } catch {}
+
+    // Some assistant tools already build an envelope internally. Normalize both
+    // those and legacy handlers at the registration boundary, so the declared
+    // MCP output schema is true for every tool mode.
+    const existing = response.structuredContent?.envelope
+      ?? (parsed && typeof parsed === "object" && "status" in parsed && "data" in parsed ? parsed : undefined);
+    const status = existing?.status ?? (response.isError ? "error" : "success");
+    const envelope = {
+      status,
+      data: existing?.data ?? (status === "error" && typeof parsed === "string" ? {} : parsed),
+      error: existing?.error ?? (status === "error" ? (typeof parsed === "string" ? parsed : parsed?.error ?? parsed?.message ?? JSON.stringify(parsed)) : null),
+      diagnostics: existing?.diagnostics ?? [],
+      metrics: {
+        durationMs: existing?.metrics?.durationMs ?? Math.round(performance.now() - startedAt),
+        truncated: existing?.metrics?.truncated ?? Boolean(response._meta?.truncated || text.includes("[truncated]") || text.includes("... [truncated")),
+      },
+    };
+    return {
+      ...response,
+      content: [{ type: "text", text: JSON.stringify(envelope, null, 2) }],
+      structuredContent: envelope,
+    };
   });
 }
 
