@@ -263,6 +263,11 @@ function createMcpServer(
           const pathModule = await import("node:path");
           const { runProcess } = await import("./process-runner/index.js");
           
+          if (!fs.existsSync(pathModule.join(workspace.worktree.path, "package.json"))) {
+            const err = "No package.json found in the worktree. Dependencies cannot be installed.";
+            return { content: [{ type: "text", text: err }], isError: true, structuredContent: { result: err } };
+          }
+          
           let cmd = "npm";
           const skipLifecycleScripts = !req.allowLifecycleScripts;
           let args = ["ci", ...(skipLifecycleScripts ? ["--ignore-scripts"] : [])];
@@ -1936,6 +1941,7 @@ function createMcpServer(
           workspaceId: z.string().describe("Workspace ID"),
           slug: z.string().describe("Short unique identifier for this knowledge entry"),
           summary: z.string().describe("One-line summary of the decision or insight"),
+          supersedes: z.string().optional().describe("Slug of a previous knowledge entry that this new entry supersedes or replaces"),
           scopedTo: z.array(z.string()).optional().describe("Optional scope tags (e.g. ['onboarding', 'sites', 'auth']) to control when this knowledge is injected"),
           content: z.string().describe("Detailed explanation of the decision, rejected alternatives, invariants, and reasoning"),
         },
@@ -2095,6 +2101,7 @@ function createMcpServer(
           workspaceId: z.string().describe("Workspace ID"),
           script: z.string().describe("Script name from package.json"),
           outputMode: z.enum(["full", "diagnostic-summary", "summary"]).optional().describe("'full' for raw output (default), 'diagnostic-summary' or 'summary' for compact report with known warnings, errors, and suggested files to read."),
+          timeoutMs: z.number().int().min(1000).max(600_000).optional().describe("Explicit timeout in milliseconds for the operation (default: 600000ms / 10m)."),
         },
         outputSchema: resultOutputSchema(),
         ...toolWidgetDescriptorMeta(config, "shell"),

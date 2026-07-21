@@ -44,7 +44,7 @@ Requirements: Node `>=22.12.0 <27`
 The easiest way to configure and run the server is using `npx`:
 
 ```bash
-npx -y mcp-agentic-server init
+npx -y mcp-agentic-server@1.1.1 doctor
 npx -y mcp-agentic-server serve
 ```
 
@@ -120,29 +120,32 @@ The tool surface depends on the `AGENTIC_TOOL_MODE` setting.
 
 | Tool | Description |
 |------|-------------|
-| `coding_context` | Compact architectural summary of the workspace. |
+| `workspace_summary` | Compact architectural summary of the workspace. |
+| `project_bootstrap` | Scans package managers, monorepo bounds, and base dependencies. |
 | `read_many` | Read multiple files at once. |
 | `tree` | Directory tree visualization. |
 | `next_route_map` / `payload_schema_map` | Next.js / Payload CMS schema extraction. |
 | `file_dependencies` | Inward and outward dependency map. |
-| `checkpoint_*` | Save, restore, list snapshots. |
+| `checkpoint_*` | Save, restore, list, or delete snapshots. |
 | `edit_dry_run` | Preview edits without writing. |
-| `worktree_*` | Manage isolated git worktrees. |
-| `worktree_install_deps` | Install dependencies in a managed worktree; use `verify: true` to load native bindings. `allowLifecycleScripts: true` is explicit opt-in for packages that must build. |
+| `worktree_*` | Manage isolated git worktrees (create, list, sync, teardown). |
+| `worktree_install_deps` | Install dependencies in a managed worktree; use `verify: true` to load native bindings. |
 | `agentic_doctor` | Diagnose Node, package managers, Git and native SQLite availability. |
 | `semantic_pack` | Compact goal-relevant summary with token budget. |
 | `context_budget` | Estimate token count for files. |
 | `expand_compressed_block` | Expand omitted blocks from read_compressed. |
 | `token_audit` | Analyze token usage across files read. |
+| `tournament_*` | Autonomous evaluation and judgment of changes. |
 | `risk_assess_command` | Preview policy assessment before bash. |
+| `changed_files_summary` | Fast Git status and diff abstraction. |
 
-Deprecated compatibility aliases are hidden by default and never appear in the model's standard workflow. Existing clients can temporarily opt in with `AGENTIC_LEGACY_ALIASES=1`; they will be removed in the next major release. New clients must use the canonical names above: `edit_dry_run`, `next_route_map`, `payload_schema_map`, `suggest_checks`, `changed_files_summary`, and `project_bootstrap`.
+Deprecated compatibility aliases are hidden by default and never appear in the model's standard workflow. Existing clients can temporarily opt in with `AGENTIC_LEGACY_ALIASES=1`; they will be removed in the next major release. New clients must use the canonical names above: `edit_dry_run`, `next_route_map`, `payload_schema_map`, `changed_files_summary`, and `project_bootstrap`.
 
 ## 🧠 Mental Model for Agents
 
 This server is designed to act as the "hands and eyes" of a remote AGI.
 If you are building an autonomous agent or using Claude/ChatGPT for coding, instruct your agent to:
-1. Always call `semantic_pack` or `coding_context` first.
+1. Always call `semantic_pack`, `project_bootstrap`, or `workspace_summary` first.
 2. Use `read_compressed` for large files — expand blocks with `expand_compressed_block`.
 3. Use `context_budget` to estimate token cost before reading multiple files.
 4. Use `mode="worktree"` if the task involves running complex shell commands or destructive tests.

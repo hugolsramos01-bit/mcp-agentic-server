@@ -36,32 +36,30 @@ export async function projectBootstrapTool(cwd: string, allowedRoots: string[]):
   let allDeps = Object.keys(deps);
 
   // Aggregate deps from monorepo subdirectories
-  try {
-    if (existsSync(join(cwd, "apps"))) {
-      const apps = readdirSync(join(cwd, "apps"), { withFileTypes: true });
-      for (const app of apps) {
-        if (!app.isDirectory()) continue;
+  const monorepoDirs = ["apps", "packages", "frontend", "client", "web", "ui"];
+  for (const dir of monorepoDirs) {
+    try {
+      const fullDir = join(cwd, dir);
+      if (existsSync(fullDir)) {
+        const entries = readdirSync(fullDir, { withFileTypes: true });
+        for (const entry of entries) {
+          if (!entry.isDirectory()) continue;
+          try {
+            const subPkg = JSON.parse(readFileSync(join(fullDir, entry.name, "package.json"), "utf8"));
+            const subDeps = { ...(subPkg.dependencies || {}), ...(subPkg.devDependencies || {}) };
+            for (const d of Object.keys(subDeps)) allDeps.push(d);
+          } catch {}
+        }
+      } else if (dir === "frontend" || dir === "client" || dir === "web" || dir === "ui") {
+        // Direct package.json check for top-level frontend/web folders
         try {
-          const subPkg = JSON.parse(readFileSync(join(cwd, "apps", app.name, "package.json"), "utf8"));
+          const subPkg = JSON.parse(readFileSync(join(cwd, dir, "package.json"), "utf8"));
           const subDeps = { ...(subPkg.dependencies || {}), ...(subPkg.devDependencies || {}) };
           for (const d of Object.keys(subDeps)) allDeps.push(d);
         } catch {}
       }
-    }
-  } catch {}
-  try {
-    if (existsSync(join(cwd, "packages"))) {
-      const pkgs = readdirSync(join(cwd, "packages"), { withFileTypes: true });
-      for (const pkg of pkgs) {
-        if (!pkg.isDirectory()) continue;
-        try {
-          const subPkg = JSON.parse(readFileSync(join(cwd, "packages", pkg.name, "package.json"), "utf8"));
-          const subDeps = { ...(subPkg.dependencies || {}), ...(subPkg.devDependencies || {}) };
-          for (const d of Object.keys(subDeps)) allDeps.push(d);
-        } catch {}
-      }
-    }
-  } catch {}
+    } catch {}
+  }
 
   const capabilities = {
     git: isGitRepo,
@@ -124,37 +122,38 @@ export async function monorepoMapTool(cwd: string): Promise<ToolResponse> {
   
   const map: any = { apps: [], packages: [] };
   
-  try {
-    if (existsSync(appsDir)) {
-      const apps = await readdir(appsDir, { withFileTypes: true });
-      for (const app of apps) {
-        if (app.isDirectory()) {
-          try {
-            const pkg = JSON.parse(readFileSync(join(appsDir, app.name, "package.json"), "utf8"));
-            map.apps.push({ name: app.name, packageName: pkg.name, dependencies: Object.keys(pkg.dependencies || {}) });
-          } catch (e) {
-            map.apps.push({ name: app.name, error: "No package.json" });
+  const monorepoDirs = ["apps", "packages", "frontend", "client", "web", "ui"];
+  
+  for (const dir of monorepoDirs) {
+    try {
+      const fullDir = join(cwd, dir);
+      if (existsSync(fullDir)) {
+        if (dir === "apps" || dir === "packages") {
+          const entries = await readdir(fullDir, { withFileTypes: true });
+          for (const entry of entries) {
+            if (entry.isDirectory()) {
+              try {
+                const pkg = JSON.parse(readFileSync(join(fullDir, entry.name, "package.json"), "utf8"));
+                if (!map[dir]) map[dir] = [];
+                map[dir].push({ name: entry.name, packageName: pkg.name, dependencies: Object.keys(pkg.dependencies || {}) });
+              } catch (e) {
+                // Ignore folders without package.json instead of polluting map
+              }
+            }
           }
+        } else {
+           // standalone top-level app dir like "frontend", "web"
+           try {
+             const pkg = JSON.parse(readFileSync(join(fullDir, "package.json"), "utf8"));
+             if (!map.apps) map.apps = [];
+             map.apps.push({ name: dir, packageName: pkg.name, dependencies: Object.keys(pkg.dependencies || {}) });
+           } catch (e) {
+             // ignore if no package.json
+           }
         }
       }
-    }
-  } catch (e) {}
-
-  try {
-    if (existsSync(packagesDir)) {
-      const pkgs = await readdir(packagesDir, { withFileTypes: true });
-      for (const pkg of pkgs) {
-        if (pkg.isDirectory()) {
-          try {
-            const p = JSON.parse(readFileSync(join(packagesDir, pkg.name, "package.json"), "utf8"));
-            map.packages.push({ name: pkg.name, packageName: p.name, dependencies: Object.keys(p.dependencies || {}) });
-          } catch (e) {
-            map.packages.push({ name: pkg.name, error: "No package.json" });
-          }
-        }
-      }
-    }
-  } catch (e) {}
+    } catch (e) {}
+  }
 
   return {
     content: [{ type: "text", text: JSON.stringify(map, null, 2) }]

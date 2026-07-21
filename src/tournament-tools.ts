@@ -91,15 +91,13 @@ export async function tournamentSpawnTool(input: TournamentSpawnInput): Promise<
       if (input.installDependencies) {
         const { existsSync } = await import("node:fs");
         const { join } = await import("node:path");
+        const skipLifecycleScripts = true;
+        let args = ["install", "--frozen-lockfile", ...(skipLifecycleScripts ? ["--ignore-scripts"] : [])];
         let cmd = "npm";
-        let args = ["ci", "--ignore-scripts"];
-        if (existsSync(join(worktree.path, "pnpm-lock.yaml"))) {
-          cmd = "pnpm";
-          args = ["install", "--frozen-lockfile", "--ignore-scripts"];
-        } else if (existsSync(join(worktree.path, "yarn.lock"))) {
-          cmd = "yarn";
-          args = ["install", "--immutable", "--ignore-scripts"];
-        }
+        if (existsSync(join(worktree.path, "pnpm-lock.yaml"))) cmd = "pnpm";
+        else if (existsSync(join(worktree.path, "yarn.lock"))) { cmd = "yarn"; args = ["install", "--immutable", ...(skipLifecycleScripts ? ["--ignore-scripts"] : [])]; }
+        else args = ["ci", ...(skipLifecycleScripts ? ["--ignore-scripts"] : [])];
+
         try {
           const { assertCommandAllowed } = await import("./security/command-executor.js");
           await assertCommandAllowed({
@@ -108,7 +106,7 @@ export async function tournamentSpawnTool(input: TournamentSpawnInput): Promise<
             workingDirectory: worktree.path,
             source: "dependency-install",
           });
-          await runProcess(cmd, args, { cwd: worktree.path, timeoutMs: 120_000 });
+          await runProcess(cmd, args, { cwd: worktree.path, timeoutMs: 300_000 });
         } catch {
           // Non-fatal - worktree_install_deps can be called manually
         }
@@ -195,11 +193,16 @@ export async function tournamentJudgeTool(input: TournamentJudgeInput): Promise<
       ? input.verificationScripts
       : ["typecheck", "build"];
 
-  const results: any[] = [];
+  const results: any[] = new Array(entries.length);
 
-  for (const entry of entries) {
-    const cwd = entry.worktree.path;
-    const verdicts: TournamentVerdict[] = [];
+  const CONCURRENCY_LIMIT = 2;
+  const queue = entries.map((entry, index) => ({ entry, index }));
+
+  const workers = Array.from({ length: CONCURRENCY_LIMIT }, async () => {
+    while (queue.length > 0) {
+      const { entry, index } = queue.shift()!;
+      const cwd = entry.worktree.path;
+      const verdicts: TournamentVerdict[] = [];
 
     // Check if dependencies are required for the verification script
     // Only require node_modules when the script actually uses project dependencies:
@@ -276,7 +279,7 @@ export async function tournamentJudgeTool(input: TournamentJudgeInput): Promise<
           });
         }
 
-        const result = await runProcess(packageManager, ["run", scriptName], { cwd, timeoutMs: 120_000 });
+        const result = await runProcess(packageManager, ["run", scriptName], { cwd, timeoutMs: 300_000 });
         
         const passed = result.status === "success";
         let details = "";
@@ -308,15 +311,18 @@ export async function tournamentJudgeTool(input: TournamentJudgeInput): Promise<
 
     const allPassed = verdicts.every((v) => v.passed);
 
-    results.push({
+    results[index] = {
       id: entry.id,
       strategy: entry.strategy,
       worktreePath: entry.worktree.path,
       workspaceId: entry.workspaceId,
       allPassed,
       verdicts,
-    });
-  }
+    };
+    }
+  });
+
+  await Promise.all(workers);
 
   const passedCount = results.filter((r) => r.allPassed).length;
 

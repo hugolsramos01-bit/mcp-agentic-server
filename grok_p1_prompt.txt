@@ -1,0 +1,320 @@
+Você é um revisor de código sênior especialista em ferramentas de AST e Model Context Protocol.
+
+Aqui está o diff das últimas alterações no repositório do Agentic MCP Server.
+As alterações (fase P1) cobrem as seguintes melhorias:
+1. semantic-tools.ts: Refatoramos a função discoverGenericEntrypoints para ler os entrypoints do package.json (bin, main, module, scripts populares) em vez de apenas contar com nomes de arquivos hardcoded. Além disso, traduzimos o goal genérico para português (visão geral do projeto).
+2. bootstrap-tools.ts: Adicionamos suporte ao diretório frontend/ na varredura de monorepos, coletando dependências.
+3. fastapi-tools.ts: Refinamos o analisador AST em Python (baseado em regex) para rastrear os nomes de instâncias injetadas a partir de FastAPI() ou APIRouter() e forçar que decorators correspondam a essas instâncias, também silenciando funções e arquivos de teste (prefixo test_).
+4. ast-tools.ts: Refatoramos a resposta da ferramenta fileDependenciesTool para categorizar as dependências em resolved, external e unresolved deduplicando.
+
+Por favor, faça o seguinte (utilize seus recursos máximos de reasoning):
+1. Procure por erros de runtime (TypeScript) ou armadilhas de regex.
+2. Identifique eventuais code smells ou problemas de design nestas alterações.
+3. Avalie se as refatorações atingiram adequadamente o objetivo listado.
+4. Forneça uma opinião sincera sobre a segurança e robustez desse diff (especialmente em fastapi-tools.ts e ast-tools.ts).
+
+Responda em português.
+
+diff --git a/README.md b/README.md
+index 0f40ed6..99b82b6 100644
+--- a/README.md
++++ b/README.md
+@@ -44,7 +44,7 @@ Requirements: Node `>=22.12.0 <27`
+ The easiest way to configure and run the server is using `npx`:
+ 
+ ```bash
+-npx -y mcp-agentic-server init
++npx -y mcp-agentic-server@1.1.1 doctor
+ npx -y mcp-agentic-server serve
+ ```
+ 
+diff --git a/src/assistant-tools.ts b/src/assistant-tools.ts
+index 2dede9e..02463ab 100644
+--- a/src/assistant-tools.ts
++++ b/src/assistant-tools.ts
+@@ -341,6 +341,7 @@ export async function treeTool(input: TreeToolInput, cwd: string, allowedRoots:
+ export interface RunScriptInput {
+   script: string;
+   outputMode?: "full" | "summary" | "diagnostic-summary";
++  timeoutMs?: number;
+ }
+ 
+ export async function runScriptTool(input: RunScriptInput, cwd: string): Promise<ToolResponse> {
+@@ -397,7 +398,7 @@ export async function runScriptTool(input: RunScriptInput, cwd: string): Promise
+     });
+ 
+     const { runProcess } = await import("./process-runner/index.js");
+-    const result = await runProcess(packageManager, ["run", input.script], { cwd, timeoutMs: 600_000 });
++    const result = await runProcess(packageManager, ["run", input.script], { cwd, timeoutMs: (input as any).timeoutMs ?? 600_000 });
+     
+     let stdout = result.status === "success" || result.status === "command_failed" || result.status === "timeout" || result.status === "cancelled" ? result.stdout : "";
+     let stderr = result.status === "success" || result.status === "command_failed" || result.status === "timeout" || result.status === "cancelled" ? result.stderr : (result as any).message || "";
+@@ -464,8 +465,19 @@ export async function runScriptTool(input: RunScriptInput, cwd: string): Promise
+       }
+       
+       // Attach the detected package manager + nextActions to the structured summary
++      const responsePayload: any = {
++        packageManager,
++        ...summary,
++        status: result.status,
++        durationMs: duration,
++        nextActions
++      };
++      if (result.status === "timeout") {
++        responsePayload.timeoutMs = (result as any).timeoutMs;
++        responsePayload.terminationConfirmed = (result as any).termination?.confirmed ?? false;
++      }
+       return {
+-        content: [{ type: "text", text: JSON.stringify({ packageManager, ...summary, nextActions }, null, 2) }]
++        content: [{ type: "text", text: JSON.stringify(responsePayload, null, 2) }]
+       };
+     }
+ 
+@@ -476,19 +488,25 @@ export async function runScriptTool(input: RunScriptInput, cwd: string): Promise
+       const tail = lines.slice(-tailCount);
+       const isLong = lines.length > tailCount;
+       
++      const summaryPayload: any = {
++        command: fullCommand,
++        packageManager,
++        status: result.status,
++        exitCode,
++        durationMs: duration,
++        totalLines: lines.length,
++        lastLines: isLong ? tail : undefined,
++        output: isLong ? undefined : output.trim(),
++      };
++      if (result.status === "timeout") {
++        summaryPayload.timeoutMs = (result as any).timeoutMs;
++        summaryPayload.terminationConfirmed = (result as any).termination?.confirmed ?? false;
++      }
++      
+       return {
+         content: [{
+           type: "text",
+-          text: JSON.stringify({
+-            command: fullCommand,
+-            packageManager,
+-            status: result.status,
+-            exitCode,
+-            durationMs: duration,
+-            totalLines: lines.length,
+-            lastLines: isLong ? tail : undefined,
+-            output: isLong ? undefined : output.trim(),
+-          }, null, 2)
++          text: JSON.stringify(summaryPayload, null, 2)
+         }],
+         isError: result.status !== "success",
+         structuredContent: result,
+diff --git a/src/ast-tools.test.ts b/src/ast-tools.test.ts
+index 16620f0..03546a4 100644
+--- a/src/ast-tools.test.ts
++++ b/src/ast-tools.test.ts
+@@ -35,3 +35,22 @@ try {
+ async function git(cwd: string, args: string[]) {
+   return execFileAsync("git", args, { cwd });
+ }
++
++import { payloadSchemaMapTool } from "./ast-tools.js";
++
++try {
++  const payloadResult = await payloadSchemaMapTool(join(process.cwd(), "test", "fixtures", "payload-nested"));
++  const payloadData = JSON.parse((payloadResult.content[0] as { text: string }).text) as { collections: any[] };
++  
++  const products = payloadData.collections.find((c: any) => c.slug === "products");
++  assert.ok(products, "Products collection should be found");
++  
++  // Enforce no duplicated root fields. The 'Products' fixture has top-level:
++  // title (text), details (group), variants (array), content (blocks), tabs (tabs)
++  // None of their children (sku, weight, color, stock, body, image, metaTitle, etc) should be at root.
++  const rootFieldNames = products.fieldsTree.map((f: any) => f.name).sort();
++  assert.deepEqual(rootFieldNames, ["content", "details", "tabs", "title", "variants"]);
++} catch (err) {
++  console.error("Payload test failed:", err);
++  process.exitCode = 1;
++}
+diff --git a/src/ast-tools.ts b/src/ast-tools.ts
+index cb555bb..2c94eae 100644
+--- a/src/ast-tools.ts
++++ b/src/ast-tools.ts
+@@ -552,16 +552,20 @@ export async function fileDependenciesTool(
+       type: "text",
+       text: JSON.stringify({
+         target: targetPath,
+-        outward_dependencies: result.outwardDirect
+-          .filter(i => !i.external)
+-          .map(i => i.resolvedRelative ?? i.specifier),
+-        outward_dependencies_external: result.outwardDirect
+-          .filter(i => i.external)
+-          .map(i => i.specifier),
+-        inward_dependencies: result.inwardDirect,
+-        transitive_dependencies: result.transitiveOutward,
++        dependencies: {
++          resolved: [...new Set(result.outwardDirect
++            .filter(i => !i.external && i.resolvedRelative)
++            .map(i => i.resolvedRelative!))],
++          external: [...new Set(result.outwardDirect
++            .filter(i => i.external)
++            .map(i => i.specifier))],
++          unresolved: result.unresolvedSpecifiers.length > 0 
++            ? [...new Set(result.unresolvedSpecifiers)] 
++            : undefined,
++        },
++        inward_dependencies: [...new Set(result.inwardDirect)],
++        transitive_dependencies: [...new Set(result.transitiveOutward)],
+         barrel_reexports: Object.keys(barrelMap).length > 0 ? barrelMap : undefined,
+-        unresolved: result.unresolvedSpecifiers.length > 0 ? result.unresolvedSpecifiers : undefined,
+         cycles: result.hasCycles ? result : undefined,
+         analysis: {
+           confidence: result.confidence,
+diff --git a/src/bootstrap-tools.ts b/src/bootstrap-tools.ts
+index c0864e3..e458eb8 100644
+--- a/src/bootstrap-tools.ts
++++ b/src/bootstrap-tools.ts
+@@ -62,6 +62,15 @@ export async function projectBootstrapTool(cwd: string, allowedRoots: string[]):
+       }
+     }
+   } catch {}
++  try {
++    if (existsSync(join(cwd, "frontend"))) {
++      try {
++        const subPkg = JSON.parse(readFileSync(join(cwd, "frontend", "package.json"), "utf8"));
++        const subDeps = { ...(subPkg.dependencies || {}), ...(subPkg.devDependencies || {}) };
++        for (const d of Object.keys(subDeps)) allDeps.push(d);
++      } catch {}
++    }
++  } catch {}
+ 
+   const capabilities = {
+     git: isGitRepo,
+@@ -156,6 +165,18 @@ export async function monorepoMapTool(cwd: string): Promise<ToolResponse> {
+     }
+   } catch (e) {}
+ 
++  try {
++    const frontendDir = join(cwd, "frontend");
++    if (existsSync(frontendDir)) {
++      try {
++        const fPkg = JSON.parse(readFileSync(join(frontendDir, "package.json"), "utf8"));
++        map.apps.push({ name: "frontend", packageName: fPkg.name, dependencies: Object.keys(fPkg.dependencies || {}) });
++      } catch (e) {
++        map.apps.push({ name: "frontend", error: "No package.json" });
++      }
++    }
++  } catch (e) {}
++
+   return {
+     content: [{ type: "text", text: JSON.stringify(map, null, 2) }]
+   };
+diff --git a/src/fastapi-tools.ts b/src/fastapi-tools.ts
+index aafd985..d8e507d 100644
+--- a/src/fastapi-tools.ts
++++ b/src/fastapi-tools.ts
+@@ -17,13 +17,28 @@ export async function discoverFastApi(cwd: string): Promise<{ detected: boolean;
+   const routers: string[] = [];
+   const routes: FastApiRoute[] = [];
+   for (const file of files) {
+-    const content = await readFile(file, "utf8");
+     const rel = relative(cwd, file).replace(/\\/g, "/");
++    // Ignore test files
++    if (rel.includes("/test_") || rel.includes("/tests/") || rel.startsWith("test_")) continue;
++    
++    const content = await readFile(file, "utf8");
++    
++    const instances = new Set<string>(["app", "router"]);
++    for (const match of content.matchAll(/(\w+)\s*=\s*(?:FastAPI|APIRouter)\(/g)) {
++      instances.add(match[1]);
++    }
++    
+     if (/\bFastAPI\s*\(/.test(content)) entrypoints.push(rel);
+     if (/\bAPIRouter\s*\(/.test(content)) routers.push(rel);
++    
+     const pattern = /@(?:(\w+)\.)?(get|post|put|patch|delete|options|head)\(\s*["']([^"']+)["'][^)]*\)\s*(?:async\s+)?def\s+(\w+)/g;
+     for (const match of content.matchAll(pattern)) {
+-      routes.push({ file: rel, router: match[1] ?? "app", method: match[2].toUpperCase(), path: match[3], handler: match[4] });
++      const routerName = match[1] ?? "app";
++      const handlerName = match[4];
++      if (!instances.has(routerName)) continue; // Restrict to declared instances
++      if (handlerName.startsWith("test_")) continue; // Silence test functions
++      
++      routes.push({ file: rel, router: routerName, method: match[2].toUpperCase(), path: match[3], handler: handlerName });
+     }
+   }
+   return { detected: entrypoints.length > 0 || routers.length > 0, entrypoints, routers, routes: routes.slice(0, 100) };
+diff --git a/src/semantic-tools.ts b/src/semantic-tools.ts
+index eb07958..6e3d9ab 100644
+--- a/src/semantic-tools.ts
++++ b/src/semantic-tools.ts
+@@ -161,7 +161,7 @@ export async function semanticPackTool(
+   }
+ 
+   const pack: any = {
+-    goal: goal || "overview",
++    goal: goal || "visão geral do projeto",
+     project: {
+       name: context.name,
+       framework: context.framework,
+@@ -346,13 +346,48 @@ export async function semanticPackTool(
+   };
+ }
+ 
+-function discoverGenericEntrypoints(cwd: string): string[] {
+-  const candidates = [
++export function discoverGenericEntrypoints(cwd: string): string[] {
++  const entrypoints = new Set<string>();
++
++  try {
++    const pkgPath = join(cwd, "package.json");
++    if (existsSync(pkgPath)) {
++      const pkg = JSON.parse(readFileSync(pkgPath, "utf8"));
++      if (pkg.main) entrypoints.add(pkg.main);
++      if (pkg.module) entrypoints.add(pkg.module);
++      if (typeof pkg.bin === "string") {
++        entrypoints.add(pkg.bin);
++      } else if (typeof pkg.bin === "object") {
++        for (const p of Object.values(pkg.bin)) {
++          if (typeof p === "string") entrypoints.add(p);
++        }
++      }
++      
++      // Look at common scripts to find entry files
++      if (pkg.scripts) {
++        const scriptsToCheck = [pkg.scripts.start, pkg.scripts.dev, pkg.scripts.build];
++        for (const script of scriptsToCheck) {
++          if (!script) continue;
++          // match `node file.js` or `ts-node file.ts` or `tsx file.ts`
++          const match = script.match(/(?:node|ts-node|tsx|nodemon)\s+([^\s-]+\.[jt]sx?)/);
++          if (match && match[1]) entrypoints.add(match[1]);
++        }
++      }
++    }
++  } catch {}
++
++  const standardCandidates = [
+     "src/main.ts", "src/main.tsx", "src/main.js", "src/main.jsx",
+     "src/index.ts", "src/index.tsx", "src/index.js", "src/index.jsx",
+     "src/App.tsx", "src/App.jsx", "vite.config.ts", "vite.config.js",
+   ];
+-  return candidates.filter((path) => existsSync(join(cwd, path)));
++  
++  for (const c of standardCandidates) {
++    if (existsSync(join(cwd, c))) entrypoints.add(c);
++  }
++
++  // Filter only those that actually exist in the filesystem, as bin/main might be pointing to dist/ (which might not exist yet) or similar
++  return Array.from(entrypoints).filter(p => existsSync(join(cwd, p)));
+ }
+ 
+ // ─── Vite Plugin Detection ───────────────────────────────────
+diff --git a/src/server.ts b/src/server.ts
+index d6b2b7c..df03a72 100644
+--- a/src/server.ts
++++ b/src/server.ts
+@@ -2095,6 +2095,7 @@ function createMcpServer(
+           workspaceId: z.string().describe("Workspace ID"),
+           script: z.string().describe("Script name from package.json"),
+           outputMode: z.enum(["full", "diagnostic-summary", "summary"]).optional().describe("'full' for raw output (default), 'diagnostic-summary' or 'summary' for compact report with known warnings, errors, and suggested files to read."),
++          timeoutMs: z.number().optional().describe("Explicit timeout in milliseconds for the operation (default: 600000ms / 10m)."),
+         },
+         outputSchema: resultOutputSchema(),
+         ...toolWidgetDescriptorMeta(config, "shell"),

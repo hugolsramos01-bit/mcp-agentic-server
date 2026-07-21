@@ -191,8 +191,11 @@ export async function gitTool(subCommand: string, input: GitToolInput, cwd: stri
     }
     const args: string[] = [subCommand];
 
-    if (subCommand === "diff" && input.staged) {
-      args.push("--cached");
+    if (subCommand === "diff") {
+      args.push("--ignore-cr-at-eol");
+      if (input.staged) {
+        args.push("--cached");
+      }
     }
     if (subCommand === "log") {
       args.push("--no-color");
@@ -341,6 +344,7 @@ export async function treeTool(input: TreeToolInput, cwd: string, allowedRoots: 
 export interface RunScriptInput {
   script: string;
   outputMode?: "full" | "summary" | "diagnostic-summary";
+  timeoutMs?: number;
 }
 
 export async function runScriptTool(input: RunScriptInput, cwd: string): Promise<ToolResponse> {
@@ -397,7 +401,7 @@ export async function runScriptTool(input: RunScriptInput, cwd: string): Promise
     });
 
     const { runProcess } = await import("./process-runner/index.js");
-    const result = await runProcess(packageManager, ["run", input.script], { cwd, timeoutMs: 600_000 });
+    const result = await runProcess(packageManager, ["run", input.script], { cwd, timeoutMs: (input as any).timeoutMs ?? 600_000 });
     
     let stdout = result.status === "success" || result.status === "command_failed" || result.status === "timeout" || result.status === "cancelled" ? result.stdout : "";
     let stderr = result.status === "success" || result.status === "command_failed" || result.status === "timeout" || result.status === "cancelled" ? result.stderr : (result as any).message || "";
@@ -464,8 +468,20 @@ export async function runScriptTool(input: RunScriptInput, cwd: string): Promise
       }
       
       // Attach the detected package manager + nextActions to the structured summary
+      const responsePayload: any = {
+        packageManager,
+        ...summary,
+        status: result.status,
+        durationMs: duration,
+        nextActions
+      };
+      if (result.status === "timeout") {
+        responsePayload.timeoutMs = (result as any).timeoutMs;
+        responsePayload.terminationConfirmed = (result as any).termination?.confirmed ?? false;
+      }
       return {
-        content: [{ type: "text", text: JSON.stringify({ packageManager, ...summary, nextActions }, null, 2) }]
+        isError: exitCode !== 0 || result.status !== "success",
+        content: [{ type: "text", text: JSON.stringify(responsePayload, null, 2) }]
       };
     }
 
@@ -476,19 +492,25 @@ export async function runScriptTool(input: RunScriptInput, cwd: string): Promise
       const tail = lines.slice(-tailCount);
       const isLong = lines.length > tailCount;
       
+      const summaryPayload: any = {
+        command: fullCommand,
+        packageManager,
+        status: result.status,
+        exitCode,
+        durationMs: duration,
+        totalLines: lines.length,
+        lastLines: isLong ? tail : undefined,
+        output: isLong ? undefined : output.trim(),
+      };
+      if (result.status === "timeout") {
+        summaryPayload.timeoutMs = (result as any).timeoutMs;
+        summaryPayload.terminationConfirmed = (result as any).termination?.confirmed ?? false;
+      }
+      
       return {
         content: [{
           type: "text",
-          text: JSON.stringify({
-            command: fullCommand,
-            packageManager,
-            status: result.status,
-            exitCode,
-            durationMs: duration,
-            totalLines: lines.length,
-            lastLines: isLong ? tail : undefined,
-            output: isLong ? undefined : output.trim(),
-          }, null, 2)
+          text: JSON.stringify(summaryPayload, null, 2)
         }],
         isError: result.status !== "success",
         structuredContent: result,
