@@ -1,0 +1,1 @@
+{"name":"diag-test","scripts":{"build":"node build.mjs","typecheck":"tsc --noEmit"}}

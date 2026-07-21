@@ -1,4 +1,4 @@
-import { join, relative, extname } from "node:path";
+import { join, relative, extname, dirname, normalize, resolve } from "node:path";
 import { existsSync, readFileSync, statSync } from "node:fs";
 import { secureFs } from "./security/secure-fs.js";
 import { readdir } from "node:fs/promises";
@@ -8,6 +8,7 @@ import { enforceSecurePath } from "./pi-tools.js";
 import { execFile } from "node:child_process";
 import ts from "typescript";
 import type { ToolResponse } from "./pi-tools.js";
+import { resolveFileDependencies } from "./import-resolver.js";
 
 // --- Cache Mechanism ---
 const astCache = new Map<string, { mtimeMs: number; size: number; data: any }>();
@@ -227,9 +228,15 @@ export async function nextRouteMapTool(cwd: string, basePath?: string): Promise<
 
 // --- Payload Schema Map ---
 
-export interface PayloadSchemaMapInput {}
+export interface PayloadSchemaMapInput {
+  /** summary: slug + root fields + relations only (≤10% of full).
+   *  compact: full tree, no flat index duplication (≤35% of full).
+   *  full: tree + flat index + all metadata. Default: compact. */
+  detailLevel?: "summary" | "compact" | "full";
+}
 
-export async function payloadSchemaMapTool(cwd: string, basePath?: string): Promise<ToolResponse> {
+export async function payloadSchemaMapTool(cwd: string, basePath?: string, input: PayloadSchemaMapInput = {}): Promise<ToolResponse> {
+  const detailLevel = input.detailLevel ?? "compact";
   // If a basePath is provided (e.g. "apps/web"), search relative to it
   const searchRoot = basePath ? enforceSecurePath(basePath, cwd, [cwd], false) : cwd;
   
@@ -259,7 +266,7 @@ export async function payloadSchemaMapTool(cwd: string, basePath?: string): Prom
   // Try cache
   const cached = getCachedCollections(collectionsDir);
   if (cached) {
-      return { content: [{ type: "text", text: JSON.stringify({ collections: cached, cached: true, capabilities: { payload } }, null, 2) }] };
+      return { content: [{ type: "text", text: JSON.stringify({ collections: formatPayloadCollections(cached, detailLevel), cached: true, detailLevel, capabilities: { payload } }, null, 2) }] };
   }
 
   const collections: any[] = [];
@@ -292,7 +299,30 @@ export async function payloadSchemaMapTool(cwd: string, basePath?: string): Prom
   // Save to cache
   if (collections.length > 0) setCachedCollections(collectionsDir, collections);
   
-  return { content: [{ type: "text", text: JSON.stringify({ collections, capabilities: { payload } }, null, 2) }] };
+  return { content: [{ type: "text", text: JSON.stringify({ collections: formatPayloadCollections(collections, detailLevel), detailLevel, capabilities: { payload } }, null, 2) }] };
+}
+
+function formatPayloadCollections(collections: any[], detailLevel: "summary" | "compact" | "full"): any[] {
+  if (detailLevel === "full") return collections;
+
+  if (detailLevel === "summary") {
+    return collections.map(({ slug, fieldsTree, flatFields, access, hooks, tenantScoped, file }) => ({
+      slug,
+      file,
+      ...(tenantScoped ? { tenantScoped: true } : {}),
+      rootFields: (fieldsTree ?? []).filter((f: any) => !f.type || !["group", "array", "tabs", "blocks"].includes(f.type))
+        .slice(0, 10)
+        .map(({ name, type, required, unique, relationTo }: any) => ({ name, type, ...(required ? { required: true } : {}), ...(unique ? { unique: true } : {}), ...(relationTo ? { relationTo } : {}) })),
+      relationships: (flatFields ?? [])
+        .filter((field: any) => field.type === "relationship")
+        .map(({ path, name, relationTo, required }: any) => ({ path, name, relationTo, ...(required ? { required: true } : {}) })),
+      access: access?.length > 0 ? access : undefined,
+      hooks: hooks?.length > 0 ? hooks : undefined,
+    }));
+  }
+
+  // compact: tree without flat index (no duplication)
+  return collections.map(({ flatFields: _flat, ...collection }) => collection);
 }
 
 function parseCollectionFile(content: string): any {
@@ -473,74 +503,134 @@ function parseCollectionFile(content: string): any {
   return null;
 }
 
-export async function fileDependenciesTool(cwd: string, targetPath: string): Promise<ToolResponse> {
-  const execAsync = promisify(exec);
-  
+export async function fileDependenciesTool(
+  cwd: string,
+  targetPath: string,
+  opts: { transitiveDepth?: number; maxFiles?: number } = {},
+): Promise<ToolResponse> {
   const fullPath = join(cwd, targetPath);
   if (!existsSync(fullPath)) {
     return { content: [{ type: "text", text: `File not found: ${targetPath}` }] };
   }
-  
-  const content = secureFs.readFile(cwd, targetPath);
-  
-  // 1. Outward dependencies — use AST to resolve actual imports
-  const sourceFile = ts.createSourceFile(targetPath, content, ts.ScriptTarget.Latest, true);
-  const outwards = new Set<string>();
-  
-  function visitImports(node: ts.Node) {
-    if (ts.isImportDeclaration(node) && node.moduleSpecifier && ts.isStringLiteral(node.moduleSpecifier)) {
-      outwards.add(node.moduleSpecifier.text);
-    }
-    if (ts.isExportDeclaration(node) && node.moduleSpecifier && ts.isStringLiteral(node.moduleSpecifier)) {
-      outwards.add(node.moduleSpecifier.text);
-    }
-    // Dynamic imports: import("module")
-    if (ts.isCallExpression(node) && node.expression.kind === ts.SyntaxKind.ImportKeyword && node.arguments.length > 0) {
-      const arg = node.arguments[0];
-      if (ts.isStringLiteral(arg)) {
-        outwards.add(arg.text);
-      }
-    }
-    ts.forEachChild(node, visitImports);
-  }
-  visitImports(sourceFile);
-  
-  // 2. Inward dependencies — use git grep with exact import pattern instead of filename match
-  // Search for: import ... from 'relative/path/to/target' or import 'relative/path/to/target'
-  const inwards: string[] = [];
+
+  // Enumerate all tracked files for inward scan
   const execFileAsync = promisify(execFile);
-  const ext = extname(targetPath);
-  // Build possible import paths (without extension, with index, etc.)
-  const importVariants = [
-    targetPath.replace(/\\/g, '/').replace(ext, ''),
-    targetPath.replace(/\\/g, '/'),
-    './' + targetPath.replace(/\\/g, '/').replace(ext, ''),
-    '../' + targetPath.replace(/\\/g, '/').replace(ext, ''),
-  ];
-  
+  let allTrackedFiles: string[] = [];
   try {
-    const searchPatterns = importVariants.map(v => `from ['"\`]${v}['"\`]`).join('|');
-    const { stdout } = await execFileAsync("git", ["grep", "--name-only", "-E", searchPatterns], { cwd, maxBuffer: 1024 * 1024 * 10 });
-    const files = stdout.split('\n').map((l: string) => l.trim()).filter((l: string) => l && l !== targetPath.replace(/\\/g, '/'));
-    for (const f of files) {
-       if (!inwards.includes(f)) inwards.push(f);
-    }
+    const { stdout } = await execFileAsync(
+      "git",
+      ["ls-files", "--cached", "--others", "--exclude-standard"],
+      { cwd, maxBuffer: 1024 * 1024 * 10 },
+    );
+    allTrackedFiles = stdout.split("\n").map(l => l.trim()).filter(f => f.length > 0);
   } catch {
-    // No filename/text fallback: a mention in a document or test is not an
-    // executable dependency. Return an empty inbound set when Git cannot
-    // perform the import-specific query.
+    // git unavailable — inward scan will be empty
   }
-  
+
+  const result = await resolveFileDependencies({
+    workspaceRoot: cwd,
+    targetRelPath: targetPath,
+    allTrackedFiles,
+    transitiveDepth: opts.transitiveDepth ?? 3,
+    maxFiles: opts.maxFiles ?? 300,
+  });
+
+  // Build a clean barrel map: specifier → via barrel path
+  const barrelMap: Record<string, string> = {};
+  for (const imp of result.outwardDirect) {
+    if (imp.viaBarre && imp.resolvedRelative) {
+      barrelMap[imp.specifier] = imp.viaBarre;
+    }
+  }
+
   return {
     content: [{
       type: "text",
       text: JSON.stringify({
         target: targetPath,
-        outward_dependencies: Array.from(outwards),
-        inward_dependencies: inwards
-      }, null, 2)
-    }]
+        outward_dependencies: result.outwardDirect
+          .filter(i => !i.external)
+          .map(i => i.resolvedRelative ?? i.specifier),
+        outward_dependencies_external: result.outwardDirect
+          .filter(i => i.external)
+          .map(i => i.specifier),
+        inward_dependencies: result.inwardDirect,
+        transitive_dependencies: result.transitiveOutward,
+        barrel_reexports: Object.keys(barrelMap).length > 0 ? barrelMap : undefined,
+        unresolved: result.unresolvedSpecifiers.length > 0 ? result.unresolvedSpecifiers : undefined,
+        cycles: result.hasCycles ? result : undefined,
+        analysis: {
+          confidence: result.confidence,
+          coverage: result.coverage,
+          elapsedMs: result.metrics.elapsedMs,
+          filesAnalyzed: result.metrics.filesAnalyzed,
+        },
+      }, null, 2),
+    }],
   };
+}
+
+function collectModuleSpecifiers(source: ts.SourceFile): string[] {
+  const specifiers: string[] = [];
+  const visit = (node: ts.Node) => {
+    if ((ts.isImportDeclaration(node) || ts.isExportDeclaration(node)) && node.moduleSpecifier && ts.isStringLiteral(node.moduleSpecifier)) {
+      specifiers.push(node.moduleSpecifier.text);
+    } else if (ts.isCallExpression(node) && node.expression.kind === ts.SyntaxKind.ImportKeyword && ts.isStringLiteral(node.arguments[0])) {
+      specifiers.push(node.arguments[0].text);
+    }
+    ts.forEachChild(node, visit);
+  };
+  visit(source);
+  return specifiers;
+}
+
+function moduleIdentity(path: string): string {
+  const normalized = normalize(path).replace(/\\/g, "/").replace(/^\.\//, "");
+  return normalized.replace(/\.(?:[cm]?[jt]sx?)$/i, "").replace(/\/index$/, "");
+}
+
+function resolvesToTarget(cwd: string, importer: string, specifier: string, target: string): boolean {
+  const importerPath = join(cwd, importer);
+  const resolved = ts.resolveModuleName(
+    specifier,
+    importerPath,
+    compilerOptionsFor(importerPath, cwd),
+    ts.sys,
+  ).resolvedModule?.resolvedFileName;
+  if (resolved) return moduleIdentity(relative(cwd, resolved)) === target;
+
+  // Keep a lightweight fallback for JavaScript projects without a tsconfig.
+  if (specifier.startsWith(".")) return moduleIdentity(join(dirname(importer), specifier)) === target;
+  if (specifier.startsWith("@/")) {
+    const appRoot = importer.replace(/\\/g, "/").match(/^(apps\/[^/]+)\//)?.[1];
+    return appRoot !== undefined && moduleIdentity(`${appRoot}/${specifier.slice(2)}`) === target;
+  }
+  return moduleIdentity(specifier) === target;
+}
+
+const compilerOptionsCache = new Map<string, ts.CompilerOptions>();
+
+function compilerOptionsFor(importerPath: string, workspaceRoot: string): ts.CompilerOptions {
+  let directory = dirname(importerPath);
+  const root = resolve(workspaceRoot);
+  while (true) {
+    const configPath = join(directory, "tsconfig.json");
+    if (existsSync(configPath)) {
+      const cached = compilerOptionsCache.get(configPath);
+      if (cached) return cached;
+      const config = ts.readConfigFile(configPath, ts.sys.readFile);
+      const options = config.error
+        ? {}
+        : ts.parseJsonConfigFileContent(config.config, ts.sys, dirname(configPath)).options;
+      compilerOptionsCache.set(configPath, options);
+      return options;
+    }
+    if (resolve(directory) === root) break;
+    const parent = dirname(directory);
+    if (parent === directory) break;
+    directory = parent;
+  }
+  return {};
 }
 
 

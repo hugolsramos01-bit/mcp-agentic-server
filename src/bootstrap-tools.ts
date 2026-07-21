@@ -8,6 +8,7 @@ import { resolveAllowedPath } from "./roots.js";
 import { treeTool, workspaceSummaryTool } from "./assistant-tools.js";
 import { nextRouteMapTool, payloadSchemaMapTool } from "./ast-tools.js";
 import { readWorkspaceKnowledge } from "./knowledge-tools.js";
+import { getWorkspaceGitEligibility } from "./git.js";
 
 const execFileAsync = promisify(execFile);
 
@@ -164,6 +165,10 @@ export interface ChangedFilesSummaryInput {}
 
 export async function changedFilesSummaryTool(cwd: string): Promise<ToolResponse> {
   try {
+    const eligibility = await getWorkspaceGitEligibility(cwd);
+    if (!eligibility.ok) {
+      return { content: [{ type: "text", text: `Changed-files summary unavailable: ${eligibility.message ?? "workspace is not a Git repository."}` }], isError: true };
+    }
     const { stdout } = await execFileAsync("git", ["status", "--porcelain=v1", "--no-renames"], { cwd });
     if (!stdout.trim()) {
       return { content: [{ type: "text", text: "No changed files." }] };

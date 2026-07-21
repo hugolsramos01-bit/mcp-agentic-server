@@ -275,16 +275,23 @@ export async function checkpointRestoreTool(cwd: string, input: CheckpointRestor
     // even when a later edit means that a reverse patch would no longer apply.
     if (meta.version === 2 && Array.isArray(meta.trackedFiles)) {
       const warnings: string[] = [];
+      let restoredTrackedFiles = 0;
+      let removedTrackedFiles = 0;
+      let restoredUntrackedFiles = 0;
+      let removedUntrackedFiles = 0;
       await execFileAsync("git", ["restore", "--source=HEAD", "--staged", "--worktree", "--", "."], { cwd });
       const trackedDir = join(cpDir, "tracked");
-      for (const entry of meta.trackedFiles as { path: string; existed: boolean }[]) {
+      for (const entry of meta.trackedFiles as { path: string; existed: boolean; sha256?: string }[]) {
         const target = join(cwd, entry.path);
         if (!entry.existed) {
-          try { rmSync(target, { force: true }); } catch (error: any) { warnings.push(`Could not remove ${entry.path}: ${error.message}`); }
+          if (existsSync(target)) {
+            try { rmSync(target, { force: true }); removedTrackedFiles++; } catch (error: any) { warnings.push(`Could not remove ${entry.path}: ${error.message}`); }
+          }
           continue;
         }
         const snapshot = join(trackedDir, entry.path);
         try {
+          if (!existsSync(target) || (entry.sha256 && hashFile(target) !== entry.sha256)) restoredTrackedFiles++;
           mkdirSync(dirname(target), { recursive: true });
           copyFileSync(snapshot, target);
         } catch (error: any) { warnings.push(`Could not restore ${entry.path}: ${error.message}`); }
@@ -304,14 +311,14 @@ export async function checkpointRestoreTool(cwd: string, input: CheckpointRestor
       for (const raw of currentUntracked.split("\n")) {
         const rel = raw.trim();
         if (rel && !savedUntracked.has(rel.replace(/\\/g, "/"))) {
-          try { rmSync(join(cwd, rel), { recursive: true, force: true }); } catch (error: any) { warnings.push(`Could not remove ${rel}: ${error.message}`); }
+          try { rmSync(join(cwd, rel), { recursive: true, force: true }); removedUntrackedFiles++; } catch (error: any) { warnings.push(`Could not remove ${rel}: ${error.message}`); }
         }
       }
       if (existsSync(untrackedDir)) {
         const restore = (dir: string, prefix = "") => readdirSync(dir, { withFileTypes: true }).forEach((entry) => {
           const rel = prefix ? join(prefix, entry.name) : entry.name;
           if (entry.isDirectory()) restore(join(dir, entry.name), rel);
-          else { const target = join(cwd, rel); mkdirSync(dirname(target), { recursive: true }); copyFileSync(join(dir, entry.name), target); }
+          else { const target = join(cwd, rel); if (!existsSync(target) || hashFile(target) !== hashFile(join(dir, entry.name))) restoredUntrackedFiles++; mkdirSync(dirname(target), { recursive: true }); copyFileSync(join(dir, entry.name), target); }
         });
         restore(untrackedDir);
       }
@@ -324,7 +331,7 @@ export async function checkpointRestoreTool(cwd: string, input: CheckpointRestor
         const target = join(cwd, entry.path);
         if (!existsSync(target) || hashFile(target) !== entry.sha256) warnings.push(`Verification failed: ${entry.path} does not match the checkpoint.`);
       }
-      return { content: [{ type: "text", text: JSON.stringify({ id: input.id, status: warnings.length ? "partial" : "success", message: warnings.length ? "Checkpoint partially restored; verification found mismatches." : "Checkpoint restored and verified.", warnings, restoredTrackedFiles: meta.trackedFiles.length, restoredUntrackedFiles: savedUntracked.size }, null, 2) }], isError: warnings.length > 0 };
+      return { content: [{ type: "text", text: JSON.stringify({ id: input.id, status: warnings.length ? "partial" : "success", message: warnings.length ? "Checkpoint partially restored; verification found mismatches." : "Checkpoint restored and verified.", warnings, restoredTrackedFiles, removedTrackedFiles, restoredUntrackedFiles, removedUntrackedFiles }, null, 2) }], isError: warnings.length > 0 };
     }
     const patchPath = join(cpDir, "patch.diff");
     if (!existsSync(patchPath)) {

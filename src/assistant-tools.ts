@@ -6,6 +6,7 @@ import { readdir } from "node:fs/promises";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import { enforceSecurePath, type ToolResponse } from "./pi-tools.js";
+import { getWorkspaceGitEligibility } from "./git.js";
 
 const execFileAsync = promisify(execFile);
 
@@ -184,6 +185,10 @@ export interface GitToolInput {
 
 export async function gitTool(subCommand: string, input: GitToolInput, cwd: string): Promise<ToolResponse> {
   try {
+    const eligibility = await getWorkspaceGitEligibility(cwd);
+    if (!eligibility.ok) {
+      return { content: [{ type: "text", text: `Git ${subCommand} unavailable: ${eligibility.message ?? "workspace is not a Git repository."}` }], isError: true };
+    }
     const args: string[] = [subCommand];
 
     if (subCommand === "diff" && input.staged) {
@@ -411,36 +416,38 @@ export async function runScriptTool(input: RunScriptInput, cwd: string): Promise
       const nextActions: any[] = [];
       if (summary.suggestedReads) {
         for (const sr of summary.suggestedReads) {
-          let resolvedPath = sr.path;
+          let resolvedPath = resolve(cwd, sr.path);
           if (!existsSync(resolvedPath)) {
-            const joined = join(cwd, resolvedPath);
-            if (existsSync(joined)) {
-              resolvedPath = joined;
-            } else {
-              // Monorepo fallback: search apps/*, packages/*, src/* subdirectories
-              for (const sub of ["apps", "packages", "src"]) {
-                const subDir = join(cwd, sub);
-                if (!existsSync(subDir)) continue;
-                try {
-                  const entries = await readdir(subDir, { withFileTypes: true });
-                  for (const entry of entries) {
-                    if (!entry.isDirectory()) continue;
-                    const candidate = join(subDir, entry.name, sr.path);
-                    if (existsSync(candidate)) {
-                      resolvedPath = candidate;
-                      break;
-                    }
+            // Monorepo fallback: search apps/*, packages/*, src/* subdirectories.
+            for (const sub of ["apps", "packages", "src"]) {
+              const subDir = join(cwd, sub);
+              if (!existsSync(subDir)) continue;
+              try {
+                const entries = await readdir(subDir, { withFileTypes: true });
+                for (const entry of entries) {
+                  if (!entry.isDirectory()) continue;
+                  const candidate = join(subDir, entry.name, sr.path);
+                  if (existsSync(candidate)) {
+                    resolvedPath = candidate;
+                    break;
                   }
-                } catch {}
-                if (existsSync(resolvedPath)) break;
-              }
+                }
+              } catch {}
+              if (existsSync(resolvedPath)) break;
             }
           }
-          // Always emit workspace-relative paths — read tool expects them relative to workspace root
+          if (!existsSync(resolvedPath)) continue;
+
+          // Always emit existing workspace-relative source paths. Framework internals
+          // and unresolved/absolute paths cannot be used by the read tool safely.
           const { relative } = await import("node:path");
-          const workspaceRelativePath = resolvedPath.startsWith(cwd + "\\") || resolvedPath.startsWith(cwd + "/")
-            ? relative(cwd, resolvedPath).replace(/\\/g, "/")
-            : resolvedPath;
+          const workspaceRelativePath = relative(cwd, resolvedPath).replace(/\\/g, "/");
+          if (
+            workspaceRelativePath === "" ||
+            workspaceRelativePath === ".." ||
+            workspaceRelativePath.startsWith("../") ||
+            workspaceRelativePath.split("/").includes("node_modules")
+          ) continue;
           nextActions.push({
             tool: "read",
             arguments: {
@@ -448,7 +455,7 @@ export async function runScriptTool(input: RunScriptInput, cwd: string): Promise
               startLine: sr.startLine ?? 1,
               endLine: sr.endLine ?? 50,
             },
-            reason: resolvedPath !== workspaceRelativePath
+            reason: resolvedPath !== sr.path
               ? `Diagnostic referenced ${sr.path} — resolved to ${workspaceRelativePath}`
               : `Suggested by diagnostic: ${summary.summary?.primaryError?.message || "error context"}`,
             priority: nextActions.length === 0 ? 1 : 2,
