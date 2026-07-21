@@ -306,10 +306,11 @@ function formatPayloadCollections(collections: any[], detailLevel: "summary" | "
   if (detailLevel === "full") return collections;
 
   if (detailLevel === "summary") {
-    return collections.map(({ slug, fieldsTree, flatFields, access, hooks, tenantScoped, file }) => ({
+    return collections.map(({ slug, fieldsTree, flatFields, access, hooks, tenantScoped, file, unresolvedNodes, coverage, reason }) => ({
       slug,
       file,
       ...(tenantScoped ? { tenantScoped: true } : {}),
+      ...(unresolvedNodes > 0 ? { unresolvedNodes, coverage, reason } : { coverage: "full" }),
       rootFields: (fieldsTree ?? []).filter((f: any) => !f.type || !["group", "array", "tabs", "blocks"].includes(f.type))
         .slice(0, 10)
         .map(({ name, type, required, unique, relationTo }: any) => ({ name, type, ...(required ? { required: true } : {}), ...(unique ? { unique: true } : {}), ...(relationTo ? { relationTo } : {}) })),
@@ -333,6 +334,7 @@ function parseCollectionFile(content: string): any {
   const access: string[] = [];
   const hooks: string[] = [];
   let tenantScoped = false;
+  let unresolvedNodes = 0;
 
   /**
    * Build a tree of field definitions (canonical structure).
@@ -343,7 +345,10 @@ function parseCollectionFile(content: string): any {
   function parseFieldTree(elements: ts.NodeArray<ts.Expression>): any[] {
     const result: any[] = [];
     for (const el of elements) {
-      if (!ts.isObjectLiteralExpression(el)) continue;
+      if (!ts.isObjectLiteralExpression(el)) {
+        unresolvedNodes++;
+        continue;
+      }
       
       let fieldName = "";
       let fieldType = "";
@@ -502,7 +507,17 @@ function parseCollectionFile(content: string): any {
     flatten(fieldsTree);
     // `fieldsTree` is the canonical hierarchy. `flatFields` is explicitly a
     // path-addressed index, so nested fields are never mistaken for roots.
-    return { slug, tenantScoped, fieldsTree, flatFields, access, hooks };
+    return {
+      slug,
+      tenantScoped,
+      fieldsTree,
+      flatFields,
+      access,
+      hooks,
+      unresolvedNodes,
+      coverage: unresolvedNodes > 0 ? "partial" : "full",
+      reason: unresolvedNodes > 0 ? "dynamic expressions or external spreads" : undefined
+    };
   }
   return null;
 }
@@ -510,7 +525,7 @@ function parseCollectionFile(content: string): any {
 export async function fileDependenciesTool(
   cwd: string,
   targetPath: string,
-  opts: { transitiveDepth?: number; maxFiles?: number } = {},
+  opts: { transitiveDepth?: number; maxFiles?: number; maxDependencies?: number; includeTransitive?: boolean; summaryOnly?: boolean } = {},
 ): Promise<ToolResponse> {
   const fullPath = join(cwd, targetPath);
   if (!existsSync(fullPath)) {
@@ -537,6 +552,8 @@ export async function fileDependenciesTool(
     allTrackedFiles,
     transitiveDepth: opts.transitiveDepth ?? 3,
     maxFiles: opts.maxFiles ?? 300,
+    maxDependencies: opts.maxDependencies,
+    includeTransitive: opts.includeTransitive,
   });
 
   // Build a clean barrel map: specifier → via barrel path
@@ -547,44 +564,53 @@ export async function fileDependenciesTool(
     }
   }
 
+  const resolved = [...new Set(result.outwardDirect.filter(i => !i.external && i.resolvedRelative).map(i => i.resolvedRelative!))];
+  const external = [...new Set(result.outwardDirect.filter(i => i.external).map(i => i.specifier))];
+  const unresolved = result.unresolvedSpecifiers.length > 0 ? [...new Set(result.unresolvedSpecifiers)] : undefined;
+  const inward = [...new Set(result.inwardDirect)];
+  const transitive = [...new Set(result.transitiveOutward)];
+
+  const responseJson: any = {
+    target: targetPath,
+    dependencies: { resolved, external, unresolved },
+    outward_dependencies: [...new Set(result.outwardDirect.filter(i => !i.external).map(i => i.resolvedRelative ?? i.specifier))],
+    outward_dependencies_external: external,
+    unresolved,
+    inward_dependencies: inward,
+    transitive_dependencies: transitive,
+    barrel_reexports: Object.keys(barrelMap).length > 0 ? barrelMap : undefined,
+    cycles: result.hasCycles ? result : undefined,
+    analysis: {
+      confidence: result.confidence,
+      coverage: result.coverage,
+      elapsedMs: result.metrics.elapsedMs,
+      filesAnalyzed: result.metrics.filesAnalyzed,
+    },
+  };
+
+  if (opts.summaryOnly) {
+    responseJson.dependencies = {
+      resolvedCount: resolved.length,
+      externalCount: external.length,
+      unresolvedCount: unresolved?.length || 0,
+      inwardCount: inward.length,
+      transitiveCount: transitive.length
+    };
+    delete responseJson.outward_dependencies;
+    delete responseJson.outward_dependencies_external;
+    delete responseJson.unresolved;
+    delete responseJson.inward_dependencies;
+    delete responseJson.transitive_dependencies;
+    delete responseJson.barrel_reexports;
+    delete responseJson.cycles;
+  }
+
   return {
     content: [{
       type: "text",
-      text: JSON.stringify({
-        target: targetPath,
-        dependencies: {
-          resolved: [...new Set(result.outwardDirect
-            .filter(i => !i.external && i.resolvedRelative)
-            .map(i => i.resolvedRelative!))],
-          external: [...new Set(result.outwardDirect
-            .filter(i => i.external)
-            .map(i => i.specifier))],
-          unresolved: result.unresolvedSpecifiers.length > 0 
-            ? [...new Set(result.unresolvedSpecifiers)] 
-            : undefined,
-        },
-        // Backward compatibility aliases
-        outward_dependencies: [...new Set(result.outwardDirect
-            .filter(i => !i.external)
-            .map(i => i.resolvedRelative ?? i.specifier))],
-        outward_dependencies_external: [...new Set(result.outwardDirect
-            .filter(i => i.external)
-            .map(i => i.specifier))],
-        unresolved: result.unresolvedSpecifiers.length > 0 
-            ? [...new Set(result.unresolvedSpecifiers)] 
-            : undefined,
-        inward_dependencies: [...new Set(result.inwardDirect)],
-        transitive_dependencies: [...new Set(result.transitiveOutward)],
-        barrel_reexports: Object.keys(barrelMap).length > 0 ? barrelMap : undefined,
-        cycles: result.hasCycles ? result : undefined,
-        analysis: {
-          confidence: result.confidence,
-          coverage: result.coverage,
-          elapsedMs: result.metrics.elapsedMs,
-          filesAnalyzed: result.metrics.filesAnalyzed,
-        },
-      }, null, 2),
+      text: JSON.stringify(responseJson, null, 2),
     }],
+    ...(result.truncated ? { _meta: { truncated: true } } : {})
   };
 }
 

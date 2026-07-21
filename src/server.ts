@@ -313,19 +313,31 @@ function createMcpServer(
             status: "installed_unverified",
             message: "Lifecycle scripts were skipped, so native/runtime dependencies were not loaded. Use verify: true to run a focused smoke check when supported.",
           };
-          if (req.verify) {
+
+          const nodeModulesExists = fs.existsSync(pathModule.join(workspace.worktree.path, "node_modules"));
+          const lockfileExists = fs.existsSync(pathModule.join(workspace.worktree.path, "package-lock.json")) ||
+                                 fs.existsSync(pathModule.join(workspace.worktree.path, "pnpm-lock.yaml")) ||
+                                 fs.existsSync(pathModule.join(workspace.worktree.path, "yarn.lock"));
+
+          if (!nodeModulesExists) {
+            verification = { status: "verification_failed", message: "Installation command succeeded, but node_modules directory is missing." };
+          } else if (!lockfileExists) {
+            verification = { status: "verification_failed", message: "Installation command succeeded, but no lockfile was found." };
+          } else if (req.verify) {
             const packageJsonPath = pathModule.join(workspace.worktree.path, "package.json");
             const packageJson = fs.existsSync(packageJsonPath) ? JSON.parse(fs.readFileSync(packageJsonPath, "utf8")) : {};
             const allDependencies = { ...(packageJson.dependencies ?? {}), ...(packageJson.optionalDependencies ?? {}) };
             const nativeCandidates = Object.keys(allDependencies).filter((name) => /^(better-sqlite3|sqlite3|node-pty|sharp|canvas|bcrypt|argon2|esbuild)$/.test(name));
             if (nativeCandidates.length === 0) {
-              verification = { status: "verification_skipped", message: "No supported native dependency was declared for a meaningful runtime smoke check; installation remains unverified." };
+              verification = { status: "verification_skipped", message: "Basic sanity check passed. No supported native dependency was declared for a meaningful runtime smoke check; installation remains unverified." };
             } else {
               const smoke = verifyNativeDependencies(workspace.worktree.path, nativeCandidates);
               verification = smoke.ok
                 ? { status: "installed_verified", packages: nativeCandidates, message: "Native runtime dependency smoke check passed." }
-                : { status: "verification_failed", packages: nativeCandidates, message: `Install completed, but runtime verification failed: ${smoke.failures.map((failure) => `${failure.name}: ${failure.message}`).join("; ")}. Re-run with allowLifecycleScripts: true only if you trust this worktree and the dependency needs to build.` };
+                : { status: "verification_failed", packages: nativeCandidates, message: `Install completed, but runtime verification failed: ${smoke.failures.map((failure: any) => `${failure.name}: ${failure.message}`).join("; ")}. Re-run with allowLifecycleScripts: true only if you trust this worktree and the dependency needs to build.` };
             }
+          } else {
+            verification = { status: "installed_unverified", message: "Basic sanity check passed (node_modules and lockfile exist). Runtime native dependency verification was skipped." };
           }
 
           const summary = [
@@ -338,21 +350,39 @@ function createMcpServer(
             ...summaryLines.map((l: string) => l.trim()).filter(Boolean),
           ].filter(Boolean).join("\n");
 
-          return {
-            content: [{ type: "text", text: summary }],
-            isError: verification.status === "verification_failed",
-            structuredContent: {
+          const envelope = {
+            status: verification.status === "verification_failed" ? "error" : "success",
+            data: {
               status: verification.status,
               packageManager: pkgManager,
               durationMs: result.durationMs,
               packages: packagesDone?.replace("packages:", "").trim(),
               lifecycleScriptsSkipped: skipLifecycleScripts,
               verification,
+            },
+            error: verification.status === "verification_failed" ? verification.message : null,
+            diagnostics: [],
+            metrics: {
+              durationMs: result.durationMs ?? 0,
+              truncated: false
             }
+          };
+
+          return {
+            content: [{ type: "text", text: JSON.stringify(envelope, null, 2) }],
+            isError: verification.status === "verification_failed",
+            structuredContent: envelope.data
           };
         } catch (e: any) {
           const err = "Error installing dependencies: " + e.message;
-          return { content: [{ type: "text", text: err }], isError: true, structuredContent: { result: err } };
+          const errorEnvelope = {
+            status: "error",
+            data: {},
+            error: err,
+            diagnostics: [],
+            metrics: { durationMs: 0, truncated: false }
+          };
+          return { content: [{ type: "text", text: JSON.stringify(errorEnvelope, null, 2) }], isError: true, structuredContent: { result: err } };
         }
       }
     );
@@ -1532,7 +1562,7 @@ function createMcpServer(
   if (config.toolMode === "assistant") {
     const getSummary = (tool: string, req: any) => {
       switch (tool) {
-        case "workspace_summary": return "⚠️ DEPRECATED — Project Summary (use project_bootstrap)";
+        case "workspace_summary": return "Workspace Summary";
         case "read_many": return `Read ${req.paths?.length || 0} file(s)`;
         case "tree": return `Tree of ${req.path || '.'} (Depth: ${req.depth || 'unlimited'})`;
         case "safe_file_preview": return `Preview ${req.paths?.length || 0} file(s)`;
@@ -1565,8 +1595,9 @@ function createMcpServer(
       
       // Build universal envelope — every tool response includes:
       // - status: "success" | "error" (tool execution), with commandStatus when applicable
-      // - summary: human-readable one-liner
-      // - nextActions: directly callable follow-up suggestions
+      // - data: un-stringified parsed JSON or plain text
+      // - error: string or null
+      // - diagnostics: directly callable follow-up suggestions or warnings
       // - metrics: durationMs, truncated
       const toolStatus = response.isError ? "error" : "success";
       
@@ -1583,38 +1614,46 @@ function createMcpServer(
         }
       }
       
-      const status = commandStatus === "failed" ? "failed" : toolStatus;
+      const status = commandStatus === "failed" ? "error" : toolStatus; // unify "failed" to "error" in status
       // Auto-measure: if no startedAt provided, measure at wrap() entry as estimate.
       // This catches the wall-clock time spent in the handler (including awaits).
       const wrapEntryAt = performance.now();
       const durationMs = extra?.startedAt ? Math.round(performance.now() - extra.startedAt) : Math.round(performance.now() - (req.__startedAt ?? wrapEntryAt));
-      if (!extra?.startedAt && !req.__startedAt) {
-        // No startedAt available — durationMs will be 0. To fix, pass startedAt in wrap() calls.
-      }
       
+      let parsedData: any = resultText;
+      try {
+        if (resultText.trim().startsWith("{") || resultText.trim().startsWith("[")) {
+          parsedData = JSON.parse(resultText);
+        }
+      } catch (e) {
+        // Leave as string if not valid JSON
+      }
+
+      const envelope = {
+        status,
+        data: status === "error" && typeof parsedData === "string" ? {} : parsedData,
+        error: status === "error" ? (typeof parsedData === "string" ? parsedData : (parsedData.error || parsedData.message || JSON.stringify(parsedData))) : null,
+        diagnostics: extra?.diagnostics ?? [],
+        metrics: {
+          durationMs,
+          truncated: Boolean(response._meta?.truncated || resultText.includes("[truncated]") || resultText.includes("... [truncated")),
+        }
+      };
+
       return {
         ...response,
+        content: [{ type: "text", text: JSON.stringify(envelope, null, 2) }],
         _meta: {
           tool,
           card: {
             workspaceId: req.workspaceId,
             summary: getSummary(tool, req),
-            payload: { content: response.content },
+            payload: { content: response.content }, // keep original for UI card
           },
         },
         structuredContent: {
           result: resultText,
-          envelope: {
-            status,
-            summary: getSummary(tool, req),
-            tool,
-            nextActions: extra?.nextActions ?? [],
-            diagnostics: extra?.diagnostics ?? [],
-            metrics: {
-              durationMs,
-              truncated: resultText.includes("[truncated]") || resultText.includes("... [truncated"),
-            },
-          },
+          envelope,
         },
       };
     };
@@ -1689,14 +1728,28 @@ function createMcpServer(
       {
         title: "[ADVANCED] File Dependencies",
         description: "[Architecture] Read-only analysis of file imports (outward) and dependents (inward) in the project. Does not execute code or modify files.",
-        inputSchema: { workspaceId: z.string().describe("Workspace ID"), path: z.string().describe("Target file path relative to workspace root") },
+        inputSchema: {
+          workspaceId: z.string().describe("Workspace ID"),
+          path: z.string().describe("Target file path relative to workspace root"),
+          maxDepth: z.number().optional().describe("Max depth for dependency resolution"),
+          maxFiles: z.number().optional().describe("Max files to parse globally"),
+          maxDependencies: z.number().optional().describe("Max dependencies to collect"),
+          includeTransitive: z.boolean().optional().describe("Whether to include transitive dependencies"),
+          summaryOnly: z.boolean().optional().describe("If true, returns only counts and leaf nodes")
+        },
         outputSchema: resultOutputSchema(),
         ...toolWidgetDescriptorMeta(config, "read"),
         annotations: READ_TOOL_ANNOTATIONS,
       } as any,
       async (req: any) => {
         const workspace = workspaces.getWorkspace(req.workspaceId);
-        return wrap("file_dependencies", req, await fileDependenciesTool(workspace.root, req.path));
+        return wrap("file_dependencies", req, await fileDependenciesTool(workspace.root, req.path, {
+          transitiveDepth: req.maxDepth,
+          maxFiles: req.maxFiles,
+          maxDependencies: req.maxDependencies,
+          includeTransitive: req.includeTransitive,
+          summaryOnly: req.summaryOnly
+        }));
       }
     );
 
@@ -1974,12 +2027,12 @@ function createMcpServer(
       }
     );
 
-    if (config.legacyAliases) registerAppTool(
+    registerAppTool(
       server,
       "workspace_summary",
       {
-        title: "⚠️ DEPRECATED — Workspace Summary (use project_bootstrap)",
-        description: "⚠️ DEPRECATED — use project_bootstrap instead. This alias is kept for backward compatibility but will be removed in a future version.",
+        title: "Workspace Summary",
+        description: "[CORE] Get a high-level, extremely compact overview of the workspace (name, version, scripts, dependencies, and top-level directories). Use this for a quick pulse-check before diving into detailed file discovery with project_bootstrap or read_many.",
         inputSchema: { workspaceId: z.string().describe("Workspace ID"), path: z.string().optional().describe("Ignored parameter to prevent schema errors") },
         outputSchema: resultOutputSchema(),
         ...toolWidgetDescriptorMeta(config, "read"),

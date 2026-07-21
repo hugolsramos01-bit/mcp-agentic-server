@@ -399,6 +399,8 @@ export interface SingleFileDepsOptions {
   allTrackedFiles: string[];
   transitiveDepth?: number;
   maxFiles?: number;
+  maxDependencies?: number;
+  includeTransitive?: boolean;
 }
 
 export interface SingleFileDepsResult {
@@ -416,8 +418,8 @@ export interface SingleFileDepsResult {
   };
 }
 
-export async function resolveFileDependencies(opts: SingleFileDepsOptions): Promise<SingleFileDepsResult> {
-  const { workspaceRoot, targetRelPath, allTrackedFiles, transitiveDepth = 3, maxFiles = 300 } = opts;
+export async function resolveFileDependencies(opts: SingleFileDepsOptions): Promise<SingleFileDepsResult & { truncated?: boolean }> {
+  const { workspaceRoot, targetRelPath, allTrackedFiles, transitiveDepth = 3, maxFiles = 300, maxDependencies = 100, includeTransitive = true } = opts;
   const rootAbs = resolve(workspaceRoot);
   const targetAbs = resolve(rootAbs, targetRelPath);
 
@@ -427,7 +429,7 @@ export async function resolveFileDependencies(opts: SingleFileDepsOptions): Prom
     entryPoints: [targetRelPath],
     maxDepth: transitiveDepth,
     maxFiles,
-    transitive: true,
+    transitive: includeTransitive,
   });
 
   const targetNode = outwardGraph.files.get(targetRelPath.replace(/\\/g, "/"));
@@ -440,7 +442,12 @@ export async function resolveFileDependencies(opts: SingleFileDepsOptions): Prom
   const targetIdentity = moduleIdentity(targetRelPath);
   const compilerOptions = loadCompilerOptions(dirname(targetAbs), workspaceRoot);
 
+  let truncated = false;
   for (const file of allTrackedFiles) {
+    if (inwardDirect.length >= maxDependencies) {
+      truncated = true;
+      break;
+    }
     if (moduleIdentity(file) === targetIdentity) continue;
     if (!/\.(?:[cm]?[jt]sx?)$/i.test(file)) continue;
 
@@ -483,6 +490,7 @@ export async function resolveFileDependencies(opts: SingleFileDepsOptions): Prom
     confidence: outwardGraph.confidence,
     coverage: outwardGraph.coverage,
     hasCycles: outwardGraph.hasCycles,
+    truncated: truncated || outwardGraph.metrics.filesAnalyzed >= maxFiles,
     metrics: {
       filesAnalyzed: outwardGraph.metrics.filesAnalyzed + allTrackedFiles.length,
       elapsedMs: outwardGraph.metrics.elapsedMs + (Date.now() - startInward),
