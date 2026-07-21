@@ -464,22 +464,26 @@ function parseCollectionFile(content: string): any {
         if (ts.isStringLiteral(node.initializer)) {
           slug = node.initializer.text;
         }
+        return; // skip recursing into the initializer
       } else if (name === "fields") {
         if (ts.isArrayLiteralExpression(node.initializer)) {
           fieldsTree.push(...parseFieldTree(node.initializer.elements));
         }
+        return; // skip recursing into nested fields to prevent duplication
       } else if (name === "access") {
         if (ts.isObjectLiteralExpression(node.initializer)) {
           for (const prop of node.initializer.properties) {
              if (prop.name) access.push(prop.name.getText(sourceFile));
           }
         }
+        return;
       } else if (name === "hooks") {
         if (ts.isObjectLiteralExpression(node.initializer)) {
           for (const prop of node.initializer.properties) {
              if (prop.name) hooks.push(prop.name.getText(sourceFile));
           }
         }
+        return;
       }
     }
     ts.forEachChild(node, visit);

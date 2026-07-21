@@ -5,6 +5,22 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.1.1] - 2026-07-21
+
+### Fixed
+- Increase `run_package_script` timeout to 10 minutes to properly accommodate long build processes.
+- Fix `payload_schema_map` AST traversal that incorrectly duplicated fields by re-entering nested array declarations.
+
+## [1.1.0] - 2026-07-21
+
+### Added
+- Feature: Comprehensive `import-resolver` using TypeScript Compiler API, handling `tsconfig` extends, aliases, and dependency cycle detection.
+- Feature: Semantic tools now detect React/Vite setups, configurations, and Monorepo workspace boundaries.
+- Feature: Payload CMS schema mapper now supports `summary`, `compact`, and `full` detail modes to manage context budgets.
+
+### Fixed
+- Hardened tournament judge failure propagation, ensuring missing dependencies and infrastructure errors are faithfully reported in diagnostics.
+
 ## [1.0.20] - 2026-07-20
 
 ### Fixed
