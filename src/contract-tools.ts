@@ -33,7 +33,7 @@ export async function proposePlanTool(input: ProposePlanInput, workspaceId?: str
       verificationPlan: input.verificationPlan ?? [],
     },
     message:
-      "Plan logged. Follow the plan when making edits. Call coding_context or file_dependencies first if needed. Use edit_dry_run before modifying files, and checkpoint_save to snapshot before risky changes.",
+      "Plan logged. Follow the plan when making edits. Call workspace_summary or file_dependencies first if needed. Use edit_dry_run before modifying files, and checkpoint_save to snapshot before risky changes.",
   };
 
   return {

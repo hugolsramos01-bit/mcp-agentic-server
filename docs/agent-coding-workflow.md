@@ -128,7 +128,7 @@ Agentic MCP exposes these tool names:
 - `edit`
 - `bash`
 
-By default, Agentic MCP also runs in `AGENTIC_TOOL_MODE=assistant`, exposing semantic tools (`coding_context`) and the `bash` tool. Use `bash` with command-line tools
+By default, Agentic MCP also runs in `AGENTIC_TOOL_MODE=assistant`, exposing semantic tools (`workspace_summary`) and the `bash` tool. Use `bash` with command-line tools
 such as `rg`, `find`, and `ls` for search and directory inspection instead of dedicated tools.
 
 Use `AGENTIC_TOOL_MODE=full` to restore dedicated search and directory tools.

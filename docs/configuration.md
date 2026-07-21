@@ -64,7 +64,7 @@ MCP clients discover metadata from:
 
 | Value | Behavior |
 | --- | --- |
-| `assistant` | Default. Exposes `open_workspace`, `read`, `write`, `edit`, `bash`, and semantic tools (`coding_context`, `next_route_map`, `payload_schema_map`). |
+| `assistant` | Default. Exposes `open_workspace`, `read`, `write`, `edit`, `bash`, and semantic tools (`workspace_summary`, `next_route_map`, `payload_schema_map`). |
 | `minimal` | Exposes `open_workspace`, `read`, `write`, `edit`, and `bash`. Clients use `bash` with tools such as `rg`, `find`, and `ls` for inspection. |
 | `full` | Exposes the minimal tools plus dedicated `grep`, `glob`, and `ls` tools. |
 
