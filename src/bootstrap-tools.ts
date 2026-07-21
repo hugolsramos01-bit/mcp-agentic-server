@@ -40,7 +40,20 @@ export async function projectBootstrapTool(cwd: string, allowedRoots: string[]):
   for (const dir of monorepoDirs) {
     try {
       const fullDir = join(cwd, dir);
-      if (existsSync(fullDir)) {
+      if (!existsSync(fullDir)) continue;
+
+      // Check if it's a direct package (e.g. frontend/package.json)
+      const directPkgPath = join(fullDir, "package.json");
+      if (existsSync(directPkgPath)) {
+        try {
+          const subPkg = JSON.parse(readFileSync(directPkgPath, "utf8"));
+          const subDeps = { ...(subPkg.dependencies || {}), ...(subPkg.devDependencies || {}) };
+          for (const d of Object.keys(subDeps)) allDeps.push(d);
+        } catch {}
+      }
+
+      // Also check children if it's a typical workspace grouping directory
+      if (dir === "apps" || dir === "packages") {
         const entries = readdirSync(fullDir, { withFileTypes: true });
         for (const entry of entries) {
           if (!entry.isDirectory()) continue;
@@ -50,13 +63,6 @@ export async function projectBootstrapTool(cwd: string, allowedRoots: string[]):
             for (const d of Object.keys(subDeps)) allDeps.push(d);
           } catch {}
         }
-      } else if (dir === "frontend" || dir === "client" || dir === "web" || dir === "ui") {
-        // Direct package.json check for top-level frontend/web folders
-        try {
-          const subPkg = JSON.parse(readFileSync(join(cwd, dir, "package.json"), "utf8"));
-          const subDeps = { ...(subPkg.dependencies || {}), ...(subPkg.devDependencies || {}) };
-          for (const d of Object.keys(subDeps)) allDeps.push(d);
-        } catch {}
       }
     } catch {}
   }

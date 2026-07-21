@@ -220,7 +220,7 @@ export async function tournamentJudgeTool(input: TournamentJudgeInput): Promise<
         details: `Dependencies not installed (missing node_modules/). Run worktree_install_deps with workspaceId "${entry.workspaceId ?? '(use open_workspace to get workspaceId)'}" first to hydrate dependencies.`,
         durationMs: 0,
       });
-      results.push({
+      results[index] = {
         id: entry.id,
         strategy: entry.strategy,
         worktreePath: entry.worktree.path,
@@ -228,7 +228,7 @@ export async function tournamentJudgeTool(input: TournamentJudgeInput): Promise<
         allPassed: false,
         verdicts,
         diagnostic: "node_modules missing — install dependencies first",
-      });
+      };
       continue;
     }
 

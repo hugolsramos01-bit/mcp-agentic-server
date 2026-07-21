@@ -13,13 +13,13 @@ This project is an advanced, high-performance [Model Context Protocol (MCP)](htt
 
 ### 1. Smart Context Anti-Bloat
 Stop melting your LLM context windows. 
-* **`coding_context`**: Instead of a massive unified file dump, returns a compact, high-level map of the workspace (git status, package manager, key scripts, and schemas).
+* **`workspace_summary`**: Instead of a massive unified file dump, returns a compact, high-level map of the workspace (git status, package manager, key scripts, and schemas).
 * **Hardened File Reads**: The `read` tool forces offset/limit paginations and strict line-range constraints. The model gets exactly what it needs, down to the line, preventing catastrophic token bloat on large files.
 
 ### 2. True Git Worktree Sandboxing
 Running experimental code, tests, or destructive LLM edits in your main directory can break your Hot Module Replacement (HMR), trigger infinite loops in Next.js/Vite, or mess up your `node_modules`.
 * **`open_workspace (mode="worktree")`**: Automatically spins up an isolated, detached `git worktree` *outside* your project's main directory (e.g., `~/.agentic/worktrees/`).
-* The LLM can break things, install new dependencies via `worktree_install_deps`, or sync uncommitted changes via `worktree_sync_changes`, all without touching your live development environment.
+* The LLM can break things, install new dependencies via `worktree_install_deps` (with `allowLifecycleScripts` safely controlled), or sync uncommitted changes via `worktree_sync_changes`, all without touching your live development environment.
 
 ### 3. Semantic AST Navigation
 The server parses TypeScript and JavaScript dynamically (with an in-memory LRU cache to save CPU) to provide the model with semantic maps of your architecture.
