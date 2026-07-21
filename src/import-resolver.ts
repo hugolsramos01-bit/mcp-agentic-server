@@ -433,8 +433,10 @@ export async function resolveFileDependencies(opts: SingleFileDepsOptions): Prom
   });
 
   const targetNode = outwardGraph.files.get(targetRelPath.replace(/\\/g, "/"));
-  const outwardDirect = targetNode?.imports ?? [];
-  const transitiveOutward = Array.from(outwardGraph.files.keys()).filter(k => k !== targetRelPath.replace(/\\/g, "/"));
+  const allOutwardDirect = targetNode?.imports ?? [];
+  const allTransitiveOutward = Array.from(outwardGraph.files.keys()).filter(k => k !== targetRelPath.replace(/\\/g, "/"));
+  const outwardDirect = allOutwardDirect.slice(0, maxDependencies);
+  const transitiveOutward = allTransitiveOutward.slice(0, maxDependencies);
 
   // --- Inward: scan tracked files for any that import the target ---
   const startInward = Date.now();
@@ -442,14 +444,15 @@ export async function resolveFileDependencies(opts: SingleFileDepsOptions): Prom
   const targetIdentity = moduleIdentity(targetRelPath);
   const compilerOptions = loadCompilerOptions(dirname(targetAbs), workspaceRoot);
 
-  let truncated = false;
-  for (const file of allTrackedFiles) {
+  let truncated = allOutwardDirect.length > maxDependencies || allTransitiveOutward.length > maxDependencies;
+  const candidateFiles = allTrackedFiles.filter((file) => /\.(?:[cm]?[jt]sx?)$/i.test(file)).slice(0, maxFiles);
+  if (candidateFiles.length < allTrackedFiles.filter((file) => /\.(?:[cm]?[jt]sx?)$/i.test(file)).length) truncated = true;
+  for (const file of candidateFiles) {
     if (inwardDirect.length >= maxDependencies) {
       truncated = true;
       break;
     }
     if (moduleIdentity(file) === targetIdentity) continue;
-    if (!/\.(?:[cm]?[jt]sx?)$/i.test(file)) continue;
 
     const absFile = resolve(rootAbs, file);
     let text: string;
@@ -492,7 +495,7 @@ export async function resolveFileDependencies(opts: SingleFileDepsOptions): Prom
     hasCycles: outwardGraph.hasCycles,
     truncated: truncated || outwardGraph.metrics.filesAnalyzed >= maxFiles,
     metrics: {
-      filesAnalyzed: outwardGraph.metrics.filesAnalyzed + allTrackedFiles.length,
+      filesAnalyzed: outwardGraph.metrics.filesAnalyzed + candidateFiles.length,
       elapsedMs: outwardGraph.metrics.elapsedMs + (Date.now() - startInward),
     },
   };

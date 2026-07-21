@@ -5,6 +5,13 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.1.3] - 2026-07-21
+
+### Fixed
+- Normalize the MCP response envelope at the tool registration boundary so every tool mode matches the declared `status`, `data`, `error`, `diagnostics`, and `metrics` contract.
+- Mark Payload schema extraction as partial when a `fields` expression is dynamic rather than silently reporting full coverage.
+- Apply dependency graph limits to direct, transitive, and inward dependency analysis and report the actual files examined.
+
 ## [1.1.2] - 2026-07-21
 
 ### Added

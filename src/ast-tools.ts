@@ -374,8 +374,9 @@ function parseCollectionFile(content: string): any {
           required = true;
         } else if (propName === "unique" && value.kind === ts.SyntaxKind.TrueKeyword) {
           unique = true;
-        } else if (propName === "fields" && ts.isArrayLiteralExpression(value)) {
-          childFields = value.elements;
+        } else if (propName === "fields") {
+          if (ts.isArrayLiteralExpression(value)) childFields = value.elements;
+          else unresolvedNodes++;
         } else if (propName === "blocks" && ts.isArrayLiteralExpression(value)) {
           blockDefs = value.elements;
         } else if (propName === "tabs" && ts.isArrayLiteralExpression(value)) {
@@ -473,6 +474,8 @@ function parseCollectionFile(content: string): any {
       } else if (name === "fields") {
         if (ts.isArrayLiteralExpression(node.initializer)) {
           fieldsTree.push(...parseFieldTree(node.initializer.elements));
+        } else {
+          unresolvedNodes++;
         }
         return; // skip recursing into nested fields to prevent duplication
       } else if (name === "access") {
