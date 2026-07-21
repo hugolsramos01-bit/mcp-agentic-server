@@ -287,7 +287,10 @@ function createMcpServer(
             return {
               content: [{ type: "text", text: errResult }],
               isError: true,
-              structuredContent: result
+              structuredContent: {
+                ...result,
+                diagnostic: errResult
+              }
             };
           }
 
