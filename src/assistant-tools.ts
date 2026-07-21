@@ -397,7 +397,7 @@ export async function runScriptTool(input: RunScriptInput, cwd: string): Promise
     });
 
     const { runProcess } = await import("./process-runner/index.js");
-    const result = await runProcess(packageManager, ["run", input.script], { cwd });
+    const result = await runProcess(packageManager, ["run", input.script], { cwd, timeoutMs: 600_000 });
     
     let stdout = result.status === "success" || result.status === "command_failed" || result.status === "timeout" || result.status === "cancelled" ? result.stdout : "";
     let stderr = result.status === "success" || result.status === "command_failed" || result.status === "timeout" || result.status === "cancelled" ? result.stderr : (result as any).message || "";
