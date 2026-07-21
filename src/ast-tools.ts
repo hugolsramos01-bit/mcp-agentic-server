@@ -552,16 +552,30 @@ export async function fileDependenciesTool(
       type: "text",
       text: JSON.stringify({
         target: targetPath,
-        outward_dependencies: result.outwardDirect
-          .filter(i => !i.external)
-          .map(i => i.resolvedRelative ?? i.specifier),
-        outward_dependencies_external: result.outwardDirect
-          .filter(i => i.external)
-          .map(i => i.specifier),
-        inward_dependencies: result.inwardDirect,
-        transitive_dependencies: result.transitiveOutward,
+        dependencies: {
+          resolved: [...new Set(result.outwardDirect
+            .filter(i => !i.external && i.resolvedRelative)
+            .map(i => i.resolvedRelative!))],
+          external: [...new Set(result.outwardDirect
+            .filter(i => i.external)
+            .map(i => i.specifier))],
+          unresolved: result.unresolvedSpecifiers.length > 0 
+            ? [...new Set(result.unresolvedSpecifiers)] 
+            : undefined,
+        },
+        // Backward compatibility aliases
+        outward_dependencies: [...new Set(result.outwardDirect
+            .filter(i => !i.external)
+            .map(i => i.resolvedRelative ?? i.specifier))],
+        outward_dependencies_external: [...new Set(result.outwardDirect
+            .filter(i => i.external)
+            .map(i => i.specifier))],
+        unresolved: result.unresolvedSpecifiers.length > 0 
+            ? [...new Set(result.unresolvedSpecifiers)] 
+            : undefined,
+        inward_dependencies: [...new Set(result.inwardDirect)],
+        transitive_dependencies: [...new Set(result.transitiveOutward)],
         barrel_reexports: Object.keys(barrelMap).length > 0 ? barrelMap : undefined,
-        unresolved: result.unresolvedSpecifiers.length > 0 ? result.unresolvedSpecifiers : undefined,
         cycles: result.hasCycles ? result : undefined,
         analysis: {
           confidence: result.confidence,

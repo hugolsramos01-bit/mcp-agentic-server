@@ -35,3 +35,22 @@ try {
 async function git(cwd: string, args: string[]) {
   return execFileAsync("git", args, { cwd });
 }
+
+import { payloadSchemaMapTool } from "./ast-tools.js";
+
+try {
+  const payloadResult = await payloadSchemaMapTool(join(process.cwd(), "test", "fixtures", "payload-nested"));
+  const payloadData = JSON.parse((payloadResult.content[0] as { text: string }).text) as { collections: any[] };
+  
+  const products = payloadData.collections.find((c: any) => c.slug === "products");
+  assert.ok(products, "Products collection should be found");
+  
+  // Enforce no duplicated root fields. The 'Products' fixture has top-level:
+  // title (text), details (group), variants (array), content (blocks), tabs (tabs)
+  // None of their children (sku, weight, color, stock, body, image, metaTitle, etc) should be at root.
+  const rootFieldNames = products.fieldsTree.map((f: any) => f.name).sort();
+  assert.deepEqual(rootFieldNames, ["content", "details", "tabs", "title", "variants"]);
+} catch (err) {
+  console.error("Payload test failed:", err);
+  process.exitCode = 1;
+}

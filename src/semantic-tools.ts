@@ -161,7 +161,7 @@ export async function semanticPackTool(
   }
 
   const pack: any = {
-    goal: goal || "overview",
+    goal: goal || "project overview",
     project: {
       name: context.name,
       framework: context.framework,
@@ -346,13 +346,49 @@ export async function semanticPackTool(
   };
 }
 
-function discoverGenericEntrypoints(cwd: string): string[] {
-  const candidates = [
+export function discoverGenericEntrypoints(cwd: string): string[] {
+  const entrypoints = new Set<string>();
+
+  try {
+    const pkgPath = join(cwd, "package.json");
+    if (existsSync(pkgPath)) {
+      const pkg = JSON.parse(readFileSync(pkgPath, "utf8"));
+      if (pkg.main) entrypoints.add(pkg.main);
+      if (pkg.module) entrypoints.add(pkg.module);
+      if (typeof pkg.bin === "string") {
+        entrypoints.add(pkg.bin);
+      } else if (typeof pkg.bin === "object") {
+        for (const p of Object.values(pkg.bin)) {
+          if (typeof p === "string") entrypoints.add(p);
+        }
+      }
+      
+      // Look at common scripts to find entry files
+      if (pkg.scripts) {
+        const scriptsToCheck = [pkg.scripts.start, pkg.scripts.dev, pkg.scripts.build];
+        for (const script of scriptsToCheck) {
+          if (!script) continue;
+          // match `node file.js` or `ts-node file.ts` or `tsx file.ts`
+          // Skip flags (words starting with -) and match the first file-like argument
+          const match = script.match(/(?:node|ts-node|tsx|nodemon)\s+(?:-[^\s]+\s+)*([^\s]+\.[jt]sx?)/);
+          if (match && match[1]) entrypoints.add(match[1]);
+        }
+      }
+    }
+  } catch {}
+
+  const standardCandidates = [
     "src/main.ts", "src/main.tsx", "src/main.js", "src/main.jsx",
     "src/index.ts", "src/index.tsx", "src/index.js", "src/index.jsx",
     "src/App.tsx", "src/App.jsx", "vite.config.ts", "vite.config.js",
   ];
-  return candidates.filter((path) => existsSync(join(cwd, path)));
+  
+  for (const c of standardCandidates) {
+    if (existsSync(join(cwd, c))) entrypoints.add(c);
+  }
+
+  // Filter only those that actually exist in the filesystem, as bin/main might be pointing to dist/ (which might not exist yet) or similar
+  return Array.from(entrypoints).filter(p => existsSync(join(cwd, p)));
 }
 
 // ─── Vite Plugin Detection ───────────────────────────────────

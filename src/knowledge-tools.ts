@@ -20,6 +20,7 @@ interface KnowledgeEntry {
   slug: string;
   timestamp: string;
   summary: string;
+  supersedes?: string;
   scopedTo?: string[];
   content: string;
 }
@@ -33,6 +34,7 @@ function parseKnowledgeFile(filePath: string): KnowledgeEntry | null {
     let slug = "";
     let timestamp = "";
     let summary = "";
+    let supersedes = "";
     let scopedTo: string[] = [];
     let inFrontmatter = false;
     let bodyStart = 0;
@@ -52,6 +54,7 @@ function parseKnowledgeFile(filePath: string): KnowledgeEntry | null {
         if (line.startsWith("slug:")) slug = line.slice(5).trim();
         else if (line.startsWith("timestamp:")) timestamp = line.slice(10).trim();
         else if (line.startsWith("summary:")) summary = line.slice(8).trim();
+        else if (line.startsWith("supersedes:")) supersedes = line.slice(11).trim();
         else if (line.startsWith("scopedTo:")) {
           const arrMatch = line.match(/\[(.*?)\]/);
           if (arrMatch) scopedTo = arrMatch[1].split(",").map((s: string) => s.trim().replace(/['"]/g, "")).filter(Boolean);
@@ -62,7 +65,7 @@ function parseKnowledgeFile(filePath: string): KnowledgeEntry | null {
     const body = lines.slice(bodyStart).join("\n").trim();
     if (!slug) slug = filePath.split(/[/\\]/).pop()?.replace(/\.md$/, "") || "unknown";
 
-    return { slug, timestamp, summary, scopedTo, content: body };
+    return { slug, timestamp, summary, supersedes, scopedTo, content: body };
   } catch {
     return null;
   }
@@ -100,6 +103,7 @@ export function readWorkspaceKnowledge(cwd: string, scopedTo?: string[]): Knowle
 export interface KnowledgeCaptureInput {
   slug: string;
   summary: string;
+  supersedes?: string;
   scopedTo?: string[];
   content: string;
 }
@@ -113,11 +117,12 @@ export async function knowledgeCaptureTool(cwd: string, input: KnowledgeCaptureI
   const scopeList = input.scopedTo?.length
     ? `scopedTo: [${input.scopedTo.map((s) => `"${s}"`).join(", ")}]`
     : "";
+  const supersedesStr = input.supersedes ? `\nsupersedes: ${input.supersedes}` : "";
 
   const content = `---
 slug: ${safeSlug}
 timestamp: ${new Date().toISOString()}
-summary: ${input.summary}
+summary: ${input.summary}${supersedesStr}
 ${scopeList}
 ---
 

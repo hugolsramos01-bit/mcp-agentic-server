@@ -17,13 +17,28 @@ export async function discoverFastApi(cwd: string): Promise<{ detected: boolean;
   const routers: string[] = [];
   const routes: FastApiRoute[] = [];
   for (const file of files) {
-    const content = await readFile(file, "utf8");
     const rel = relative(cwd, file).replace(/\\/g, "/");
+    // Ignore test files
+    if (rel.includes("/test_") || rel.includes("/tests/") || rel.startsWith("test_")) continue;
+    
+    const content = await readFile(file, "utf8");
+    
+    const instances = new Set<string>(["app", "router"]);
+    for (const match of content.matchAll(/(\w+)\s*=\s*(?:FastAPI|APIRouter)\(/g)) {
+      instances.add(match[1]);
+    }
+    
     if (/\bFastAPI\s*\(/.test(content)) entrypoints.push(rel);
     if (/\bAPIRouter\s*\(/.test(content)) routers.push(rel);
+    
     const pattern = /@(?:(\w+)\.)?(get|post|put|patch|delete|options|head)\(\s*["']([^"']+)["'][^)]*\)\s*(?:async\s+)?def\s+(\w+)/g;
     for (const match of content.matchAll(pattern)) {
-      routes.push({ file: rel, router: match[1] ?? "app", method: match[2].toUpperCase(), path: match[3], handler: match[4] });
+      const routerName = match[1] ?? "app";
+      const handlerName = match[4];
+      if (!instances.has(routerName)) continue; // Restrict to declared instances
+      if (handlerName.startsWith("test_")) continue; // Silence test functions
+      
+      routes.push({ file: rel, router: routerName, method: match[2].toUpperCase(), path: match[3], handler: handlerName });
     }
   }
   return { detected: entrypoints.length > 0 || routers.length > 0, entrypoints, routers, routes: routes.slice(0, 100) };
