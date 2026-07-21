@@ -1,5 +1,5 @@
 import { join, relative } from "node:path";
-import { existsSync, statSync } from "node:fs";
+import { existsSync, statSync, readFileSync } from "node:fs";
 import { readdir } from "node:fs/promises";
 import { secureFs } from "./security/secure-fs.js";
 import type { ToolResponse } from "./pi-tools.js";
@@ -21,6 +21,7 @@ export interface ContextBudgetInput {
 
 export async function contextBudgetTool(input: ContextBudgetInput, cwd: string): Promise<ToolResponse> {
   const results: { path: string; lines?: number; chars?: number; estimatedTokens?: number; notFound?: boolean }[] = [];
+  const compressionBenchmarks: { path: string; originalTokens: number; balancedTokens: number; skeletalTokens: number; balancedEffectiveLevel: string; skeletalEffectiveLevel: string }[] = [];
   let totalTokens = 0;
 
   for (const p of input.paths) {
@@ -40,6 +41,20 @@ export async function contextBudgetTool(input: ContextBudgetInput, cwd: string):
       const tokens = estimateTokens(content, p.endsWith(".ts") || p.endsWith(".js") || p.endsWith(".tsx"));
       totalTokens += tokens;
       results.push({ path: p, lines, chars: content.length, estimatedTokens: tokens });
+      if (/\.(?:[cm]?[jt]sx?)$/i.test(p)) {
+        const { compressAST } = await import("./context-engine/compressors.js");
+        const stat = secureFs.stat(cwd, p);
+        const balanced = compressAST(content, "balanced", undefined, fullPath, stat.mtimeMs);
+        const skeletal = compressAST(content, "skeletal", undefined, fullPath, stat.mtimeMs);
+        compressionBenchmarks.push({
+          path: p,
+          originalTokens: tokens,
+          balancedTokens: balanced.metadata.outputTokensEstimate,
+          skeletalTokens: skeletal.metadata.outputTokensEstimate,
+          balancedEffectiveLevel: balanced.metadata.effectiveLevel,
+          skeletalEffectiveLevel: skeletal.metadata.effectiveLevel,
+        });
+      }
     } catch {
       results.push({ path: p, notFound: true, estimatedTokens: 0 });
     }
@@ -48,7 +63,7 @@ export async function contextBudgetTool(input: ContextBudgetInput, cwd: string):
   return {
     content: [{
       type: "text",
-      text: JSON.stringify({ files: results, totalEstimatedTokens: totalTokens }, null, 2),
+      text: JSON.stringify({ files: results, totalEstimatedTokens: totalTokens, compressionBenchmarks }, null, 2),
     }],
   };
 }
@@ -164,10 +179,31 @@ export async function semanticPackTool(
   const fastApi = await discoverFastApi(cwd);
   if (fastApi.detected) pack.fastApi = fastApi;
 
+  // Vite metadata — plugins, aliases, config file
+  const vite = discoverViteMetadata(cwd);
+  if (vite.detected) pack.vite = vite;
+
+  // Workspace boundaries (monorepo apps/packages)
+  const boundaries = discoverWorkspaceBoundaries(cwd);
+  if (boundaries.length > 0) pack.workspaceBoundaries = boundaries;
+
+  // Framework maps are intentionally additive. A React/Vite or plain JS
+  // project still has an architecture even when it has no Next/Payload routes.
+  const genericEntrypoints = discoverGenericEntrypoints(cwd);
+  if (genericEntrypoints.length > 0) {
+    pack.genericArchitecture = {
+      confidence: "medium",
+      coverage: "conventional JavaScript/TypeScript entrypoints detected by filename; inspect imports before editing",
+      entrypoints: genericEntrypoints,
+    };
+  }
+
   // ─── Recommended Files ──────────────────────────────────────
   // Surface the relevance-tagged files from coding_context
   if (recommendedFiles.length > 0) {
     pack.recommendedFiles = recommendedFiles.slice(0, 15);
+  } else if (genericEntrypoints.length > 0) {
+    pack.recommendedFiles = genericEntrypoints.map((path) => ({ path, relevanceTier: "structural", reason: "Conventional application entrypoint" }));
   }
 
   // ─── Recommended Workflow ──────────────────────────────────
@@ -309,3 +345,129 @@ export async function semanticPackTool(
     content: [{ type: "text", text: JSON.stringify(pack, null, 2) }],
   };
 }
+
+function discoverGenericEntrypoints(cwd: string): string[] {
+  const candidates = [
+    "src/main.ts", "src/main.tsx", "src/main.js", "src/main.jsx",
+    "src/index.ts", "src/index.tsx", "src/index.js", "src/index.jsx",
+    "src/App.tsx", "src/App.jsx", "vite.config.ts", "vite.config.js",
+  ];
+  return candidates.filter((path) => existsSync(join(cwd, path)));
+}
+
+// ─── Vite Plugin Detection ───────────────────────────────────
+
+interface ViteMetadata {
+  detected: boolean;
+  configFile?: string;
+  plugins?: string[];
+  aliases?: Record<string, string>;
+  confidence: "high" | "medium" | "low";
+}
+
+export function discoverViteMetadata(cwd: string): ViteMetadata {
+  const configFiles = ["vite.config.ts", "vite.config.js", "vite.config.mts", "vite.config.mjs"];
+  let configFile: string | undefined;
+
+  for (const cf of configFiles) {
+    if (existsSync(join(cwd, cf))) {
+      configFile = cf;
+      break;
+    }
+  }
+
+  // Also check package.json for vite dep
+  let hasViteDep = false;
+  try {
+    const pkg = JSON.parse(readFileSync(join(cwd, "package.json"), "utf8"));
+    hasViteDep = !!(pkg.dependencies?.vite || pkg.devDependencies?.vite);
+  } catch {}
+
+  if (!configFile && !hasViteDep) {
+    return { detected: false, confidence: "low" };
+  }
+
+  const plugins: string[] = [];
+  const aliases: Record<string, string> = {};
+
+  if (configFile) {
+    try {
+      const content = readFileSync(join(cwd, configFile), "utf8");
+
+      // Extract plugin names from import statements
+      const importMatches = content.matchAll(/import\s+(\w+)\s+from\s+['"]([^'"]+)['"]/g);
+      for (const [, name, from] of importMatches) {
+        if (from.includes("plugin") || from.includes("@vitejs/") || from.startsWith("vite-plugin")) {
+          plugins.push(name);
+        }
+      }
+
+      // Extract aliases: { '@': resolve(..., 'src') } style
+      const aliasBlock = content.match(/alias\s*:\s*\{([^}]+)\}/s);
+      if (aliasBlock) {
+        const aliasMatches = aliasBlock[1].matchAll(/['"]([^'"]+)['"]\s*:\s*(?:resolve|join)\s*\([^)]+,\s*['"]([^'"]+)['"]\)/g);
+        for (const [, aliasKey, aliasTarget] of aliasMatches) {
+          aliases[aliasKey] = aliasTarget;
+        }
+      }
+    } catch {}
+  }
+
+  return {
+    detected: true,
+    configFile,
+    plugins: plugins.length > 0 ? plugins : undefined,
+    aliases: Object.keys(aliases).length > 0 ? aliases : undefined,
+    confidence: configFile ? "high" : "medium",
+  };
+}
+
+// ─── Workspace Boundary Detection ────────────────────────────
+
+interface WorkspaceBoundary {
+  type: "app" | "package";
+  name: string;
+  path: string;
+  hasOwnPackageJson: boolean;
+}
+
+export function discoverWorkspaceBoundaries(cwd: string): WorkspaceBoundary[] {
+  const boundaries: WorkspaceBoundary[] = [];
+
+  try {
+    const pkg = JSON.parse(readFileSync(join(cwd, "package.json"), "utf8"));
+    const workspaces: string[] = typeof pkg.workspaces === "object" && !Array.isArray(pkg.workspaces)
+      ? pkg.workspaces.packages ?? []
+      : pkg.workspaces ?? [];
+
+    for (const pattern of workspaces) {
+      // Handle simple patterns like "apps/*" or "packages/*"
+      const [dir] = pattern.split("/*");
+      if (!dir) continue;
+      const fullDir = join(cwd, dir);
+      if (!existsSync(fullDir)) continue;
+
+      try {
+        const { readdirSync } = require("node:fs") as typeof import("node:fs");
+        const entries = readdirSync(fullDir, { withFileTypes: true });
+        for (const entry of entries) {
+          if (!entry.isDirectory()) continue;
+          const entryPath = join(fullDir, entry.name);
+          const relPath = `${dir}/${entry.name}`;
+          const hasPkg = existsSync(join(entryPath, "package.json"));
+          const type: "app" | "package" = dir.startsWith("app") ? "app" : "package";
+          let name = entry.name;
+          if (hasPkg) {
+            try {
+              name = JSON.parse(readFileSync(join(entryPath, "package.json"), "utf8")).name ?? entry.name;
+            } catch {}
+          }
+          boundaries.push({ type, name, path: relPath, hasOwnPackageJson: hasPkg });
+        }
+      } catch {}
+    }
+  } catch {}
+
+  return boundaries;
+}
+

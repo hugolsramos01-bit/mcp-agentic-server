@@ -1,0 +1,1 @@
+{"name":"@mono/web","dependencies":{"@mono/utils":"workspace:*"}}
