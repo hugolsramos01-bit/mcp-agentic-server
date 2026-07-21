@@ -245,7 +245,13 @@ export async function treeTool(input: TreeToolInput, cwd: string, allowedRoots: 
   
   try {
     const { stdout } = await execFileAsync("git", ["ls-files", "-co", "--exclude-standard"], { cwd: targetPath });
-    const files = stdout.split(/\r?\n/).filter(Boolean);
+    const isBloat = (f: string) => {
+      const parts = f.split('/');
+      if (parts.some(p => ['.git', 'node_modules', 'dist', 'build', '.next', '.cache', '.turbo', 'logs', 'coverage'].includes(p))) return true;
+      if (f.match(/\.(png|jpe?g|gif|svg|ico|webp|mp4|webm|wav|mp3|log|lock|pdf)$/i)) return true;
+      return false;
+    };
+    const files = stdout.split(/\r?\n/).filter(Boolean).filter(f => !isBloat(f));
     if (files.length === 0) {
       throw new Error("No files tracked or fallback to walk");
     }
@@ -313,7 +319,7 @@ export async function treeTool(input: TreeToolInput, cwd: string, allowedRoots: 
         return;
       }
       
-      entries = entries.filter(e => !['.git', 'node_modules', 'dist', 'build'].includes(e.name));
+      entries = entries.filter(e => !['.git', 'node_modules', 'dist', 'build', '.next', '.cache', '.turbo', 'logs', 'coverage'].includes(e.name));
       
       for (let i = 0; i < entries.length; i++) {
         if (lines.length >= 500) {

@@ -169,7 +169,17 @@ export function formatUnavailableAgentProvider(provider: LocalAgentProviderAvail
 // ─── Output Schemas ──────────────────────────────────────────
 
 export function resultOutputSchema(extra: z.ZodRawShape = {}): z.ZodRawShape {
-  return { result: z.string().describe("Model-readable result text for follow-up reasoning and plain MCP hosts."), ...extra };
+  return {
+    status: z.enum(["success", "error"]).describe("Execution status"),
+    data: z.any().describe("Command output or data payload"),
+    error: z.string().nullable().describe("Error message if applicable"),
+    diagnostics: z.array(z.any()).describe("Any warnings or diagnostics"),
+    metrics: z.object({
+      durationMs: z.number(),
+      truncated: z.boolean()
+    }).describe("Telemetry metrics"),
+    ...extra
+  };
 }
 
 export const workspaceSkillOutputSchema = z.object({ name: z.string(), description: z.string(), path: z.string() });

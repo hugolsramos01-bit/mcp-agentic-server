@@ -34,11 +34,13 @@ describe("runScriptTool", () => {
     const result = await runScriptTool({ script: "long-task", outputMode: "summary", timeoutMs: 1000 }, testCwd);
     
     assert.equal(result.isError, true, "timeout should be flagged as an error");
+    const firstContent = result.content[0];
+    assert.ok(firstContent && firstContent.type === "text", "timeout response should include text content");
     let parsed: any;
     try {
-      parsed = JSON.parse(result.content[0].text);
+      parsed = JSON.parse(firstContent.text);
     } catch (e) {
-      assert.fail(`Failed to parse response: ${result.content[0].text}`);
+      assert.fail(`Failed to parse response: ${firstContent.text}`);
     }
     assert.equal(parsed.status, "timeout");
     assert.equal(parsed.timeoutMs, 1000);

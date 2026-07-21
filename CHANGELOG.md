@@ -5,6 +5,18 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.1.2] - 2026-07-21
+
+### Added
+- Feature: Implementada Verificação Pós-Instalação em `worktree_install_deps` validando a criação física de `node_modules` e `.lock` files.
+- Feature: O Payload CMS Schema Mapper (`payload_schema_map`) agora suporta AST Honesta, relatando quando `coverage: "partial"` devido a referências não resolvíveis.
+- Feature: `file_dependencies` agora suporta os argumentos `maxDepth`, `maxFiles`, `maxDependencies`, `includeTransitive` e `summaryOnly` para reduzir o tamanho dos metadados extraídos.
+
+### Changed
+- Refactor: Padronizado o Contrato de Respostas do MCP (MCP Envelope) usando `wrap()`, removendo o encapsulamento interno redundante e unificando o modelo de respostas `{status, data, error, diagnostics, metrics}`.
+- Refactor: `workspace_summary` migrado de um "alias deprecado" para a ferramenta canônica de descobertas e sumários enxutos.
+- Refactor: Massiva melhoria Anti-bloat em `project_bootstrap` e `treeTool` injetando filtros globais para ignorar diretórios como `.next`, `.cache`, e binários/multimídia.
+
 ## [1.1.1] - 2026-07-21
 
 ### Fixed
