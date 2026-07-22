@@ -84,6 +84,12 @@ function registerAppTool(server: McpServer, name: string, definition: any, handl
     const startedAt = performance.now();
     request.__startedAt = startedAt;
     const response = await handler(request);
+
+    // open_workspace is a bootstrap contract: clients need its structured
+    // workspaceId/root/mode fields before they can call any other tool. Do not
+    // replace that schema with the generic envelope.
+    if (name === "open_workspace") return response;
+
     const text = contentText(response.content ?? []);
     let parsed: any = text;
     try { parsed = JSON.parse(text); } catch {}
