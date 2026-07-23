@@ -1,8 +1,8 @@
-# Agentic MCP — Turn ChatGPT Plus Web into a Local Coding Agent
+# Agentic MCP — Local Coding Tools for ChatGPT Developer Mode
 
-**Use your existing ChatGPT Plus subscription as a full local coding agent.**
+**Connect compatible ChatGPT Web accounts to local coding tools through MCP Developer Mode.**
 
-Agentic MCP connects ChatGPT Web Developer Mode to your local repositories through a secure Model Context Protocol (MCP) server. ChatGPT can inspect files, edit code, run tests, manage Git worktrees, and restore checkpoints — **without using OpenAI API credits or Codex quotas.**
+Agentic MCP connects ChatGPT Web Developer Mode to your local repositories through a secure Model Context Protocol (MCP) server. It supports structured file editing, shell execution, Git worktrees, semantic navigation and checkpoints.
 
 ```text
 ChatGPT Web → Developer Mode → HTTPS Tunnel → Agentic MCP → Local Repository
@@ -11,6 +11,8 @@ ChatGPT Web → Developer Mode → HTTPS Tunnel → Agentic MCP → Local Reposi
 > [!WARNING]
 > **Security Notice**: This tool runs on your local machine and can execute shell commands. A managed Git worktree provides an isolated Git checkout to prevent polluting your main repository, but it is **not** an operating system sandbox. It does not restrict network access or subprocesses. Always review what the LLM intends to run.
 
+> [!NOTE]
+> **Disclaimer**: Agentic MCP is an independent open-source project and is not affiliated with, sponsored by, or endorsed by OpenAI. ChatGPT and OpenAI are trademarks of OpenAI. Tested by the maintainer with ChatGPT Plus using Developer Mode and an HTTPS tunnel. Availability of MCP capabilities depends on the user's ChatGPT plan, workspace configuration and current OpenAI rollout.
 ---
 
 ## ⚡ Quickstart: ChatGPT Plus Setup in 3 Minutes
@@ -51,13 +53,10 @@ Turn ChatGPT Web into your primary local coding agent using your existing Web pl
 ## 🙋 Frequently Asked Questions (FAQ)
 
 ### Does this work with ChatGPT Plus?
-Yes. You can connect Agentic MCP directly to ChatGPT Web through Developer Mode and a public HTTPS tunnel (ngrok, Cloudflare Tunnel, etc.).
+Tested by the maintainer with ChatGPT Plus via Developer Mode and a public HTTPS tunnel (ngrok, Cloudflare Tunnel, etc.). Availability may vary by account, region, plan, and rollout.
 
-### Does it use my ChatGPT Web limits?
-Yes. ChatGPT Web remains the model and agent orchestrator, using your regular ChatGPT Web subscription limit. Agentic MCP only provides the local tools.
-
-### Does it consume Codex quota?
-No. When connected directly to ChatGPT Web via Developer Mode, it does not use the Codex backend, OpenAI API Platform billing, or Codex quota.
+### How does this affect my limits and billing?
+When connected directly through ChatGPT Developer Mode, model usage is handled by the user's ChatGPT account rather than by an OpenAI Platform API key. Applicable limits depend on the user's plan and OpenAI policies.
 
 ### Does it require an OpenAI API key?
 No OpenAI model API key is required. Authentication for the MCP server and tunnel is separate from model API billing.
