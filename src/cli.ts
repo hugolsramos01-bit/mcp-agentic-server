@@ -40,7 +40,7 @@ import {
 import { expandHomePath } from "./roots.js";
 import { runProcess } from "./process-runner/index.js";
 
-type Command = "serve" | "init" | "doctor" | "config" | "agents" | "help" | "version";
+type Command = "serve" | "stdio" | "init" | "doctor" | "config" | "agents" | "help" | "version";
 const require = createRequire(import.meta.url);
 const SUPPORTED_NODE_RANGE = ">=20.12 <27";
 
@@ -54,6 +54,9 @@ async function main(argv: string[]): Promise<void> {
     case "serve":
       await ensureConfigured();
       await serve();
+      return;
+    case "stdio":
+      await serveStdioCommand();
       return;
     case "init":
       await runInit({ force: args.includes("--force") });
@@ -78,6 +81,7 @@ async function main(argv: string[]): Promise<void> {
 
 function normalizeCommand(command: string | undefined): Command {
   if (!command || command === "serve" || command === "start") return "serve";
+  if (command === "stdio") return "stdio";
   if (command === "init" || command === "doctor" || command === "config" || command === "agents") return command;
   if (command === "help" || command === "--help" || command === "-h") return "help";
   if (command === "version" || command === "--version" || command === "-v") return "version";
@@ -239,6 +243,29 @@ async function serve(): Promise<void> {
   process.once("SIGTERM", shutdown);
 }
 
+async function serveStdioCommand(): Promise<void> {
+  const sqliteStatus = checkSqliteNative();
+  if (sqliteStatus !== "ok") {
+    console.error("better-sqlite3 could not load for this Node runtime.");
+    console.error(sqliteStatus);
+    process.exit(1);
+  }
+
+  // Intercept console.log to avoid corrupting MCP JSON-RPC over stdout
+  console.log = (...args: any[]) => console.error(...args);
+
+  const { serveStdio } = await import("./server.js");
+  const config = loadConfig();
+  const { close } = await serveStdio(config);
+
+  const shutdown = async () => {
+    await close();
+    process.exit(0);
+  };
+  process.once("SIGINT", shutdown);
+  process.once("SIGTERM", shutdown);
+}
+
 async function runDoctor(): Promise<void> {
   const files = loadAgenticFiles();
   const pkg = require("../package.json") as { version?: string };
@@ -312,6 +339,7 @@ function printHelp(): void {
       "Usage:",
       "  agentic                 Run first-time setup if needed, then start the server",
       "  agentic serve           Start the server",
+      "  agentic stdio           Start the server over stdio (for local clients)",
       "  agentic init            Create or update ~/.agentic/config.json and auth.json",
       "  agentic doctor          Show config, runtime, and native dependency status",
       "  agentic config get      Print persisted config",
