@@ -1,6 +1,7 @@
 {
   "name": "mcp-agentic-server",
   "version": "1.1.5",
+  "mcpName": "io.github.hugolsramos01-bit/mcp-agentic-server",
   "description": "Agentic MCP — local coding tools for ChatGPT Developer Mode and other MCP clients. Tested with ChatGPT Plus via HTTPS tunnel; availability varies by plan and rollout. Independent project, not affiliated with OpenAI.",
   "type": "module",
   "main": "dist/server.js",
@@ -16,7 +17,8 @@
     "examples",
     "scripts",
     "skills",
-    "README.md"
+    "README.md",
+    "SECURITY.md"
   ],
   "publishConfig": {
     "access": "public"
