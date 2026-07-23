@@ -1,11 +1,69 @@
-# Agentic MCP Server
+# Agentic MCP — Turn ChatGPT Plus Web into a Local Coding Agent
 
-**Turn Claude, ChatGPT, and any LLM into a safe, bloat-free Autonomous Coding Agent.**
+**Use your existing ChatGPT Plus subscription as a full local coding agent.**
 
-This project is an advanced, high-performance [Model Context Protocol (MCP)](https://modelcontextprotocol.io/) server designed specifically for Agentic Coding. It gives LLMs secure access to your local repositories, but unlike naive implementations that simply dump file contents into the context window and trigger limits, this server is built with **Context Anti-Bloat**, **AST Semantic Navigation**, and **True Git Worktree Sandboxing**.
+Agentic MCP connects ChatGPT Web Developer Mode to your local repositories through a secure Model Context Protocol (MCP) server. ChatGPT can inspect files, edit code, run tests, manage Git worktrees, and restore checkpoints — **without using OpenAI API credits or Codex quotas.**
+
+```text
+ChatGPT Web → Developer Mode → HTTPS Tunnel → Agentic MCP → Local Repository
+```
 
 > [!WARNING]
 > **Security Notice**: This tool runs on your local machine and can execute shell commands. A managed Git worktree provides an isolated Git checkout to prevent polluting your main repository, but it is **not** an operating system sandbox. It does not restrict network access or subprocesses. Always review what the LLM intends to run.
+
+---
+
+## ⚡ Quickstart: ChatGPT Plus Setup in 3 Minutes
+
+Turn ChatGPT Web into your primary local coding agent using your existing Web plan:
+
+1. **Initialize and start the server:**
+   ```bash
+   npx -y mcp-agentic-server@latest init
+   npx -y mcp-agentic-server@latest serve
+   ```
+
+2. **Expose the local port (`7676`) via an HTTPS tunnel:**
+   ```bash
+   ngrok http 7676
+   ```
+
+3. **Enable Developer Mode in ChatGPT Web:**
+   - Go to [chatgpt.com](https://chatgpt.com) > **Settings > Apps / Developer Mode** (or **Plugins / Apps**).
+   - Enable **Developer Mode**.
+
+4. **Connect the Custom MCP App:**
+   - Add a new Custom MCP App.
+   - Enter your public ngrok HTTPS URL ending with `/mcp`:
+     ```text
+     https://YOUR-SUBDOMAIN.ngrok.app/mcp
+     ```
+
+5. **Complete OAuth Authentication:**
+   - Complete the local browser OAuth authorization prompt when presented.
+
+6. **Start Coding:**
+   - In a new ChatGPT Web chat, enable your custom MCP app and prompt:
+     > *"Open workspace `C:/path/to/project` using open_workspace and summarize the architecture."*
+
+---
+
+## 🙋 Frequently Asked Questions (FAQ)
+
+### Does this work with ChatGPT Plus?
+Yes. You can connect Agentic MCP directly to ChatGPT Web through Developer Mode and a public HTTPS tunnel (ngrok, Cloudflare Tunnel, etc.).
+
+### Does it use my ChatGPT Web limits?
+Yes. ChatGPT Web remains the model and agent orchestrator, using your regular ChatGPT Web subscription limit. Agentic MCP only provides the local tools.
+
+### Does it consume Codex quota?
+No. When connected directly to ChatGPT Web via Developer Mode, it does not use the Codex backend, OpenAI API Platform billing, or Codex quota.
+
+### Does it require an OpenAI API key?
+No OpenAI model API key is required. Authentication for the MCP server and tunnel is separate from model API billing.
+
+### Is this an alternative to Codex or Claude Code?
+Yes. It gives ChatGPT Web full local coding capabilities: file inspection, structured line-precise editing, shell execution, Git worktrees, AST navigation, and checkpoints.
 
 ---
 
@@ -36,38 +94,10 @@ For long autonomous sessions, the agent can save point-in-time snapshots of the 
 
 ---
 
-## 🚀 Installation & Setup
+## 💻 Local & Desktop MCP Clients (Claude Desktop, Cursor, Roo Code)
 
-Requirements: Node `>=22.12.0 <27`
+If you prefer using desktop MCP hosts, configure your client configuration file:
 
-### Quick Start via NPX
-The easiest way to configure and run the server is using `npx`:
-
-```bash
-npx -y mcp-agentic-server@latest doctor
-npx -y mcp-agentic-server serve
-```
-
-### Manual Clone & Build
-If you prefer to run from source:
-```bash
-git clone https://github.com/hugolsramos01-bit/mcp-agentic-server.git
-cd mcp-agentic-server
-npm ci
-npm run build
-npm run start
-```
-
-### Dependencies
-- **Mandatory**: Node.js and standard OS utilities (Git).
-- **Optional (`node-pty`)**: Used for interactive pseudo-terminals when running interactive shell commands. If it fails to install, the server safely falls back to standard child process execution.
-
----
-
-### Setting up the Server
-
-#### Option A: Local Clients (Claude Desktop, Cursor, Roo Code)
-Configure your local MCP client configuration file:
 ```json
 {
   "mcpServers": {
@@ -84,56 +114,7 @@ Configure your local MCP client configuration file:
 
 ---
 
-#### Option B: ChatGPT Plus — Conexão Local via Developer Mode (Custom MCP App)
-
-O **Agentic MCP** pode ser conectado diretamente ao **ChatGPT Web** em contas **Plus** (ou Pro/Enterprise) habilitando o **Developer Mode** e expondo o servidor através de um túnel HTTPS seguro (como `ngrok` ou `Cloudflare Tunnel`).
-
-Nesse fluxo:
-- O próprio **ChatGPT Web** atua como o modelo e o orquestrador inteligente, usando a **cota normal da sua assinatura Web**.
-- O **`mcp-agentic-server`** roda localmente no seu computador e fornece as ferramentas de engenharia de software (leitura/edição de arquivos, Git worktrees, AST, depuração e comandos shell).
-- Não há intermediação por `chat2api`, consumo da OpenAI API Platform ou necessidade de armazenar tokens de sessão.
-
-##### Passo a Passo de Configuração:
-
-1. **Inicialize e inicie o servidor localmente:**
-   ```bash
-   npx -y mcp-agentic-server@latest init
-   npx -y mcp-agentic-server@latest serve
-   ```
-
-2. **Exponha a porta local (`7676`) com um túnel HTTPS:**
-   ```bash
-   ngrok http 7676
-   ```
-
-3. **Habilite o Developer Mode no ChatGPT Web:**
-   - Acesse [chatgpt.com](https://chatgpt.com) e vá em **Settings (Configurações) > Developer Mode (Modo Desenvolvedor)** ou seção de **Plugins / Apps**.
-   - Ative o modo desenvolvedor.
-
-4. **Conecte o App MCP Personalizado:**
-   - Adicione um novo App MCP Customizado.
-   - Forneça o endpoint público HTTPS gerado pelo ngrok, **obrigatoriamente terminando em `/mcp`**:
-     ```text
-     https://SEU-SUBDOMINIO.ngrok.app/mcp
-     ```
-
-5. **Autentique no fluxo OAuth:**
-   - O ChatGPT apresentará a tela de autenticação OAuth do servidor local. Conclua a autorização no navegador.
-
-6. **Inicie a sessão de Agentic Coding:**
-   - Abra um novo chat no ChatGPT Web, garanta que o app/plugin está habilitado e solicite a abertura da workspace desejada:
-     > *"Por favor, abra a workspace em `C:/caminho/para/projeto` usando a ferramenta open_workspace e faça o resumo do projeto."*
-
-##### 📌 Observações Importantes:
-* **`localhost` não funciona diretamente**: O ChatGPT Web roda na nuvem da OpenAI e exige uma URL HTTPS pública válida acessível via túnel.
-* **Endpoint `/mcp` obrigatório**: A URL configurada no ChatGPT deve incluir o sufixo `/mcp`.
-* **Manutenção do Túnel**: Mantenha o processo `npx mcp-agentic-server serve` e o túnel `ngrok` ativos durante toda a conversa.
-* **Segurança de Acesso**: Defina a variável `AGENTIC_ALLOWED_ROOTS` em `~/.agentic/config.json` para limitar rigorosamente quais diretórios o servidor pode acessar no seu sistema.
-* **Isolamento de Git Worktree**: O uso de `mode="worktree"` isola o checkout do Git para evitar corromper o ramo principal de desenvolvimento, mas **não** é uma sandbox do sistema operacional. Comandos executados afetarão o ambiente local.
-
----
-
-## 🛠 Available Tools
+## 🛠 Available Tools Reference
 
 The tool surface depends on the `AGENTIC_TOOL_MODE` setting.
 
@@ -142,7 +123,6 @@ The tool surface depends on the `AGENTIC_TOOL_MODE` setting.
 | **`assistant`** (default) | Canonical coding workflow: workspace, context, read/search, Git, checkpoints, edit/dry-run, package scripts, worktrees, diagnostics, and semantic maps. | Full coding-agent workflow with curated model instructions. |
 | **`full`** | Base tools + `grep`, `glob`, `ls` | Manual inspection via shell |
 | **`minimal`** | `open_workspace`, `read`, `write`, `edit`, `bash` | Restricted surface |
-
 
 > **Note:** The `assistant` mode is recommended for the full agentic coding experience. Set `AGENTIC_TOOL_MODE=assistant` in your `.env` or environment.
 

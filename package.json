@@ -1,7 +1,7 @@
 {
   "name": "mcp-agentic-server",
   "version": "1.1.4",
-  "description": "Expose a secure local coding workspace through an MCP server.",
+  "description": "Use ChatGPT Plus Web as a local autonomous coding agent through MCP Developer Mode — safe file editing, shell, Git worktrees, AST navigation and checkpoints. Uses your ChatGPT Web plan, not OpenAI API billing.",
   "type": "module",
   "main": "dist/server.js",
   "engines": {
@@ -33,11 +33,20 @@
     "typecheck": "tsc -p tsconfig.json --noEmit"
   },
   "keywords": [
+    "chatgpt",
+    "chatgpt-plus",
+    "chatgpt-web",
+    "openai",
+    "developer-mode",
     "mcp",
-    "agentic",
-    "llm",
-    "coding",
-    "context"
+    "mcp-server",
+    "coding-agent",
+    "local-coding-agent",
+    "agentic-coding",
+    "context-engineering",
+    "git-worktree",
+    "typescript",
+    "ngrok"
   ],
   "author": "Hugo Ramos",
   "repository": {
