@@ -82,7 +82,7 @@ Yes. It gives ChatGPT Web full local coding capabilities: file inspection, struc
 ## 🔥 Key Innovations
 
 ### 1. Smart Context Anti-Bloat
-Stop melting your LLM context windows. 
+Stop melting your LLM context windows and preserve your ChatGPT Web message limits. 
 * **`workspace_summary`**: Instead of a massive unified file dump, returns a compact, high-level map of the workspace (git status, package manager, key scripts, and schemas).
 * **Hardened File Reads**: The `read` tool forces offset/limit paginations and strict line-range constraints. The model gets exactly what it needs, down to the line, preventing catastrophic token bloat on large files.
 
