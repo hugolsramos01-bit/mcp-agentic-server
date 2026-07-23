@@ -44,7 +44,7 @@ Requirements: Node `>=22.12.0 <27`
 The easiest way to configure and run the server is using `npx`:
 
 ```bash
-npx -y mcp-agentic-server@1.1.1 doctor
+npx -y mcp-agentic-server@latest doctor
 npx -y mcp-agentic-server serve
 ```
 
@@ -66,14 +66,14 @@ npm run start
 
 ### Setting up the Server
 
-**For Local Clients (Claude Desktop, Cursor, Roo Code):**
-Configure your MCP client to start the server. Add the following to your MCP config:
+#### Option A: Local Clients (Claude Desktop, Cursor, Roo Code)
+Configure your local MCP client configuration file:
 ```json
 {
   "mcpServers": {
     "agentic-mcp": {
       "command": "npx",
-      "args": ["-y", "mcp-agentic-server", "serve"],
+      "args": ["-y", "mcp-agentic-server@latest", "serve"],
       "env": {
         "AGENTIC_ALLOWED_ROOTS": "C:/path/to/projects"
       }
@@ -82,14 +82,54 @@ Configure your MCP client to start the server. Add the following to your MCP con
 }
 ```
 
-<details>
-<summary><strong>Advanced: For Cloud-hosted Clients (ChatGPT Web, Claude Web)</strong></summary>
+---
 
-To connect cloud-hosted agents to your local machine, use a secure tunnel (e.g., Cloudflare Tunnel, ngrok, Pinggy).
-1. Start your tunnel (e.g., pointing to port 7676).
-2. Start the MCP server: `npx -y mcp-agentic-server serve`
-3. Connect your MCP client to the public `/mcp` URL.
-</details>
+#### Option B: ChatGPT Plus — Conexão Local via Developer Mode (Custom MCP App)
+
+O **Agentic MCP** pode ser conectado diretamente ao **ChatGPT Web** em contas **Plus** (ou Pro/Enterprise) habilitando o **Developer Mode** e expondo o servidor através de um túnel HTTPS seguro (como `ngrok` ou `Cloudflare Tunnel`).
+
+Nesse fluxo:
+- O próprio **ChatGPT Web** atua como o modelo e o orquestrador inteligente, usando a **cota normal da sua assinatura Web**.
+- O **`mcp-agentic-server`** roda localmente no seu computador e fornece as ferramentas de engenharia de software (leitura/edição de arquivos, Git worktrees, AST, depuração e comandos shell).
+- Não há intermediação por `chat2api`, consumo da OpenAI API Platform ou necessidade de armazenar tokens de sessão.
+
+##### Passo a Passo de Configuração:
+
+1. **Inicialize e inicie o servidor localmente:**
+   ```bash
+   npx -y mcp-agentic-server@latest init
+   npx -y mcp-agentic-server@latest serve
+   ```
+
+2. **Exponha a porta local (`7676`) com um túnel HTTPS:**
+   ```bash
+   ngrok http 7676
+   ```
+
+3. **Habilite o Developer Mode no ChatGPT Web:**
+   - Acesse [chatgpt.com](https://chatgpt.com) e vá em **Settings (Configurações) > Developer Mode (Modo Desenvolvedor)** ou seção de **Plugins / Apps**.
+   - Ative o modo desenvolvedor.
+
+4. **Conecte o App MCP Personalizado:**
+   - Adicione um novo App MCP Customizado.
+   - Forneça o endpoint público HTTPS gerado pelo ngrok, **obrigatoriamente terminando em `/mcp`**:
+     ```text
+     https://SEU-SUBDOMINIO.ngrok.app/mcp
+     ```
+
+5. **Autentique no fluxo OAuth:**
+   - O ChatGPT apresentará a tela de autenticação OAuth do servidor local. Conclua a autorização no navegador.
+
+6. **Inicie a sessão de Agentic Coding:**
+   - Abra um novo chat no ChatGPT Web, garanta que o app/plugin está habilitado e solicite a abertura da workspace desejada:
+     > *"Por favor, abra a workspace em `C:/caminho/para/projeto` usando a ferramenta open_workspace e faça o resumo do projeto."*
+
+##### 📌 Observações Importantes:
+* **`localhost` não funciona diretamente**: O ChatGPT Web roda na nuvem da OpenAI e exige uma URL HTTPS pública válida acessível via túnel.
+* **Endpoint `/mcp` obrigatório**: A URL configurada no ChatGPT deve incluir o sufixo `/mcp`.
+* **Manutenção do Túnel**: Mantenha o processo `npx mcp-agentic-server serve` e o túnel `ngrok` ativos durante toda a conversa.
+* **Segurança de Acesso**: Defina a variável `AGENTIC_ALLOWED_ROOTS` em `~/.agentic/config.json` para limitar rigorosamente quais diretórios o servidor pode acessar no seu sistema.
+* **Isolamento de Git Worktree**: O uso de `mode="worktree"` isola o checkout do Git para evitar corromper o ramo principal de desenvolvimento, mas **não** é uma sandbox do sistema operacional. Comandos executados afetarão o ambiente local.
 
 ---
 
