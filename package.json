@@ -1,6 +1,6 @@
 {
   "name": "mcp-agentic-server",
-  "version": "1.1.4",
+  "version": "1.1.5",
   "description": "Use ChatGPT Plus Web as a local autonomous coding agent through MCP Developer Mode — safe file editing, shell, Git worktrees, AST navigation and checkpoints. Uses your ChatGPT Web plan, not OpenAI API billing.",
   "type": "module",
   "main": "dist/server.js",
