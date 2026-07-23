@@ -1,6 +1,6 @@
 {
   "name": "mcp-agentic-server",
-  "version": "1.1.5",
+  "version": "1.1.6",
   "mcpName": "io.github.hugolsramos01-bit/mcp-agentic-server",
   "description": "Agentic MCP — local coding tools for ChatGPT Developer Mode and other MCP clients. Tested with ChatGPT Plus via HTTPS tunnel; availability varies by plan and rollout. Independent project, not affiliated with OpenAI.",
   "type": "module",
