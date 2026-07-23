@@ -21,6 +21,7 @@ AGENTIC_CONFIG_DIR=/path/to/config npx mcp-agentic-server serve
 ```bash
 npx mcp-agentic-server init
 npx mcp-agentic-server serve
+npx mcp-agentic-server stdio
 npx mcp-agentic-server doctor
 npx mcp-agentic-server config get
 npx mcp-agentic-server config set publicBaseUrl https://agentic.example.com

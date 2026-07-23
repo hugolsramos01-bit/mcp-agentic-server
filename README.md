@@ -96,14 +96,14 @@ For long autonomous sessions, the agent can save point-in-time snapshots of the 
 
 ## 💻 Local & Desktop MCP Clients (Claude Desktop, Cursor, Roo Code)
 
-If you prefer using desktop MCP hosts, configure your client configuration file:
+If you prefer using desktop MCP hosts, configure your client configuration file to use the `stdio` transport:
 
 ```json
 {
   "mcpServers": {
     "agentic-mcp": {
       "command": "npx",
-      "args": ["-y", "mcp-agentic-server@latest", "serve"],
+      "args": ["-y", "mcp-agentic-server@latest", "stdio"],
       "env": {
         "AGENTIC_ALLOWED_ROOTS": "C:/path/to/projects"
       }

@@ -4,11 +4,15 @@ import { assertCommandAllowed } from "./security/command-executor.js";
 import { readFileSync } from "node:fs";
 import { realpath } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
+import { createRequire } from "node:module";
+const require = createRequire(import.meta.url);
+const pkg = require("../package.json") as { version?: string };
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { createMcpExpressApp } from "@modelcontextprotocol/sdk/server/express.js";
 import { mcpAuthRouter, getOAuthProtectedResourceMetadataUrl } from "@modelcontextprotocol/sdk/server/auth/router.js";
 import { requireBearerAuth } from "@modelcontextprotocol/sdk/server/auth/middleware/bearerAuth.js";
 import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
+import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { isInitializeRequest } from "@modelcontextprotocol/sdk/types.js";
 import { checkResourceAllowed, resourceUrlFromServerUrl } from "@modelcontextprotocol/sdk/shared/auth-utils.js";
 import {
@@ -131,7 +135,7 @@ function createMcpServer(
     {
       name: "agentic",
       title: "Agentic MCP",
-      version: "0.1.0",
+      version: pkg.version ?? "0.1.0",
       description:
         "Secure local coding workspace for MCP clients. Provides workspace-scoped file, search, edit, write, and shell tools.",
     },
@@ -2724,6 +2728,43 @@ export function createServer(config = loadConfig()): RunningServer {
       closed = true;
       processSessions.shutdown();
       oauthProvider.close();
+      workspaceStore.close?.();
+    },
+  };
+}
+
+/**
+ * Start the MCP server over stdio.
+ * IMPORTANT: The caller must ensure that `stdout` is protected (e.g. by intercepting `console.log`)
+ * before calling this function to avoid corrupting the JSON-RPC stream.
+ */
+export async function serveStdio(config = loadConfig()): Promise<{ close(): Promise<void> }> {
+  const workspaceStore = createWorkspaceStore(config.stateDir);
+  const workspaces = new WorkspaceRegistry(config, workspaceStore);
+  const reviewCheckpoints = createReviewCheckpointManager();
+  const processSessions = new ProcessSessionManager();
+  const localAgentProviders = config.subagents
+    ? getLocalAgentProviderAvailabilitySnapshot()
+    : [];
+
+  const server = createMcpServer(
+    config,
+    workspaces,
+    reviewCheckpoints,
+    processSessions,
+    localAgentProviders,
+  );
+
+  const transport = new StdioServerTransport();
+  await server.connect(transport);
+
+  let closed = false;
+  return {
+    close: async () => {
+      if (closed) return;
+      closed = true;
+      await server.close();
+      processSessions.shutdown();
       workspaceStore.close?.();
     },
   };
