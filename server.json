@@ -1,0 +1,30 @@
+{
+  "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
+  "name": "io.github.hugolsramos01-bit/mcp-agentic-server",
+  "title": "Agentic MCP",
+  "description": "Local coding tools for ChatGPT Developer Mode and other MCP clients, with structured editing, shell execution, Git worktrees, semantic navigation and checkpoints.",
+  "version": "1.1.6",
+  "repository": {
+    "url": "https://github.com/hugolsramos01-bit/mcp-agentic-server",
+    "source": "github"
+  },
+  "packages": [
+    {
+      "registryType": "npm",
+      "identifier": "mcp-agentic-server",
+      "version": "1.1.6",
+      "transport": {
+        "type": "stdio"
+      },
+      "environmentVariables": [
+        {
+          "name": "AGENTIC_ALLOWED_ROOTS",
+          "description": "Comma-separated list of project directories that Agentic MCP may access.",
+          "isRequired": true,
+          "isSecret": false,
+          "format": "string"
+        }
+      ]
+    }
+  ]
+}

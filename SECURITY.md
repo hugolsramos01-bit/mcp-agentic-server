@@ -27,10 +27,10 @@ We consider the following to be vulnerabilities:
 
 We do **not** consider the following to be vulnerabilities:
 - The fact that the LLM can read and write files within the allowed workspace roots.
-- The fact that the LLM can execute arbitrary bash commands (this is an intended feature; the user must review and approve them).
+- The LLM can execute shell commands that are permitted by the active command policy within an allowed workspace.
 
 ### Important Boundaries
 - **Not an OS Sandbox**: Managed Git worktrees provide an isolated checkout for code experiments, but they are **not** an operating system sandbox. Worktrees do not restrict network access, subprocesses, credentials, or CPU/memory limits.
-- **Destructive Actions**: While the server requires explicit confirmation for commands, the LLM has access to your local machine as the user running the server. Always review actions carefully.
+- **Destructive Actions**: Known destructive command patterns are blocked by the server policy. Other commands may still affect the host machine because the process runs with the permissions of the current user. Always review the requested actions and restrict `AGENTIC_ALLOWED_ROOTS`.
 
 For more details on the threat model, please refer to [docs/security.md](docs/security.md).
