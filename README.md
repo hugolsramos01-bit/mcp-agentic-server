@@ -1,5 +1,7 @@
 # Agentic MCP — Local Coding Tools for ChatGPT Developer Mode
 
+[![MCP Registry](https://img.shields.io/badge/MCP_Registry-io.github.hugolsramos01--bit%2Fmcp--agentic--server-blue)](https://registry.modelcontextprotocol.io/servers/io.github.hugolsramos01-bit/mcp-agentic-server)
+
 **Connect compatible ChatGPT Web accounts to local coding tools through MCP Developer Mode.**
 
 Agentic MCP connects ChatGPT Web Developer Mode to your local repositories through a secure Model Context Protocol (MCP) server. It supports structured file editing, shell execution, Git worktrees, semantic navigation and checkpoints.
@@ -13,6 +15,17 @@ ChatGPT Web → Developer Mode → HTTPS Tunnel → Agentic MCP → Local Reposi
 
 > [!NOTE]
 > **Disclaimer**: Agentic MCP is an independent open-source project and is not affiliated with, sponsored by, or endorsed by OpenAI. ChatGPT and OpenAI are trademarks of OpenAI. Tested by the maintainer with ChatGPT Plus using Developer Mode and an HTTPS tunnel. Availability of MCP capabilities depends on the user's ChatGPT plan, workspace configuration and current OpenAI rollout.
+
+## 🌐 Official MCP Registry
+
+Agentic MCP is published in the Official MCP Registry as:
+`io.github.hugolsramos01-bit/mcp-agentic-server`
+
+Install and run locally for Claude Desktop, Cursor, or other local MCP clients:
+```bash
+npx -y mcp-agentic-server@latest stdio
+```
+
 ---
 
 ## ⚡ Quickstart: ChatGPT Plus Setup in 3 Minutes
