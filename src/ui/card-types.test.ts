@@ -1,3 +1,4 @@
+// Card type guard tests
 import assert from "node:assert/strict";
 import {
   isEditTool,
@@ -7,8 +8,9 @@ import {
   isToolName,
 } from "./card-types.js";
 
-for (const tool of ["apply_patch", "exec_command", "write_stdin"]) {
-  assert.equal(isToolName(tool), true, `${tool} should be a recognized card tool`);
+const recognized = ["apply_patch", "exec_command", "write_stdin"];
+for (const tool of recognized) {
+  assert.equal(isToolName(tool), true, `${tool} should be recognized`);
 }
 
 assert.equal(isPatchTool("apply_patch"), true);

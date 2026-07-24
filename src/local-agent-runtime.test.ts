@@ -1,3 +1,4 @@
+// Codex SDK runtime tests — verifies thread creation, resumption, and delegation
 import assert from "node:assert/strict";
 import type { RunResult, ThreadOptions } from "@openai/codex-sdk";
 import {

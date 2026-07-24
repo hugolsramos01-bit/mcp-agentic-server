@@ -1,3 +1,4 @@
+// UI card type definitions — tool result payloads for Agentic MCP widgets
 import type { App } from "@modelcontextprotocol/ext-apps";
 
 export type ToolName =

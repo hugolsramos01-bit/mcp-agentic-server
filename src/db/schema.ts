@@ -1,3 +1,4 @@
+// Database schema definitions — Agentic MCP session persistence
 import { index, integer, primaryKey, sqliteTable, text } from "drizzle-orm/sqlite-core";
 
 export const workspaceSessions = sqliteTable(
@@ -15,8 +16,8 @@ export const workspaceSessions = sqliteTable(
     lastUsedAt: text("last_used_at").notNull(),
   },
   (table) => [
-    index("workspace_sessions_root_idx").on(table.root, table.lastUsedAt),
-    index("workspace_sessions_status_idx").on(table.status, table.lastUsedAt),
+    index("ws_root_idx").on(table.root, table.lastUsedAt),
+    index("ws_status_idx").on(table.status, table.lastUsedAt),
   ],
 );
 
@@ -92,7 +93,7 @@ export const localAgentSessions = sqliteTable(
   },
   (table) => [
     index("local_agent_sessions_workspace_id_idx").on(table.workspaceId, table.updatedAt),
-    index("local_agent_sessions_workspace_root_idx").on(table.workspaceRoot, table.updatedAt),
+    index("la_sessions_ws_idx").on(table.workspaceRoot, table.updatedAt),
     index("local_agent_sessions_provider_session_id_idx").on(table.providerSessionId),
   ],
 );
