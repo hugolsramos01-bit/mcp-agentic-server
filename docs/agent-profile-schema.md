@@ -1,27 +1,26 @@
-# Subagent profile schema
+# Subagent Profile Format
 
-Agentic MCP agent profiles are user-owned markdown files with YAML
-frontmatter. They describe roles such as reviewer, explorer, or implementer.
-Agentic MCP owns provider invocation.
+Profile files are Markdown with YAML frontmatter. They define reusable roles
+("reviewer", "explorer", "implementer") that the supervising model can delegate
+work to. Agentic MCP handles provider invocation — the profile only describes
+what the agent should do.
 
-Profiles are discovered from:
+Profile files are discovered from:
 
 - `~/.agentic/agents/*.md`
 - `.agentic/agents/*.md`
 
-Packaged files under `examples/agents/` are starter templates only.
+The files under `examples/agents/` are starter templates — copy them into one
+of the directories above to activate.
 
-## Minimal shape
+## Minimum Viable Profile
 
-```md
+```yaml
 ---
 schema: agentic-agent/v1
 name: reviewer
 description: Read-only reviewer for bugs, security risks, and missing tests.
 provider: codex
-model: gpt-5.4
-thinking: high
-disabled: false
 ---
 
 You are a read-only reviewer. Do not edit files.
@@ -29,58 +28,40 @@ Focus on correctness, security, test gaps, and maintainability.
 Cite files and return concise findings.
 ```
 
-## Frontmatter fields
+## Frontmatter Reference
 
 ### `schema`
 
-Optional schema identifier:
-
-```yaml
-schema: agentic-agent/v1
-```
+Optional identifier. Currently only `agentic-agent/v1`.
 
 ### `name`
 
-Stable profile identifier shown to the model and accepted by:
-
-```bash
-agentic agents run <name> "<prompt>"
-```
-
-Use lowercase kebab-case names. If omitted, Agentic MCP uses the filename without
-`.md`.
+The short name used by `agentic agents run <name> "<prompt>"`. Lowercase
+kebab-case. If omitted, the filename (without `.md`) is used.
 
 ### `description`
 
-Required short purpose. This is exposed by `open_workspace` so the supervising
-model can choose the right profile.
+Required. A one-liner shown in `open_workspace` so the orchestrating model
+can pick the right profile.
 
 ### `provider`
 
-Required built-in provider id:
+Required. One of:
 
-```yaml
-provider: codex
-provider: claude
-provider: opencode
-provider: pi
-provider: cursor
-provider: copilot
-```
+| Provider   | Integration   |
+|------------|--------------|
+| `codex`    | Codex SDK    |
+| `claude`   | Claude Code   |
+| `opencode` | OpenCode SDK  |
+| `pi`       | Pi RPC mode   |
+| `cursor`   | ACP           |
+| `copilot`  | ACP           |
 
-Unsupported or custom providers are rejected. Agentic MCP maps providers to their
-native integration:
-
-- `codex`: Codex SDK
-- `claude`: Claude Code SDK
-- `opencode`: OpenCode SDK
-- `pi`: Pi RPC mode
-- `cursor`: ACP
-- `copilot`: ACP
+Unknown providers are rejected at load time.
 
 ### `model`
 
-Optional provider model id or alias.
+Optional. A provider-specific model name or alias.
 
 ```yaml
 model: gpt-5.4
@@ -89,79 +70,67 @@ model: sonnet
 
 ### `thinking`
 
-Optional provider reasoning effort, thinking level, or model variant. If omitted,
-Agentic MCP lets the provider default apply. Values are provider-specific
-passthrough strings; Agentic MCP does not translate names between harnesses.
+Optional. Provider-specific reasoning effort. Values are passed through
+verbatim — no translation happens between harnesses.
 
 ```yaml
 thinking: low
 thinking: high
-thinking: xhigh
 ```
 
-Agentic MCP passes this through to providers that expose a matching control:
+Mapped per provider:
 
-- `claude`: SDK effort with adaptive thinking.
-- `codex`: SDK model reasoning effort.
-- `pi`: `--thinking`.
-- `opencode`: model variant.
-- `cursor` and `copilot`: ACP thought-level config when supported.
+- **claude**: SDK effort level with adaptive thinking
+- **codex**: SDK model reasoning effort
+- **pi**: `--thinking` flag
+- **opencode**: model variant
+- **cursor/copilot**: ACP thought-level config (when supported)
 
 ### `disabled`
-
-Optional boolean. Disabled profiles are not exposed.
 
 ```yaml
 disabled: true
 ```
 
-## Markdown body
+Profiles marked as disabled are not exposed in `open_workspace`.
 
-The body is the profile prompt prefix Agentic MCP prepends when launching that
-profile. It is not included in `open_workspace` by default.
+## Markdown Body
+
+The body is the system prompt prepended when the profile is launched. It stays
+out of the orchestrating model's context until the profile is activated.
 
 Recommended body content:
 
-- When to use this profile.
-- Whether the worker should act read-only or may make changes.
-- Output format.
-- Review or testing expectations.
+- When this profile is appropriate.
+- Whether the worker may modify files or should remain read-only.
+- Expected output format.
+- Review or testing criteria.
 
-## Model-facing workflow
+## Model-Facing Workflow
 
-The Subagent skill teaches only:
+The subagent-delegation skill exposes exactly three commands:
 
 ```bash
-agentic agents ls
-agentic agents run <profile-or-id> "<prompt>"
-agentic agents show <id>
+agentic agents ls                   # list active sessions
+agentic agents run <name> "<prompt>" # launch a profile
+agentic agents show <id>            # inspect a session
 ```
 
-`open_workspace` exposes compact profile metadata:
+`open_workspace` returns compact metadata (name, description, provider) for
+available profiles. The full profile body is not included until the profile
+is launched.
 
-```json
-{
-  "name": "reviewer",
-  "description": "Read-only reviewer for bugs, security risks, and missing tests.",
-  "provider": "codex",
-  "model": "gpt-5.4",
-  "thinking": "high"
-}
-```
+### `agentic agents ls`
 
-`agentic agents ls` lists existing subagent sessions for the current workspace;
-it does not list profile definitions.
+Lists active subagent sessions for the current workspace — not profile
+definitions.
 
-The full profile body stays out of the model context until Agentic MCP launches the
-profile.
+## What Is Not Supported
 
-## Current non-goals
-
-- Custom or arbitrary CLI-backed agents.
-- Inferring changed files, tests, or diffs from worker output.
+- Custom CLI-based agents outside the provider list above.
+- Parsing worker output to infer diffs, changed files, or test results.
 - Exposing raw provider transcripts by default.
-- Teaching the model provider-specific CLIs.
-- First-class MCP agent tools. Future tools should wrap the same provider
-  adapter registry used by `agentic agents`.
+- Teaching the orchestrating model provider-specific CLIs.
+- First-class MCP subagent tools (future).
 
 

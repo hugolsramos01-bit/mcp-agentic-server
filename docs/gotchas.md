@@ -1,6 +1,6 @@
-# Troubleshooting Gotchas
+# Troubleshooting
 
-This page collects the setup issues users are most likely to hit.
+Common setup and runtime issues and how to fix them.
 
 ## `agentic` Command Not Found
 
@@ -11,120 +11,81 @@ npx mcp-agentic-server init
 npx mcp-agentic-server serve
 ```
 
-If you installed globally, confirm npm's global bin directory is on `PATH`.
+If installed globally, make sure npm's global bin directory is on your `PATH`.
 
-## Unsupported Node Version
+## Node Version Rejected
 
 Agentic MCP requires Node `>=22.12.0 <27`.
-
-Check:
 
 ```bash
 node --version
 ```
 
-Install Node 22 LTS with your preferred version manager such as `nvm`, `fnm`, or
-`mise`.
+Use a version manager (`nvm`, `fnm`, `mise`) to install Node 22 LTS.
 
-## `better-sqlite3` Could Not Load
+## `better-sqlite3` Native Module Fails
 
-This usually means native dependencies were installed under a different Node
-runtime.
-
-Try:
+This usually happens when `node_modules` were installed under a different Node
+version or ABI.
 
 ```bash
 npm rebuild better-sqlite3
-```
-
-Then run:
-
-```bash
 npx mcp-agentic-server doctor
 ```
 
-Release starts run a native dependency check before launching.
+The production build checks native dependencies before launching.
 
-## Public URL Includes `/mcp`
+## Tunnel URL Changed Mid-Session
 
-Use the origin for setup:
+Temporary tunnels (ngrok, Pinggy) rotate URLs on restart.
 
-```text
-https://your-tunnel-host.example.com
-```
-
-Use the MCP endpoint in the client:
-
-```text
-https://your-tunnel-host.example.com/mcp
-```
-
-If you saved the wrong value:
-
-```bash
-npx mcp-agentic-server config set publicBaseUrl https://your-tunnel-host.example.com
-```
-
-## Tunnel URL Changed
-
-Temporary tunnels often change URLs between runs.
-
-For a one-off run:
+For a one-shot override:
 
 ```bash
 AGENTIC_PUBLIC_BASE_URL="https://new-tunnel.example.com" npx mcp-agentic-server serve
 ```
 
-For a stable URL:
+For a persistent URL:
 
 ```bash
-npx mcp-agentic-server config set publicBaseUrl https://agentic.example.com
+npx mcp-agentic-server config set publicBaseUrl https://your-domain.example.com
 ```
 
-## Host Header Or 403 Problems
+## Getting 403 / Host Header Errors
 
-Agentic MCP derives allowed hosts from the configured public URL.
+The server derives allowed hosts from your public URL. If the tunnel URL
+changes, the old host is rejected.
 
-Run:
+Run `doctor` to see what's configured:
 
 ```bash
 npx mcp-agentic-server doctor
 ```
 
-Confirm the public URL hostname appears in allowed hosts. If you changed tunnel
-URLs, update `publicBaseUrl`.
-
-Use this only for intentional local debugging:
+Only for local debugging:
 
 ```bash
 AGENTIC_ALLOWED_HOSTS="*" npx mcp-agentic-server serve
 ```
 
-## OAuth Redirect Host Rejected
+## OAuth Redirect Rejected
 
-By default, Agentic MCP allows redirects for:
-
-```text
-chatgpt.com
-localhost
-127.0.0.1
-```
-
-If another MCP client uses a different redirect host, configure:
+The default allowlist is `chatgpt.com`, `localhost`, `127.0.0.1`. If your MCP
+client redirects to a different host, extend it:
 
 ```bash
-AGENTIC_OAUTH_ALLOWED_REDIRECT_HOSTS="chatgpt.com,example.com" npx mcp-agentic-server serve
+AGENTIC_OAUTH_ALLOWED_REDIRECT_HOSTS="chatgpt.com,my-client.example.com" npx mcp-agentic-server serve
 ```
 
 ## Owner Password Not Accepted
 
-Make sure you are entering the Owner password from:
+The password is stored in:
 
 ```text
 ~/.agentic/auth.json
 ```
 
-To regenerate setup:
+Regenerate if lost:
 
 ```bash
 npx mcp-agentic-server init --force
@@ -132,105 +93,89 @@ npx mcp-agentic-server init --force
 
 ## Unknown `workspaceId`
 
-`workspaceId` values are session identifiers. If the server restarts and the
-client receives an unknown workspace error, call `open_workspace` again for that
-project.
+Workspace IDs are session-scoped. If the server restarts, call
+`open_workspace` again for that project. Sessions are persisted in SQLite
+but clients should treat `open_workspace` as the entry point.
 
-Workspace session metadata is persisted, but clients should still treat
-`open_workspace` as the way to begin a fresh working session.
+## Workspace Path Outside Allowed Roots
 
-## Workspace Path Rejected
-
-The path must be inside one of the allowed roots configured during setup.
-
-Run:
+The folder must be inside one of the paths set during `init`. To check:
 
 ```bash
 npx mcp-agentic-server config get
 ```
 
-Then either open a project under an allowed root or rerun setup:
+To redefine:
 
 ```bash
 npx mcp-agentic-server init --force
 ```
 
-## Worktree Mode Fails
+## Worktree Creation Fails
 
 Worktree mode requires:
 
 - Git installed
-- the path is inside a Git repository
-- the repository has at least one commit
-- the requested `baseRef` resolves to a commit
+- The path is inside a Git repo with at least one commit
+- The requested `baseRef` resolves to a commit
 
-For a new repository, create the first commit or use checkout mode.
+For a new repo, make an initial commit first, or use checkout mode.
 
-Uncommitted source checkout changes are not copied into the managed worktree.
-Commit, stash, or ask the model to work in checkout mode if those changes are
-needed.
+Uncommitted source changes are not copied into worktrees. Commit, stash, or
+use checkout mode.
 
-## Windows Shell Commands Fail
+## Shell Commands Fail on Windows
 
-Agentic MCP shell execution requires Bash. Native PowerShell and `cmd.exe` command
-execution are not supported yet.
+Agentic MCP's shell tool requires Bash. Native PowerShell or `cmd.exe`
+invocation is not yet supported.
 
-Install Git for Windows and use Git Bash, or use WSL, MSYS2, or Cygwin Bash.
-
-Run:
+Install Git for Windows (which includes Git Bash), or use WSL, MSYS2, or
+Cygwin.
 
 ```bash
 npx mcp-agentic-server doctor
 ```
 
-Confirm Bash is detected.
+Check that Bash is detected.
 
-## Skills Do Not Appear
+## Skills Not Visible
 
-Skills are enabled by default. Check:
+Skills are enabled by default.
 
 ```bash
 AGENTIC_SKILLS=1 npx mcp-agentic-server serve
 ```
 
-Agentic MCP looks in standard Agent Skills locations:
+Agentic MCP scans:
 
 - `~/.agents/skills`
-- project `.agents/skills`
+- `.agentic/skills` inside the project
 - `~/.agentic/skills`
+- Bundled skills (e.g. `subagent-delegation` when `AGENTIC_SUBAGENTS=1`)
+- Custom paths from `AGENTIC_SKILL_PATHS`
 
-It also checks compatibility and custom paths:
+Agent profiles live in `~/.agentic/agents/*.md` and `.agentic/agents/*.md`.
 
-- the bundled `subagent-delegation` skill when `AGENTIC_SUBAGENTS=1`, unless `~/.agentic/skills/subagent-delegation/SKILL.md` exists
-- `AGENTIC_AGENT_DIR/skills`, defaulting to `~/.codex/skills`
-- additional paths from `AGENTIC_SKILL_PATHS`
+Starter templates are under `examples/agents/` — copy them into one of the
+directories above before they become active.
 
-When `AGENTIC_SUBAGENTS=1`, Agentic MCP loads agent profiles from
-`~/.agentic/agents/*.md` and project `.agentic/agents/*.md`, then exposes a
-compact profile catalog through `open_workspace`. The bundled
-`subagent-delegation` skill keeps the model-facing workflow to
-`agentic agents ls`, `agentic agents run`, and `agentic agents show`.
-`agentic agents ls` lists existing subagent sessions, not profile
-definitions.
+Legacy paths like `.pi/skills` can be added via `AGENTIC_SKILL_PATHS`.
 
-Packaged agent profile examples under `examples/agents/` are starter templates.
-Copy or adapt them into one of the active profile directories before use.
+## Widget / Review Card Missing
 
-Legacy project paths such as `.pi/skills` can be added through `AGENTIC_SKILL_PATHS` when needed.
-
-If a skill appears in `open_workspace`, the model must read that skill's
-`SKILL.md` before reading other files inside the skill directory.
-
-## Review Card Does Not Appear
-
-Per-tool widget cards are enabled by default with:
+Per-tool widgets:
 
 ```bash
 AGENTIC_WIDGETS=full
 ```
 
-The aggregate `show_changes` tool is only exposed with
-`AGENTIC_WIDGETS=changes`. Plain MCP clients may ignore ChatGPT Apps widget
-metadata and only show text results.
+The aggregate `show_changes` tool is available with:
+
+```bash
+AGENTIC_WIDGETS=changes
+```
+
+Plain MCP clients that do not support ChatGPT Apps ignore widget metadata
+and only display text results.
 
 
