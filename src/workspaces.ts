@@ -376,7 +376,7 @@ export class WorkspaceRegistry {
       if (realPath) loadedRealPaths.add(realPath);
     }
     const discovered: AvailableAgentsFile[] = [];
-    const state = { filesVisited: 0, directoriesVisited: 0, stopped: false, maxFiles: 200 };
+    const state: WalkState = { filesVisited: 0, directoriesVisited: 0, stopped: false, maxFiles: 500, maxDirs: 1000, maxEntries: 2000, entries: 0 };
 
     await walkWorkspace(root, async (path, entry) => {
       if (state.stopped) return;
@@ -428,6 +428,9 @@ interface WalkState {
   directoriesVisited: number;
   stopped: boolean;
   maxFiles: number;
+  maxDirs: number;
+  maxEntries: number;
+  entries: number;
 }
 
 async function walkWorkspace(
@@ -449,8 +452,11 @@ async function walkWorkspace(
   for await (const entry of entries) {
     if (state?.stopped) break;
     const path = join(directory, entry.name);
+    if (state) state.entries++;
+    if (state && state.entries > state.maxEntries) { state.stopped = true; break; }
     if (entry.isDirectory()) {
       if (state) state.directoriesVisited++;
+      if (state && state.directoriesVisited > state.maxDirs) { state.stopped = true; break; }
       if (!SKIPPED_CONTEXT_DIRS.has(entry.name)) {
         await walkWorkspace(path, visit, depth + 1, maxDepth, state);
       }
@@ -459,7 +465,7 @@ async function walkWorkspace(
 
     if (state) state.filesVisited++;
     if (state && state.filesVisited > state.maxFiles) { state.stopped = true; break; }
-    if (entry.name.startsWith(".") && entry.name !== "AGENTS.md") continue; // skip hidden files except AGENTS.md
+    if (entry.name.startsWith(".") && entry.name !== "AGENTS.md" && entry.name !== "CLAUDE.md") continue;
     await visit(path, entry);
   }
 }

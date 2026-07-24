@@ -89,18 +89,12 @@ function registerAppTool(server: McpServer, name: string, definition: any, handl
     request.__startedAt = startedAt;
     const response = await handler(request);
 
-    // open_workspace is a bootstrap contract: clients need its structured
-    // workspaceId/root/mode fields before they can call any other tool. Do not
-    // replace that schema with the generic envelope.
     if (name === "open_workspace") return response;
 
     const text = contentText(response.content ?? []);
     let parsed: any = text;
     try { parsed = JSON.parse(text); } catch {}
 
-    // Some assistant tools already build an envelope internally. Normalize both
-    // those and legacy handlers at the registration boundary, so the declared
-    // MCP output schema is true for every tool mode.
     const existing = response.structuredContent?.envelope
       ?? (parsed && typeof parsed === "object" && "status" in parsed && "data" in parsed ? parsed : undefined);
     const status = existing?.status ?? (response.isError ? "error" : "success");
@@ -114,9 +108,11 @@ function registerAppTool(server: McpServer, name: string, definition: any, handl
         truncated: existing?.metrics?.truncated ?? Boolean(response._meta?.truncated || text.includes("[truncated]") || text.includes("... [truncated")),
       },
     };
+
+    const errorSuffix = status === "error" && envelope.error ? ` — ${envelope.error}` : "";
     return {
       ...response,
-      content: [{ type: "text", text: `${name}: ${status} (${envelope.metrics?.durationMs ?? 0}ms)` }],
+      content: [{ type: "text", text: `${name}: ${status}${errorSuffix} (${envelope.metrics.durationMs}ms)` }],
       structuredContent: envelope,
     };
   });
@@ -2557,26 +2553,48 @@ export function createServer(config = loadConfig()): RunningServer {
   const transports = new Map<string, ManagedTransport>();
 
   // ─── Transport GC ────────────────────────────────────────
-  // Prevent unbounded growth from orphaned MCP sessions.
-  // Each session gets a creation timestamp; stale entries are evicted
-  // by a periodic sweep when the map exceeds MAX_TRANSPORTS.
+  // Limit sessions by count + inactivity. Each transport tracks creation and
+  // last-activity timestamps; stale entries are evicted by a periodic sweep.
   const MAX_TRANSPORTS = 100;
+  const TRANSPORT_TTL_MS = 30 * 60 * 1000; // 30 min
   interface ManagedTransport {
     transport: StreamableHTTPServerTransport;
     sessionId: string;
     createdAt: number;
+    lastActivityAt: number;
   }
-  const transportGcTimer = setInterval(() => {
-    if (transports.size <= MAX_TRANSPORTS) return;
-    const sorted = [...transports.entries()].sort((a, b) => a[1].createdAt - b[1].createdAt);
-    for (const [sid] of sorted.slice(0, sorted.length - MAX_TRANSPORTS)) {
-      try { transports.get(sid)?.transport.close(); } catch {}
-      transports.delete(sid);
-    }
-  }, 60_000).unref();
 
-  // Store the timer for cleanup on shutdown
-  (globalThis as any).__agentic_transport_gc_timer = transportGcTimer;
+  function sweepTransports(): void {
+    const now = Date.now();
+    // Remove inactive sessions by TTL
+    for (const [sid, mt] of transports) {
+      if (now - mt.lastActivityAt > TRANSPORT_TTL_MS) {
+        try { mt.transport.close(); } catch {}
+        transports.delete(sid);
+      }
+    }
+    // If still over limit, remove oldest (by lastActivityAt)
+    if (transports.size > MAX_TRANSPORTS) {
+      const sorted = [...transports.entries()].sort((a, b) => a[1].lastActivityAt - b[1].lastActivityAt);
+      for (const [sid] of sorted.slice(0, sorted.length - MAX_TRANSPORTS)) {
+        try { transports.get(sid)?.transport.close(); } catch {}
+        transports.delete(sid);
+      }
+    }
+  }
+
+  // Enforce limits immediately on add, plus periodic sweep
+  function addTransport(sessionId: string, transport: StreamableHTTPServerTransport): void {
+    transports.set(sessionId, { transport, sessionId, createdAt: Date.now(), lastActivityAt: Date.now() });
+    if (transports.size > MAX_TRANSPORTS) sweepTransports();
+  }
+
+  function touchTransport(sessionId: string): void {
+    const mt = transports.get(sessionId);
+    if (mt) mt.lastActivityAt = Date.now();
+  }
+
+  const transportGcTimer = setInterval(sweepTransports, 60_000).unref();
   const mcpUrl = new URL("/mcp", config.publicBaseUrl);
   const resourceServerUrl = resourceUrlFromServerUrl(mcpUrl);
   const oauthProvider = new SingleUserOAuthProvider(config.oauth, mcpUrl, config.stateDir);
@@ -2692,12 +2710,13 @@ export function createServer(config = loadConfig()): RunningServer {
           sendJsonRpcError(res, 404, -32000, "Unknown MCP session");
           return;
         }
+        touchTransport(sessionId);
         transport = managed.transport;
       } else if (initializeRequest) {
         transport = new StreamableHTTPServerTransport({
           sessionIdGenerator: () => randomUUID(),
           onsessioninitialized: (newSessionId) => {
-            if (transport) transports.set(newSessionId, { transport, sessionId: newSessionId, createdAt: Date.now() });
+            if (transport) addTransport(newSessionId, transport);
             logEvent(config.logging, "info", "mcp_session_created", {
               requestId,
               sessionIdPrefix: sessionIdPrefix(newSessionId),
@@ -2749,7 +2768,7 @@ export function createServer(config = loadConfig()): RunningServer {
     close: () => {
       if (closed) return;
       closed = true;
-      clearInterval((globalThis as any).__agentic_transport_gc_timer);
+      clearInterval(transportGcTimer);
       // Close any remaining transport sessions
       for (const [, mt] of transports) {
         try { mt.transport.close(); } catch {}
