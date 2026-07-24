@@ -191,6 +191,7 @@ A managed worktree is an **isolated Git checkout**, not an operating-system sand
 
 Licensed under the **MIT License**. See [LICENSE](LICENSE) for more details.
 
-We welcome contributions! Please see [CONTRIBUTING.md](CONTRIBUTING.md) for details on how to get started.
 
 This project uses components heavily inspired by internal security architectures, with thanks to standard best practices in the open source community.
+
+We welcome contributions! Please see [CONTRIBUTING.md](CONTRIBUTING.md) for details on how to get started.
