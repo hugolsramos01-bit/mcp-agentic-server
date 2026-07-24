@@ -1,4 +1,14 @@
+// ═══════════════════════════════════════════════════════════════
+// OBSERVABILITY — structured logging and request tracing
+//
+// Lightweight event emitter for the Agentic MCP server.
+// Supports JSON and pretty-print output, IP resolution through
+// proxy headers, and command preview truncation.
+// ═══════════════════════════════════════════════════════════════
+
 import type { Request } from "express";
+
+// ─── Types ───────────────────────────────────────────────────
 
 export type LogLevel = "silent" | "error" | "warn" | "info" | "debug";
 export type LogFormat = "json" | "pretty";
@@ -13,87 +23,62 @@ export interface LoggingConfig {
   trustProxy: boolean;
 }
 
-type LogFields = Record<string, unknown>;
+type FieldBag = Record<string, unknown>;
 
-const LEVEL_WEIGHT: Record<LogLevel, number> = {
-  silent: 0,
-  error: 1,
-  warn: 2,
-  info: 3,
-  debug: 4,
-};
+// ─── Level gating ────────────────────────────────────────────
 
-export function shouldLog(config: LoggingConfig, level: Exclude<LogLevel, "silent">): boolean {
-  return LEVEL_WEIGHT[config.level] >= LEVEL_WEIGHT[level];
+const SEVERITY: Record<LogLevel, number> = { silent: 0, error: 1, warn: 2, info: 3, debug: 4 };
+
+export function shouldLog(cfg: LoggingConfig, lvl: Exclude<LogLevel, "silent">): boolean {
+  return SEVERITY[cfg.level] >= SEVERITY[lvl];
 }
 
-export function logEvent(
-  config: LoggingConfig,
-  level: Exclude<LogLevel, "silent">,
-  event: string,
-  fields: LogFields = {},
-): void {
-  if (!shouldLog(config, level)) return;
+// ─── Event emission ──────────────────────────────────────────
 
-  const entry = {
-    ts: new Date().toISOString(),
-    level,
-    event,
-    ...fields,
-  };
-
-  const line = config.format === "pretty" ? formatPretty(entry) : JSON.stringify(entry);
-  if (level === "error") {
-    console.error(line);
-  } else if (level === "warn") {
-    console.warn(line);
-  } else {
-    console.log(line);
-  }
+export function logEvent(cfg: LoggingConfig, lvl: Exclude<LogLevel, "silent">, evt: string, fields: FieldBag = {}): void {
+  if (!shouldLog(cfg, lvl)) return;
+  const payload = { ts: new Date().toISOString(), level: lvl, event: evt, ...fields };
+  const text = cfg.format === "pretty" ? renderPretty(payload) : JSON.stringify(payload);
+  const sink = lvl === "error" ? console.error : lvl === "warn" ? console.warn : console.log;
+  sink(text);
 }
 
+function renderPretty(entry: FieldBag): string {
+  const head = String(entry.level).toUpperCase();
+  const extra = Object.entries(entry)
+    .filter(([k]) => k !== "ts" && k !== "level" && k !== "event")
+    .map(([k, v]) => `${k}=${JSON.stringify(v)}`)
+    .join(" ");
+  return `${entry.ts} ${head} ${entry.event}${extra ? " " + extra : ""}`;
+}
+
+// ─── Request utilities ───────────────────────────────────────
+
+/** Return the best-effort client IP, optionally inspecting proxy headers. */
 export function requestIp(req: Request, trustProxy: boolean): string | undefined {
-  if (trustProxy) {
-    const cfConnectingIp = firstHeaderValue(req.header("cf-connecting-ip"));
-    if (cfConnectingIp) return cfConnectingIp;
+  if (!trustProxy) return req.ip ?? req.socket.remoteAddress;
+  return (
+    extractFirst(req.header("cf-connecting-ip")) ??
+    extractFirst(req.header("x-forwarded-for")) ??
+    req.ip ??
+    req.socket.remoteAddress
+  );
+}
 
-    const forwardedFor = firstHeaderValue(req.header("x-forwarded-for"));
-    if (forwardedFor) return forwardedFor;
-  }
-
-  return req.ip ?? req.socket.remoteAddress;
+function extractFirst(raw: string | undefined): string | undefined {
+  return raw?.split(",")[0]?.trim() || undefined;
 }
 
 export function requestPath(req: Request): string {
   return req.path || req.url.split("?")[0] || req.url;
 }
 
-export function sessionIdPrefix(sessionId: string | undefined): string | undefined {
-  return sessionId ? sessionId.slice(0, 8) : undefined;
+export function sessionIdPrefix(sid: string | undefined): string | undefined {
+  return sid?.slice(0, 8);
 }
 
-export function commandPreview(command: string): string {
-  const normalized = command.replace(/\s+/g, " ").trim();
-  return normalized.length > 120 ? `${normalized.slice(0, 117)}...` : normalized;
-}
-
-function firstHeaderValue(value: string | undefined): string | undefined {
-  return value?.split(",")[0]?.trim() || undefined;
-}
-
-function formatPretty(entry: LogFields): string {
-  const ts = String(entry.ts);
-  const level = String(entry.level).toUpperCase();
-  const event = String(entry.event);
-  const rest = Object.entries(entry)
-    .filter(([key, value]) => !["ts", "level", "event"].includes(key) && value !== undefined)
-    .map(([key, value]) => `${key}=${formatPrettyValue(value)}`)
-    .join(" ");
-
-  return rest ? `${ts} ${level} ${event} ${rest}` : `${ts} ${level} ${event}`;
-}
-
-function formatPrettyValue(value: unknown): string {
-  if (typeof value === "string") return JSON.stringify(value);
-  return JSON.stringify(value);
+/** Truncate long shell commands to a human-readable preview. */
+export function commandPreview(cmd: string): string {
+  const flat = cmd.replace(/\s+/g, " ").trim();
+  return flat.length > 120 ? flat.slice(0, 117) + "..." : flat;
 }
