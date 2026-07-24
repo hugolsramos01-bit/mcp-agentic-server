@@ -1,5 +1,66 @@
+// ═══════════════════════════════════════════════════════════════
+// PROCESS SESSIONS — subprocess lifecycle management
+//
+// Spawns, monitors, and terminates child processes for exec_command
+// and write_stdin. Includes built-in shell resolution and process
+// tree cleanup (previously in process-platform.ts).
+// ═══════════════════════════════════════════════════════════════
+
 import { spawn } from "node:child_process";
-import { resolveShellCommand, terminateProcessTree } from "./process-platform.js";
+import { spawnSync } from "node:child_process";
+import { basename } from "node:path";
+
+// ─── Cross-platform shell resolution (inlined from process-platform) ──
+
+export interface ShellCommand {
+  executable: string;
+  args: string[];
+}
+
+export interface KillableProcess {
+  pid?: number;
+  kill(signal?: NodeJS.Signals): boolean;
+}
+
+const LOGIN_SHELLS = new Set(["bash", "ksh", "zsh"]);
+const POSIX_SHELLS = new Set(["ash", "dash", "sh"]);
+
+export function resolveShellCommand(
+  command: string,
+  platform: NodeJS.Platform = process.platform,
+  environment: NodeJS.ProcessEnv = process.env,
+): ShellCommand {
+  if (platform === "win32") {
+    return {
+      executable: environment.ComSpec ?? environment.COMSPEC ?? "cmd.exe",
+      args: ["/d", "/s", "/c", command],
+    };
+  }
+  const sh = environment.SHELL;
+  const name = sh ? basename(sh) : "";
+  if (sh && LOGIN_SHELLS.has(name)) return { executable: sh, args: ["-lc", command] };
+  if (sh && POSIX_SHELLS.has(name)) return { executable: sh, args: ["-c", command] };
+  return { executable: "/bin/sh", args: ["-c", command] };
+}
+
+export function terminateProcessTree(
+  child: KillableProcess,
+  signal: NodeJS.Signals,
+  detached: boolean,
+): void {
+  if (process.platform === "win32" && child.pid) {
+    const result = spawnSync("taskkill.exe", ["/pid", String(child.pid), "/T", "/F"], {
+      stdio: "ignore",
+      windowsHide: true,
+    });
+    if (!result.error && result.status === 0) return;
+  } else if (detached && child.pid) {
+    try { process.kill(-child.pid, signal); return; } catch (e: any) {
+      if (e.code === "ESRCH") return;
+    }
+  }
+  child.kill(signal);
+}
 
 const DEFAULT_EXEC_YIELD_MS = 10_000;
 const DEFAULT_INTERACTIVE_YIELD_MS = 250;

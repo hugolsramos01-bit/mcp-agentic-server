@@ -1,9 +1,15 @@
+// ═══════════════════════════════════════════════════════════════
+// SESSION STORE — workspace session persistence
+//
+// SQLite-backed registry of workspace sessions with the Drizzle
+// ORM. Supports create/get/touch lifecycle with automatic cleanup.
+// ═══════════════════════════════════════════════════════════════
+
 import { eq } from "drizzle-orm";
 import { openDatabase, type DatabaseHandle } from "./db/client.js";
-import {
-  workspaceSessions,
-  type WorkspaceSessionRow,
-} from "./db/schema.js";
+import { workspaceSessions, type WorkspaceSessionRow } from "./db/schema.js";
+
+// ─── Public types ────────────────────────────────────────────
 
 export type WorkspaceMode = "checkout" | "worktree";
 
@@ -21,108 +27,93 @@ export interface WorkspaceSession {
 }
 
 export interface WorkspaceStore {
-  createSession(input: {
-    id: string;
-    root: string;
-    mode?: WorkspaceMode;
-    sourceRoot?: string;
-    baseRef?: string;
-    baseSha?: string;
-    managed?: boolean;
-  }): WorkspaceSession;
+  createSession(spec: WorkspaceSessionSpec): WorkspaceSession;
   getSession(id: string): WorkspaceSession | undefined;
   touchSession(id: string): void;
   close?(): void;
 }
 
+export interface WorkspaceSessionSpec {
+  id: string;
+  root: string;
+  mode?: WorkspaceMode;
+  sourceRoot?: string;
+  baseRef?: string;
+  baseSha?: string;
+  managed?: boolean;
+}
+
+// ─── SQLite implementation ───────────────────────────────────
+
 export class SqliteWorkspaceStore implements WorkspaceStore {
-  private readonly database: DatabaseHandle;
+  #db: DatabaseHandle;
+  #insertStmt: ReturnType<DatabaseHandle["db"]["prepare"]>;
 
   constructor(stateDir: string) {
-    this.database = openDatabase(stateDir);
+    this.#db = openDatabase(stateDir);
+    this.#insertStmt = this.#db.db.prepare(
+      `INSERT INTO workspace_sessions (id, root, status, mode, source_root, base_ref, base_sha, managed, created_at, last_used_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    );
   }
 
-  createSession(input: {
-    id: string;
-    root: string;
-    mode?: WorkspaceMode;
-    sourceRoot?: string;
-    baseRef?: string;
-    baseSha?: string;
-    managed?: boolean;
-  }): WorkspaceSession {
-    const now = new Date().toISOString();
-    const session: WorkspaceSession = {
-      id: input.id,
-      root: input.root,
+  createSession(spec: WorkspaceSessionSpec): WorkspaceSession {
+    const ts = new Date().toISOString();
+    const record: WorkspaceSession = {
+      id: spec.id,
+      root: spec.root,
       status: "active",
-      mode: input.mode ?? "checkout",
-      sourceRoot: input.sourceRoot,
-      baseRef: input.baseRef,
-      baseSha: input.baseSha,
-      managed: input.managed ?? false,
-      createdAt: now,
-      lastUsedAt: now,
+      mode: spec.mode ?? "checkout",
+      sourceRoot: spec.sourceRoot,
+      baseRef: spec.baseRef,
+      baseSha: spec.baseSha,
+      managed: spec.managed ?? false,
+      createdAt: ts,
+      lastUsedAt: ts,
     };
-
-    this.database.db
+    this.#db.db
       .insert(workspaceSessions)
       .values({
-        id: session.id,
-        root: session.root,
-        status: session.status,
-        mode: session.mode,
-        sourceRoot: session.sourceRoot ?? null,
-        baseRef: session.baseRef ?? null,
-        baseSha: session.baseSha ?? null,
-        managed: String(session.managed),
-        createdAt: session.createdAt,
-        lastUsedAt: session.lastUsedAt,
+        id: record.id, root: record.root, status: record.status,
+        mode: record.mode, sourceRoot: record.sourceRoot ?? null,
+        baseRef: record.baseRef ?? null, baseSha: record.baseSha ?? null,
+        managed: String(record.managed), createdAt: record.createdAt,
+        lastUsedAt: record.lastUsedAt,
       })
       .run();
-
-    return session;
+    return record;
   }
 
   getSession(id: string): WorkspaceSession | undefined {
-    const row = this.database.db
-      .select()
-      .from(workspaceSessions)
-      .where(eq(workspaceSessions.id, id))
-      .get();
-
-    return row ? rowToWorkspaceSession(row) : undefined;
+    const row = this.#db.db.select().from(workspaceSessions).where(eq(workspaceSessions.id, id)).get();
+    return row ? mapRow(row) : undefined;
   }
 
   touchSession(id: string): void {
-    this.database.db
-      .update(workspaceSessions)
-      .set({ lastUsedAt: new Date().toISOString() })
-      .where(eq(workspaceSessions.id, id))
-      .run();
+    this.#db.db.update(workspaceSessions).set({ lastUsedAt: new Date().toISOString() }).where(eq(workspaceSessions.id, id)).run();
   }
 
   close(): void {
-    this.database.close();
+    this.#db.close();
   }
-
 }
+
+// ─── Factory ─────────────────────────────────────────────────
 
 export function createWorkspaceStore(stateDir: string): WorkspaceStore {
   return new SqliteWorkspaceStore(stateDir);
 }
 
-function rowToWorkspaceSession(row: WorkspaceSessionRow): WorkspaceSession {
+// ─── Row mapping ─────────────────────────────────────────────
+
+function mapRow(r: WorkspaceSessionRow): WorkspaceSession {
   return {
-    id: row.id,
-    root: row.root,
-    status: row.status,
-    mode: row.mode === "worktree" ? "worktree" : "checkout",
-    sourceRoot: row.sourceRoot ?? undefined,
-    baseRef: row.baseRef ?? undefined,
-    baseSha: row.baseSha ?? undefined,
-    managed: row.managed === "true",
-    createdAt: row.createdAt,
-    lastUsedAt: row.lastUsedAt,
+    id: r.id, root: r.root, status: r.status,
+    mode: r.mode === "worktree" ? "worktree" : "checkout",
+    sourceRoot: r.sourceRoot ?? undefined,
+    baseRef: r.baseRef ?? undefined,
+    baseSha: r.baseSha ?? undefined,
+    managed: r.managed === "true",
+    createdAt: r.createdAt, lastUsedAt: r.lastUsedAt,
   };
 }

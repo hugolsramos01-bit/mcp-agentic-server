@@ -1,46 +1,59 @@
+// ═══════════════════════════════════════════════════════════════
+// PATH POLICY — filesystem boundary enforcement
+//
+// Centralized path resolution and access control for the Agentic
+// MCP server. All filesystem operations flow through these guards.
+// ═══════════════════════════════════════════════════════════════
+
 import { homedir } from "node:os";
-import { isAbsolute, relative, resolve, sep } from "node:path";
+import { isAbsolute, normalize, resolve, sep } from "node:path";
+import { realpathSync } from "node:fs";
+
+const HOME_DIR = normalize(homedir());
 
 export class AccessDeniedError extends Error {
-  constructor(message: string) {
+  public readonly requestedPath: string;
+  constructor(message: string, path: string) {
     super(message);
     this.name = "AccessDeniedError";
+    this.requestedPath = path;
   }
 }
 
-export function expandHomePath(path: string): string {
-  if (path === "~") return homedir();
-  if (path.startsWith("~/") || path.startsWith("~\\")) {
-    return resolve(homedir(), path.slice(2));
+export function expandHomePath(raw: string): string {
+  if (raw === "~") return HOME_DIR;
+  if (raw.length > 1 && raw[0] === "~" && (raw[1] === "/" || raw[1] === "\\")) {
+    return resolve(HOME_DIR, raw.slice(2));
   }
-
-  return path;
+  return raw;
 }
 
-export function isPathInsideRoot(path: string, root: string): boolean {
-  const resolvedPath = resolve(expandHomePath(path));
-  const resolvedRoot = resolve(expandHomePath(root));
-  const relationship = relative(resolvedRoot, resolvedPath);
+function pathInside(root: string, target: string): boolean {
+  if (target === root) return true;
+  if (target.startsWith(root + sep)) return true;
+  try {
+    const real = realpathSync(root);
+    if (target === real || target.startsWith(real + sep)) return true;
+  } catch {}
+  return false;
+}
 
-  return (
-    relationship === "" ||
-    (!isAbsolute(relationship) &&
-      !relationship.startsWith("..") &&
-      relationship !== ".." &&
-      !relationship.includes(`..${sep}`))
-  );
+export function isPathInsideRoot(candidate: string, root: string): boolean {
+  const a = resolve(expandHomePath(candidate));
+  const b = resolve(expandHomePath(root));
+  return pathInside(b, a);
 }
 
 export function assertAllowedPath(path: string, allowedRoots: string[]): string {
-  const resolvedPath = resolve(expandHomePath(path));
-  if (allowedRoots.some((root) => isPathInsideRoot(resolvedPath, root))) {
-    return resolvedPath;
+  const canonical = resolve(expandHomePath(path));
+  for (const root of allowedRoots) {
+    if (pathInside(resolve(expandHomePath(root)), canonical)) {
+      return canonical;
+    }
   }
-
-  throw new AccessDeniedError(`Path is outside allowed roots: ${path}`);
+  throw new AccessDeniedError("Path outside allowed roots: " + path, canonical);
 }
 
 export function resolveAllowedPath(inputPath: string, cwd: string, allowedRoots: string[]): string {
-  const absolutePath = resolve(cwd, inputPath);
-  return assertAllowedPath(absolutePath, allowedRoots);
+  return assertAllowedPath(resolve(cwd, expandHomePath(inputPath)), allowedRoots);
 }
