@@ -109,10 +109,27 @@ function registerAppTool(server: McpServer, name: string, definition: any, handl
       },
     };
 
-    const errorSuffix = status === "error" && envelope.error ? ` — ${envelope.error}` : "";
+    const errorPreview = status === "error" && envelope.error
+      ? (() => { const t = String(envelope.error).replace(/\s+/g, " ").trim(); return t.length > 240 ? t.slice(0, 237) + "..." : t; })()
+      : undefined;
+    const errorSuffix = errorPreview ? ` — ${errorPreview}` : "";
+
+    // Strip _meta.card when the tool has no widget UI bound.
+    // Detect widget UI — supports both dot-notation (ui.resourceUri) and
+    // legacy bracket notation ("ui/resourceUri") from the existing type union.
+    const definitionMeta = (definition as any)?._meta;
+    const hasWidget = Boolean(definitionMeta?.ui?.resourceUri || definitionMeta?.["ui/resourceUri"]);
+    const { _meta: _origMeta, ...responseBody } = response as any;
+    const responseMeta = _origMeta as any;
+    const sanitizedMeta =
+      !hasWidget && responseMeta?.card
+        ? Object.fromEntries(Object.entries(responseMeta).filter(([k]) => k !== "card"))
+        : responseMeta;
+
     return {
-      ...response,
-      content: [{ type: "text", text: `${name}: ${status}${errorSuffix} (${envelope.metrics.durationMs}ms)` }],
+      ...responseBody,
+      ...(sanitizedMeta && Object.keys(sanitizedMeta).length > 0 ? { _meta: sanitizedMeta } : {}),
+      content: [{ type: "text" as const, text: `${name}: ${status}${errorSuffix} (${envelope.metrics.durationMs}ms)` }],
       structuredContent: envelope,
     };
   });
@@ -485,6 +502,14 @@ function createMcpServer(
           .optional(),
         agentsFiles: z.array(workspaceAgentsFileOutputSchema),
         availableAgentsFiles: z.array(workspaceAvailableAgentsFileOutputSchema),
+        agentsFileScan: z.object({
+          truncated: z.boolean(),
+          stopReason: z.enum(["max_files", "max_directories", "max_entries"]).optional(),
+          filesVisited: z.number(),
+          directoriesVisited: z.number(),
+          entriesVisited: z.number(),
+          maxDepthReached: z.boolean().optional(),
+        }).optional(),
         skills: z.array(workspaceSkillOutputSchema),
         agentProviders: z.array(workspaceLocalAgentProviderOutputSchema),
         agents: z.array(workspaceLocalAgentOutputSchema),
@@ -496,7 +521,7 @@ function createMcpServer(
     },
     async ({ path, mode, baseRef, allowParentGitRoot }) => {
       const startedAt = performance.now();
-      const { workspace, agentsFiles, availableAgentsFiles } = await workspaces.openWorkspace({ path, mode, baseRef, allowParentGitRoot });
+      const { workspace, agentsFiles, availableAgentsFiles, agentsFileScan } = await workspaces.openWorkspace({ path, mode, baseRef, allowParentGitRoot });
       if (config.widgets === "changes") {
         // The baseline must be captured before open_workspace returns. Running
         // this in the background races the first edit: a newly-created source
@@ -545,6 +570,9 @@ function createMcpServer(
               : undefined,
             availableAgentsFileOutputs.length > 0
               ? `Available nested instructions: ${availableAgentsFileOutputs.map((file) => file.path).join(", ")}`
+              : undefined,
+          agentsFileScan?.truncated
+              ? `Nested instruction scan was truncated after ${agentsFileScan.entriesVisited} entries. Additional AGENTS.md or CLAUDE.md files may exist. Use glob to locate them.`
               : undefined,
             visibleSkills.length > 0
               ? `Available skills: ${visibleSkills.map((skill) => skill.name).join(", ")}`
@@ -600,6 +628,7 @@ function createMcpServer(
           agentProviders: visibleAgentProviders,
           agents: visibleAgents,
           skillDiagnostics: workspace.skillDiagnostics,
+          agentsFileScan,
           instruction,
         },
       };

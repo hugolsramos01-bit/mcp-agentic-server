@@ -29,6 +29,22 @@ export interface AvailableAgentsFile {
   path: string;
 }
 
+export interface AgentsFileScanResult {
+  truncated: boolean;
+  stopReason?: WalkStopReason;
+  filesVisited: number;
+  directoriesVisited: number;
+  entriesVisited: number;
+  maxDepthReached?: boolean;
+}
+
+interface AgentsFileDiscoveryResult {
+  files: AvailableAgentsFile[];
+  scan?: AgentsFileScanResult;
+}
+
+export type WalkStopReason = "max_files" | "max_directories" | "max_entries";
+
 export interface WorkspaceWorktree {
   path: string;
   baseRef: string;
@@ -54,6 +70,7 @@ export interface WorkspaceContext {
   workspace: Workspace;
   agentsFiles: LoadedAgentsFile[];
   availableAgentsFiles: AvailableAgentsFile[];
+  agentsFileScan?: AgentsFileScanResult;
 }
 
 export interface WorkspaceReadPath {
@@ -291,9 +308,9 @@ export class WorkspaceRegistry {
     });
     this.workspaces.set(workspace.id, workspace);
     const agentsFiles = await this.loadInitialAgentsFiles(workspace.root);
-    const availableAgentsFiles = await this.findAvailableAgentsFiles(workspace.root, agentsFiles);
+    const { files: availableAgentsFiles, scan: agentsFileScan } = await this.findAvailableAgentsFiles(workspace.root, agentsFiles);
 
-    return { workspace, agentsFiles, availableAgentsFiles };
+    return { workspace, agentsFiles, availableAgentsFiles, agentsFileScan };
   }
 
   private loadSkillsForWorkspace(root: string): Pick<Workspace, "skills" | "skillDiagnostics"> {
@@ -368,7 +385,7 @@ export class WorkspaceRegistry {
   private async findAvailableAgentsFiles(
     root: string,
     loadedFiles: LoadedAgentsFile[],
-  ): Promise<AvailableAgentsFile[]> {
+  ): Promise<AgentsFileDiscoveryResult> {
     const loadedPaths = new Set(loadedFiles.map((file) => resolve(file.path)));
     const loadedRealPaths = new Set<string>();
     for (const file of loadedFiles) {
@@ -376,7 +393,7 @@ export class WorkspaceRegistry {
       if (realPath) loadedRealPaths.add(realPath);
     }
     const discovered: AvailableAgentsFile[] = [];
-    const state: WalkState = { filesVisited: 0, directoriesVisited: 0, stopped: false, maxFiles: 500, maxDirs: 1000, maxEntries: 2000, entries: 0 };
+    const state: WalkState = { filesVisited: 0, directoriesVisited: 0, stopped: false, stopReason: undefined, maxFiles: 500, maxDirs: 1000, maxEntries: 2000, entries: 0, depthTruncated: false };
 
     await walkWorkspace(root, async (path, entry) => {
       if (state.stopped) return;
@@ -387,7 +404,17 @@ export class WorkspaceRegistry {
       discovered.push({ path });
     }, 0, 12, state);
 
-    return discovered.sort((a, b) => a.path.localeCompare(b.path));
+    return {
+      files: discovered.sort((a, b) => a.path.localeCompare(b.path)),
+      scan: state.stopped || state.depthTruncated ? {
+        truncated: true,
+        stopReason: state.stopReason,
+        filesVisited: state.filesVisited,
+        directoriesVisited: state.directoriesVisited,
+        entriesVisited: state.entries,
+        maxDepthReached: state.depthTruncated,
+      } : undefined,
+    };
   }
 }
 
@@ -427,10 +454,12 @@ interface WalkState {
   filesVisited: number;
   directoriesVisited: number;
   stopped: boolean;
+  stopReason?: WalkStopReason;
   maxFiles: number;
   maxDirs: number;
   maxEntries: number;
   entries: number;
+  depthTruncated: boolean;
 }
 
 async function walkWorkspace(
@@ -452,19 +481,23 @@ async function walkWorkspace(
   for await (const entry of entries) {
     if (state?.stopped) break;
     const path = join(directory, entry.name);
+    if (state && state.entries >= state.maxEntries) { state.stopped = true; state.stopReason = "max_entries"; break; }
     if (state) state.entries++;
-    if (state && state.entries > state.maxEntries) { state.stopped = true; break; }
     if (entry.isDirectory()) {
+      if (state && state.directoriesVisited >= state.maxDirs) { state.stopped = true; state.stopReason = "max_directories"; break; }
       if (state) state.directoriesVisited++;
-      if (state && state.directoriesVisited > state.maxDirs) { state.stopped = true; break; }
-      if (!SKIPPED_CONTEXT_DIRS.has(entry.name)) {
-        await walkWorkspace(path, visit, depth + 1, maxDepth, state);
+      // Check skip-list BEFORE depth — prevents skipped dirs from causing false maxDepthReached
+      if (SKIPPED_CONTEXT_DIRS.has(entry.name)) continue;
+      if (depth >= maxDepth) {
+        if (state) state.depthTruncated = true;
+        continue;
       }
+      await walkWorkspace(path, visit, depth + 1, maxDepth, state);
       continue;
     }
 
+    if (state && state.filesVisited >= state.maxFiles) { state.stopped = true; state.stopReason = "max_files"; break; }
     if (state) state.filesVisited++;
-    if (state && state.filesVisited > state.maxFiles) { state.stopped = true; break; }
     if (entry.name.startsWith(".") && entry.name !== "AGENTS.md" && entry.name !== "CLAUDE.md") continue;
     await visit(path, entry);
   }
@@ -515,6 +548,8 @@ async function tryRealpath(path: string): Promise<string | undefined> {
 }
 
 const CONTEXT_FILE_NAMES = new Set(["AGENTS.md", "AGENTS.MD", "CLAUDE.md", "CLAUDE.MD"]);
+
+// ─── Errno helper ───────────────────────────────────────────
 function isErrnoException(error: unknown): error is NodeJS.ErrnoException {
   return error instanceof Error && "code" in error;
 }
