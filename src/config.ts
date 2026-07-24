@@ -32,6 +32,7 @@ export interface ServerConfig {
   legacyAliases: boolean;
   agentDir: string;
   logging: LoggingConfig;
+  inlineOutputCharacters: number;
 }
 
 function parsePort(value: string | number | undefined): number {
@@ -250,6 +251,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): ServerConfig {
     legacyAliases: parseBoolean(env.AGENTIC_LEGACY_ALIASES),
     agentDir: resolve(expandHomePath(env.AGENTIC_AGENT_DIR ?? files.config.agentDir ?? defaultAgentDir())),
     logging: parseLoggingConfig(env),
+    inlineOutputCharacters: parsePositiveInteger(env.AGENTIC_INLINE_OUTPUT_CHARACTERS, 12000, "AGENTIC_INLINE_OUTPUT_CHARACTERS"),
   };
 }
 

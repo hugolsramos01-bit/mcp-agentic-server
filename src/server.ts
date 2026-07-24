@@ -83,6 +83,16 @@ interface RunningServer {
 // Capture a monotonic start time at the public tool boundary. Handlers can
 // await filesystem, Git, or process work before producing their envelope, so
 // measuring at wrap() entry incorrectly reported 0ms for most calls.
+// ═══════════════════════════════════════════════════════════════
+// Tool registration wrapper — envelope, metrics, _meta sanitization
+//
+// Every tool (except open_workspace) flows through here. The wrapper:
+//   • Builds the { status, data, error, diagnostics, metrics } envelope
+//   • Truncates overly large output (inlineOutputCharacters cap)
+//   • Strips _meta.card for non-widget tools
+//   • Returns a compact summary in content for text-only clients
+// ═══════════════════════════════════════════════════════════════
+
 function registerAppTool(server: McpServer, name: string, definition: any, handler: (request: any) => any): void {
   registerExtAppTool(server, name, definition, async (request: any) => {
     const startedAt = performance.now();
@@ -98,14 +108,34 @@ function registerAppTool(server: McpServer, name: string, definition: any, handl
     const existing = response.structuredContent?.envelope
       ?? (parsed && typeof parsed === "object" && "status" in parsed && "data" in parsed ? parsed : undefined);
     const status = existing?.status ?? (response.isError ? "error" : "success");
+
+    // ── Output size guard ────────────────────────────────────
+    // Truncate responses larger than the configured inline cap.
+    // The cap is read lazily from loadConfig so env changes apply
+    // without a restart (in practice it's set at startup).
+    const { loadConfig: _lc } = await import("./config.js");
+    const inlineCap = _lc().inlineOutputCharacters;
+    let returnText = text;
+
+    const { truncateOutput } = await import("./server/tool-utils.js");
+    const truncResult = truncateOutput(returnText, inlineCap);
+
+    // For string-type data, use the truncated preview (head/tail).
+    // Structured objects (route maps, schema trees) pass through unchanged.
+    const rawData = existing?.data ?? (status === "error" && typeof parsed === "string" ? {} : parsed);
+    const data = typeof rawData === "string" && truncResult.truncated ? truncResult.preview : rawData;
+
     const envelope = {
       status,
-      data: existing?.data ?? (status === "error" && typeof parsed === "string" ? {} : parsed),
+      data,
       error: existing?.error ?? (status === "error" ? (typeof parsed === "string" ? parsed : parsed?.error ?? parsed?.message ?? JSON.stringify(parsed)) : null),
       diagnostics: existing?.diagnostics ?? [],
       metrics: {
         durationMs: existing?.metrics?.durationMs ?? Math.round(performance.now() - startedAt),
-        truncated: existing?.metrics?.truncated ?? Boolean(response._meta?.truncated || text.includes("[truncated]") || text.includes("... [truncated")),
+        truncated: truncResult.truncated || Boolean(response._meta?.truncated || text.includes("[truncated]") || text.includes("... [truncated")),
+        originalCharacters: truncResult.characters,
+        returnedCharacters: truncResult.returnedCharacters,
+        omittedCharacters: truncResult.omittedCharacters,
       },
     };
 
@@ -114,9 +144,6 @@ function registerAppTool(server: McpServer, name: string, definition: any, handl
       : undefined;
     const errorSuffix = errorPreview ? ` — ${errorPreview}` : "";
 
-    // Strip _meta.card when the tool has no widget UI bound.
-    // Detect widget UI — supports both dot-notation (ui.resourceUri) and
-    // legacy bracket notation ("ui/resourceUri") from the existing type union.
     const definitionMeta = (definition as any)?._meta;
     const hasWidget = Boolean(definitionMeta?.ui?.resourceUri || definitionMeta?.["ui/resourceUri"]);
     const { _meta: _origMeta, ...responseBody } = response as any;
@@ -129,7 +156,7 @@ function registerAppTool(server: McpServer, name: string, definition: any, handl
     return {
       ...responseBody,
       ...(sanitizedMeta && Object.keys(sanitizedMeta).length > 0 ? { _meta: sanitizedMeta } : {}),
-      content: [{ type: "text" as const, text: `${name}: ${status}${errorSuffix} (${envelope.metrics.durationMs}ms)` }],
+      content: [{ type: "text" as const, text: `${name}: ${status}${errorSuffix} (${truncResult.returnedCharacters} chars, ${envelope.metrics.durationMs}ms)` }],
       structuredContent: envelope,
     };
   });
