@@ -2591,20 +2591,32 @@ export function createServer(config = loadConfig()): RunningServer {
     sessionId: string;
     createdAt: number;
     lastActivityAt: number;
+    inFlight: number;
+  }
+
+  function markActive(sid: string): void {
+    const mt = transports.get(sid);
+    if (mt) { mt.inFlight++; mt.lastActivityAt = Date.now(); }
+  }
+
+  function markIdle(sid: string): void {
+    const mt = transports.get(sid);
+    if (mt && mt.inFlight > 0) mt.inFlight--;
   }
 
   function sweepTransports(): void {
     const now = Date.now();
-    // Remove inactive sessions by TTL
     for (const [sid, mt] of transports) {
+      if (mt.inFlight > 0) continue; // never close active requests
       if (now - mt.lastActivityAt > TRANSPORT_TTL_MS) {
         try { mt.transport.close(); } catch {}
         transports.delete(sid);
       }
     }
-    // If still over limit, remove oldest (by lastActivityAt)
     if (transports.size > MAX_TRANSPORTS) {
-      const sorted = [...transports.entries()].sort((a, b) => a[1].lastActivityAt - b[1].lastActivityAt);
+      const sorted = [...transports.entries()]
+        .filter(([, mt]) => mt.inFlight === 0)
+        .sort((a, b) => a[1].lastActivityAt - b[1].lastActivityAt);
       for (const [sid] of sorted.slice(0, sorted.length - MAX_TRANSPORTS)) {
         try { transports.get(sid)?.transport.close(); } catch {}
         transports.delete(sid);
@@ -2612,15 +2624,15 @@ export function createServer(config = loadConfig()): RunningServer {
     }
   }
 
-  // Enforce limits immediately on add, plus periodic sweep
+  // Enforce limits immediately on add
   function addTransport(sessionId: string, transport: StreamableHTTPServerTransport): void {
-    transports.set(sessionId, { transport, sessionId, createdAt: Date.now(), lastActivityAt: Date.now() });
+    transports.set(sessionId, { transport, sessionId, createdAt: Date.now(), lastActivityAt: Date.now(), inFlight: 0 });
     if (transports.size > MAX_TRANSPORTS) sweepTransports();
   }
 
   function touchTransport(sessionId: string): void {
     const mt = transports.get(sessionId);
-    if (mt) mt.lastActivityAt = Date.now();
+    if (mt && mt.inFlight === 0) mt.lastActivityAt = Date.now();
   }
 
   const transportGcTimer = setInterval(sweepTransports, 60_000).unref();
@@ -2777,7 +2789,12 @@ export function createServer(config = loadConfig()): RunningServer {
         return;
       }
 
-      await transport.handleRequest(req, res, req.body);
+      if (sessionId) markActive(sessionId);
+      try {
+        await transport.handleRequest(req, res, req.body);
+      } finally {
+        if (sessionId) markIdle(sessionId);
+      }
     } catch (error) {
       logEvent(config.logging, "error", "mcp_request_error", {
         requestId,
