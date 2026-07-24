@@ -12,11 +12,11 @@ import { realpathSync } from "node:fs";
 const HOME_DIR = normalize(homedir());
 
 export class AccessDeniedError extends Error {
-  public readonly requestedPath: string;
-  constructor(message: string, path: string) {
+  public readonly requestedPath?: string;
+  constructor(message: string, path?: string) {
     super(message);
     this.name = "AccessDeniedError";
-    this.requestedPath = path;
+    if (path !== undefined) this.requestedPath = path;
   }
 }
 
@@ -51,9 +51,10 @@ export function assertAllowedPath(path: string, allowedRoots: string[]): string 
       return canonical;
     }
   }
-  throw new AccessDeniedError("Path outside allowed roots: " + path, canonical);
+    throw new AccessDeniedError(`Path is outside allowed roots: ${path}. Resolved: ${canonical}. Allowed: ${allowedRoots.join(", ")}`);
 }
 
 export function resolveAllowedPath(inputPath: string, cwd: string, allowedRoots: string[]): string {
-  return assertAllowedPath(resolve(cwd, expandHomePath(inputPath)), allowedRoots);
+  const absolutePath = resolve(cwd, inputPath);
+  return assertAllowedPath(absolutePath, allowedRoots);
 }
