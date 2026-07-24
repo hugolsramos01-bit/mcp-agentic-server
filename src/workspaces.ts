@@ -376,14 +376,17 @@ export class WorkspaceRegistry {
       if (realPath) loadedRealPaths.add(realPath);
     }
     const discovered: AvailableAgentsFile[] = [];
+    let filesVisited = 0;
+    const MAX_FILES = 200;
 
     await walkWorkspace(root, async (path, entry) => {
+      if (filesVisited >= MAX_FILES) return;
       if (!entry.isFile()) return;
       if (!CONTEXT_FILE_NAMES.has(entry.name)) return;
+      filesVisited++;
       if (loadedPaths.has(path)) return;
       const realPath = await tryRealpath(path);
       if (realPath && loadedRealPaths.has(realPath)) return;
-
       discovered.push({ path });
     });
 
@@ -407,19 +410,32 @@ export async function ensureCheckoutWorkspaceRoot(
   return await ops.stat(path);
 }
 
-const CONTEXT_FILE_NAMES = new Set(["AGENTS.md", "AGENTS.MD", "CLAUDE.md", "CLAUDE.MD"]);
-const SKIPPED_CONTEXT_DIRS = new Set([
-  ".git",
-  ".hg",
-  ".svn",
-  ".agentic",
-  "node_modules",
-  "dist",
-  "build",
-  ".next",
-  ".turbo",
-  ".cache",
-]);
+async function walkWorkspace(
+  directory: string,
+  visit: (path: string, entry: { name: string; isFile(): boolean; isDirectory(): boolean }) => Promise<void> | void,
+  depth = 0,
+  maxDepth = 12,
+): Promise<void> {
+  if (depth > maxDepth) return;
+  let entries;
+  try {
+    entries = await opendir(directory);
+  } catch {
+    return;
+  }
+
+  for await (const entry of entries) {
+    const path = join(directory, entry.name);
+    if (entry.isDirectory()) {
+      if (!SKIPPED_CONTEXT_DIRS.has(entry.name)) {
+        await walkWorkspace(path, visit, depth + 1, maxDepth);
+      }
+      continue;
+    }
+
+    await visit(path, entry);
+  }
+}
 
 export function formatAgentsPath(path: string, workspaceRoot: string | undefined): string {
   if (!workspaceRoot) return path.split(sep).join("/");
@@ -465,30 +481,7 @@ async function tryRealpath(path: string): Promise<string | undefined> {
   }
 }
 
-async function walkWorkspace(
-  directory: string,
-  visit: (path: string, entry: { name: string; isFile(): boolean; isDirectory(): boolean }) => Promise<void> | void,
-): Promise<void> {
-  let entries;
-  try {
-    entries = await opendir(directory);
-  } catch {
-    return;
-  }
-
-  for await (const entry of entries) {
-    const path = join(directory, entry.name);
-    if (entry.isDirectory()) {
-      if (!SKIPPED_CONTEXT_DIRS.has(entry.name)) {
-        await walkWorkspace(path, visit);
-      }
-      continue;
-    }
-
-    await visit(path, entry);
-  }
-}
-
+const CONTEXT_FILE_NAMES = new Set(["AGENTS.md", "AGENTS.MD", "CLAUDE.md", "CLAUDE.MD"]);
 function isErrnoException(error: unknown): error is NodeJS.ErrnoException {
   return error instanceof Error && "code" in error;
 }
