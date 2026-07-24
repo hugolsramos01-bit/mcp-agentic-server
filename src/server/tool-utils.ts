@@ -251,6 +251,37 @@ export function countDiffStats(diff: string | undefined): DiffStats {
   return { additions, removals };
 }
 
+// ─── Output truncation ──────────────────────────────────────
+// Anti-bloat: limits inline output size by keeping head + tail
+// with a clear truncation marker.
+
+export interface TruncatedOutput {
+  preview: string;
+  characters: number;
+  returnedCharacters: number;
+  omittedCharacters: number;
+  truncated: boolean;
+}
+
+export function truncateOutput(text: string, maxChars: number): TruncatedOutput {
+  const chars = text.length;
+  if (chars <= maxChars) {
+    return { preview: text, characters: chars, returnedCharacters: chars, omittedCharacters: 0, truncated: false };
+  }
+  const half = Math.floor(maxChars / 2);
+  const head = text.slice(0, half);
+  const tail = text.slice(chars - half);
+  const omitted = chars - 2 * half;
+  const preview = `${head}\n\n... [${omitted.toLocaleString()} characters omitted] ...\n\n${tail}`;
+  return {
+    preview,
+    characters: chars,
+    returnedCharacters: preview.length,
+    omittedCharacters: omitted,
+    truncated: true,
+  };
+}
+
 export function newFilePatch(path: string, content: string): string {
   const lines = content.length === 0 ? [] : content.endsWith("\n") ? content.slice(0, -1).split("\n") : content.split("\n");
   const hunkLength = lines.length;

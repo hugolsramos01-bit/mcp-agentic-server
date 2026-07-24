@@ -2,12 +2,12 @@
 // REGRESSION TESTS — anti-bloat, envelope, scan, transport GC
 //
 // Tests REAL exported functions, not simulations:
-// 1. toolErrorPreview (src/server/tool-utils.ts) — error truncation
-// 2. formatAgentsPath (src/workspaces.ts) — path formatting
-// 3. WorkspaceRegistry.openWorkspace — scan diagnostics via real
-//    directory structures (deep trees, broad dirs)
-// 4. toolWidgetDescriptorMeta — widget UI gate logic
-// 5. ensureCheckoutWorkspaceRoot — directory creation
+// 1. toolErrorPreview — error truncation
+// 2. truncateOutput — central inline output size guard
+// 3. formatAgentsPath — path formatting
+// 4. WorkspaceRegistry.openWorkspace — scan diagnostics
+// 5. toolWidgetDescriptorMeta — widget UI gate logic
+// 6. ensureCheckoutWorkspaceRoot — directory creation
 // ═══════════════════════════════════════════════════════════════
 
 import assert from "node:assert/strict";
@@ -15,7 +15,7 @@ import { mkdtemp, mkdir, writeFile } from "node:fs/promises";
 import { existsSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { toolErrorPreview, toolWidgetDescriptorMeta } from "./server/tool-utils.js";
+import { toolErrorPreview, toolWidgetDescriptorMeta, truncateOutput } from "./server/tool-utils.js";
 import { formatAgentsPath, ensureCheckoutWorkspaceRoot, WorkspaceRegistry } from "./workspaces.js";
 import { loadConfig } from "./config.js";
 
@@ -52,7 +52,46 @@ try {
     assert.equal(toolErrorPreview([{ type: "text", text: "   " } as TC]), undefined);
   }
 
-  // ─── 2. formatAgentsPath — real exported function ─────────────
+  // ─── 2. truncateOutput — central inline output size guard ──
+  {
+    // Short text: no truncation
+    const short = truncateOutput("Hello world", 12000);
+    assert.equal(short.truncated, false);
+    assert.equal(short.preview, "Hello world");
+    assert.equal(short.characters, 11);
+    assert.equal(short.omittedCharacters, 0);
+
+    // Long text: head + tail with marker
+    const long = "a".repeat(500);
+    const capped = truncateOutput(long, 100);
+    assert.equal(capped.truncated, true);
+    assert.ok(capped.preview.startsWith("aaa"), "should start with head");
+    assert.ok(capped.preview.endsWith("aaa"), "should end with tail");
+    assert.ok(capped.preview.includes("characters omitted"), "should include omission marker");
+    assert.equal(capped.characters, 500);
+    assert.equal(capped.omittedCharacters, 500 - 100);
+    assert.ok(capped.returnedCharacters < 500, "returned should be less than original");
+
+    // Exactly at limit: no truncation
+    const exact = "x".repeat(12000);
+    const exactCapped = truncateOutput(exact, 12000);
+    assert.equal(exactCapped.truncated, false);
+    assert.equal(exactCapped.characters, 12000);
+
+    // Unicode (multi-byte characters) — counted correctly
+    const emoji = "🔥".repeat(100); // 100 emoji * 2 JS chars = 200
+    const emojiCapped = truncateOutput(emoji, 50);
+    assert.equal(emojiCapped.truncated, true);
+    assert.ok(emojiCapped.preview.includes("🔥"), "should preserve emoji");
+    assert.equal(emojiCapped.characters, 200);
+
+    // Empty string
+    const empty = truncateOutput("", 100);
+    assert.equal(empty.truncated, false);
+    assert.equal(empty.preview, "");
+  }
+
+  // ─── 3. formatAgentsPath — real exported function ─────────────
   {
     // Absolute path outside workspace → returns as-is (normalized)
     const result = formatAgentsPath("/outside/file.md", "/workspace");
@@ -71,14 +110,13 @@ try {
     );
 
     // No workspace root → returns path as-is with forward slashes
-    // No workspace root → returns path as-is with forward slashes
     assert.equal(
       formatAgentsPath("C:\\users\\test\\file.md", undefined),
       "C:/users/test/file.md",
     );
   }
 
-  // ─── 3. Real scan diagnostics via WorkspaceRegistry ──────────
+  // ─── 4. Real scan diagnostics via WorkspaceRegistry ──────────
   {
     const baseDir = join(testDir, "scan-test");
 
@@ -123,7 +161,7 @@ try {
     assert.ok(ctx.agentsFileScan!.entriesVisited >= 0, "entriesVisited should be >= 0");
   }
 
-  // ─── 4. toolWidgetDescriptorMeta — widget gate logic ─────────
+  // ─── 5. toolWidgetDescriptorMeta — widget gate logic ─────────
   {
     const makeConfig = (widgets: string) => loadConfig({
       AGENTIC_CONFIG_DIR: join(testDir, "widget-config"),
@@ -152,7 +190,7 @@ try {
     assert.ok(fullRead._meta?.ui, "full mode should attach widget for read");
   }
 
-  // ─── 5. ensureCheckoutWorkspaceRoot — real directory creation ──
+  // ─── 6. ensureCheckoutWorkspaceRoot — real directory creation ──
   {
     const newDir = join(testDir, "ensure-root-test", "a", "b", "c");
     const stats = await ensureCheckoutWorkspaceRoot(newDir);
