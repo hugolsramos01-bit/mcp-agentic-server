@@ -1,3 +1,4 @@
+// Review payload renderer — aggregates file diffs for show_changes
 import { useMemo, useState } from "react";
 import { createRoot } from "react-dom/client";
 import { parsePatchFiles, type FileDiffMetadata, type FileDiffOptions } from "@pierre/diffs";

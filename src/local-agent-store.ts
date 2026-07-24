@@ -1,3 +1,4 @@
+// Agent Session Store — SQLite-backed persistence for subagent sessions
 import { randomUUID } from "node:crypto";
 import { resolve } from "node:path";
 import { openDatabase, type DatabaseHandle } from "./db/client.js";
@@ -52,16 +53,16 @@ interface LocalAgentRow {
 }
 
 export class LocalAgentStore {
-  private readonly database: DatabaseHandle;
+  #db: DatabaseHandle;
 
   constructor(stateDir: string) {
-    this.database = openDatabase(stateDir);
+    this.#db = openDatabase(stateDir);
   }
 
   list(scope: LocalAgentListScope = {}): LocalAgentRecord[] {
     let rows: LocalAgentRow[];
     if (scope.workspaceId) {
-      rows = this.database.sqlite
+      rows = this.#db.sqlite
         .prepare(
           `select * from local_agent_sessions
            where workspace_id = ?
@@ -69,7 +70,7 @@ export class LocalAgentStore {
         )
         .all(scope.workspaceId) as LocalAgentRow[];
     } else if (scope.workspaceRoot) {
-      rows = this.database.sqlite
+      rows = this.#db.sqlite
         .prepare(
           `select * from local_agent_sessions
            where workspace_root = ?
@@ -77,7 +78,7 @@ export class LocalAgentStore {
         )
         .all(resolve(scope.workspaceRoot)) as LocalAgentRow[];
     } else {
-      rows = this.database.sqlite
+      rows = this.#db.sqlite
         .prepare("select * from local_agent_sessions order by updated_at desc")
         .all() as LocalAgentRow[];
     }
@@ -100,7 +101,7 @@ export class LocalAgentStore {
       updatedAt: now,
     };
 
-    this.database.sqlite
+    this.#db.sqlite
       .prepare(
         `insert into local_agent_sessions (
           id,
@@ -132,7 +133,7 @@ export class LocalAgentStore {
   }
 
   get(idOrPrefix: string): LocalAgentRecord | undefined {
-    const exact = this.database.sqlite
+    const exact = this.#db.sqlite
       .prepare(
         `select * from local_agent_sessions
          where id = ? or provider_session_id = ?
@@ -141,7 +142,7 @@ export class LocalAgentStore {
       .get(idOrPrefix, idOrPrefix) as LocalAgentRow | undefined;
     if (exact) return rowToLocalAgentRecord(exact);
 
-    const matches = this.database.sqlite
+    const matches = this.#db.sqlite
       .prepare(
         `select * from local_agent_sessions
          where id like ? escape '\\' or provider_session_id like ? escape '\\'
@@ -162,7 +163,7 @@ export class LocalAgentStore {
       updatedAt: new Date().toISOString(),
     };
 
-    this.database.sqlite
+    this.#db.sqlite
       .prepare(
         `update local_agent_sessions set
           workspace_id = ?,
@@ -197,11 +198,11 @@ export class LocalAgentStore {
   }
 
   close(): void {
-    this.database.close();
+    this.#db.close();
   }
 
   private getById(id: string): LocalAgentRecord | undefined {
-    const row = this.database.sqlite
+    const row = this.#db.sqlite
       .prepare("select * from local_agent_sessions where id = ?")
       .get(id) as LocalAgentRow | undefined;
     return row ? rowToLocalAgentRecord(row) : undefined;

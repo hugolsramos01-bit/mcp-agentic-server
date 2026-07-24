@@ -1,3 +1,4 @@
+// Heavy payload renderer — mounts large diffs with theme support
 import { useEffect, useMemo, useRef } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { FileStream, getFiletypeFromFileName } from "@pierre/diffs";

@@ -1,3 +1,6 @@
+// Agent Runtime — abstraction layer over Codex SDK
+// Each runtime wraps a provider and exposes run(input) → result.
+
 import type {
   Codex,
   CodexOptions,
@@ -30,6 +33,8 @@ export interface LocalAgentRuntime {
   run(input: LocalAgentRunInput): Promise<LocalAgentRunResult>;
 }
 
+// ─── Codex SDK helpers ──────────────────────────────────────
+
 interface CodexThreadLike {
   readonly id: string | null;
   run(prompt: string): Promise<RunResult>;
@@ -42,22 +47,16 @@ interface CodexClientLike {
 
 type CodexFactory = (options?: CodexOptions) => CodexClientLike;
 
-function sandboxModeFor(writeMode: LocalAgentWriteMode | undefined): SandboxMode {
-  switch (writeMode) {
-    case "allowed":
-      return "workspace-write";
-    case "full_access":
-      return "danger-full-access";
-    case "read_only":
-    case undefined:
-      return "read-only";
-  }
+function toSandboxMode(writeMode: LocalAgentWriteMode | undefined): SandboxMode {
+  if (writeMode === "allowed") return "workspace-write";
+  if (writeMode === "full_access") return "danger-full-access";
+  return "read-only";
 }
 
-function threadOptionsFor(input: LocalAgentRunInput): ThreadOptions {
+function buildThreadOptions(input: LocalAgentRunInput): ThreadOptions {
   return {
     workingDirectory: input.workspace,
-    sandboxMode: sandboxModeFor(input.writeMode),
+    sandboxMode: toSandboxMode(input.writeMode),
     approvalPolicy: "never",
     model: input.model,
     modelReasoningEffort: input.thinking as ModelReasoningEffort | undefined,
@@ -73,7 +72,7 @@ export class CodexSdkLocalAgentRuntime implements LocalAgentRuntime {
   }
 
   async run(input: LocalAgentRunInput): Promise<LocalAgentRunResult> {
-    const options = threadOptionsFor(input);
+    const options = buildThreadOptions(input);
     const thread = input.providerSessionId
       ? this.codex.resumeThread(input.providerSessionId, options)
       : this.codex.startThread(options);
