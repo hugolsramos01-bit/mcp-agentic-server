@@ -47,14 +47,9 @@ export interface WorkspaceSessionSpec {
 
 export class SqliteWorkspaceStore implements WorkspaceStore {
   #db: DatabaseHandle;
-  #insertStmt: ReturnType<DatabaseHandle["db"]["prepare"]>;
 
   constructor(stateDir: string) {
     this.#db = openDatabase(stateDir);
-    this.#insertStmt = this.#db.db.prepare(
-      `INSERT INTO workspace_sessions (id, root, status, mode, source_root, base_ref, base_sha, managed, created_at, last_used_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-    );
   }
 
   createSession(spec: WorkspaceSessionSpec): WorkspaceSession {
