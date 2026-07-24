@@ -159,8 +159,8 @@ function parseLoggingConfig(env: NodeJS.ProcessEnv): LoggingConfig {
 }
 
 function parseWidgetMode(value: string | undefined): WidgetMode {
-  if (!value || value === "full") return "full";
-  if (value === "off" || value === "changes") return value;
+  if (!value || value === "changes") return "changes";
+  if (value === "off" || value === "full") return value;
 
   throw new Error(`Invalid AGENTIC_WIDGETS: ${value}`);
 }

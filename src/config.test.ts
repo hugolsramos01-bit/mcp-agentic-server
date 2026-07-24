@@ -13,7 +13,7 @@ const baseEnv = {
   AGENTIC_OAUTH_OWNER_TOKEN: "test-owner-token-that-is-long-enough",
 };
 
-assert.equal(loadConfig(baseEnv).widgets, "full");
+assert.equal(loadConfig(baseEnv).widgets, "changes");
 assert.equal(loadConfig({ ...baseEnv, AGENTIC_WIDGETS: "changes" }).widgets, "changes");
 assert.equal(loadConfig({ ...baseEnv, AGENTIC_WIDGETS: "full" }).widgets, "full");
 assert.equal(loadConfig({ ...baseEnv, AGENTIC_WIDGETS: "off" }).widgets, "off");

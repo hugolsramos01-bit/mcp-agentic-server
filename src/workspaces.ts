@@ -376,19 +376,16 @@ export class WorkspaceRegistry {
       if (realPath) loadedRealPaths.add(realPath);
     }
     const discovered: AvailableAgentsFile[] = [];
-    let filesVisited = 0;
-    const MAX_FILES = 200;
+    const state = { filesVisited: 0, directoriesVisited: 0, stopped: false, maxFiles: 200 };
 
     await walkWorkspace(root, async (path, entry) => {
-      if (filesVisited >= MAX_FILES) return;
-      if (!entry.isFile()) return;
+      if (state.stopped) return;
       if (!CONTEXT_FILE_NAMES.has(entry.name)) return;
-      filesVisited++;
       if (loadedPaths.has(path)) return;
       const realPath = await tryRealpath(path);
       if (realPath && loadedRealPaths.has(realPath)) return;
       discovered.push({ path });
-    });
+    }, 0, 12, state);
 
     return discovered.sort((a, b) => a.path.localeCompare(b.path));
   }
@@ -410,13 +407,38 @@ export async function ensureCheckoutWorkspaceRoot(
   return await ops.stat(path);
 }
 
+// Directories to skip during workspace scans to avoid descending into
+// build outputs, caches, virtual environments, and dependency trees.
+const SKIPPED_CONTEXT_DIRS = new Set([
+  ".git", ".hg", ".svn",
+  ".agentic", ".agentic-checkpoints",
+  "node_modules",
+  "dist", "build", ".next", ".turbo", ".cache",
+  ".venv", "venv", ".env", "vendor",
+  "coverage", ".nyc_output",
+  "target", ".gradle", "out",
+  ".terraform", ".serverless",
+  "__pycache__", ".pytest_cache",
+  ".vscode", ".idea",
+  ".docusaurus",
+]);
+
+interface WalkState {
+  filesVisited: number;
+  directoriesVisited: number;
+  stopped: boolean;
+  maxFiles: number;
+}
+
 async function walkWorkspace(
   directory: string,
   visit: (path: string, entry: { name: string; isFile(): boolean; isDirectory(): boolean }) => Promise<void> | void,
   depth = 0,
   maxDepth = 12,
+  state?: WalkState,
 ): Promise<void> {
   if (depth > maxDepth) return;
+  if (state?.stopped) return;
   let entries;
   try {
     entries = await opendir(directory);
@@ -425,14 +447,19 @@ async function walkWorkspace(
   }
 
   for await (const entry of entries) {
+    if (state?.stopped) break;
     const path = join(directory, entry.name);
     if (entry.isDirectory()) {
+      if (state) state.directoriesVisited++;
       if (!SKIPPED_CONTEXT_DIRS.has(entry.name)) {
-        await walkWorkspace(path, visit, depth + 1, maxDepth);
+        await walkWorkspace(path, visit, depth + 1, maxDepth, state);
       }
       continue;
     }
 
+    if (state) state.filesVisited++;
+    if (state && state.filesVisited > state.maxFiles) { state.stopped = true; break; }
+    if (entry.name.startsWith(".") && entry.name !== "AGENTS.md") continue; // skip hidden files except AGENTS.md
     await visit(path, entry);
   }
 }
