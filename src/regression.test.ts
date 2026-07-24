@@ -109,17 +109,18 @@ try {
     // Should find AGENTS.md files
     assert.ok(ctx.availableAgentsFiles.length > 0, "should find some AGENTS.md");
 
-    // agentsFileScan may be present if limits were hit
-    if (ctx.agentsFileScan?.truncated) {
-      assert.ok(
-        ["max_files", "max_directories", "max_entries"].includes(ctx.agentsFileScan.stopReason ?? "") ||
-        ctx.agentsFileScan.maxDepthReached,
-        `valid reason: ${ctx.agentsFileScan.stopReason}, maxDepthReached=${ctx.agentsFileScan.maxDepthReached}`,
-      );
-      assert.ok(ctx.agentsFileScan.filesVisited >= 0, "filesVisited should be >= 0");
-      assert.ok(ctx.agentsFileScan.directoriesVisited >= 0, "directoriesVisited should be >= 0");
-      assert.ok(ctx.agentsFileScan.entriesVisited >= 0, "entriesVisited should be >= 0");
-    }
+    // Deep tree should trigger depth truncation — unconditional assertions
+    assert.ok(ctx.agentsFileScan !== undefined, "deep tree should produce scan diagnostics");
+    assert.ok(ctx.agentsFileScan!.maxDepthReached !== undefined,
+      `maxDepthReached should be defined (got ${ctx.agentsFileScan!.maxDepthReached})`);
+    assert.ok(
+      ["max_files", "max_directories", "max_entries"].includes(ctx.agentsFileScan!.stopReason ?? "") ||
+      ctx.agentsFileScan!.maxDepthReached,
+      `valid reason: ${ctx.agentsFileScan!.stopReason}, maxDepthReached=${ctx.agentsFileScan!.maxDepthReached}`,
+    );
+    assert.ok(ctx.agentsFileScan!.filesVisited >= 0, "filesVisited should be >= 0");
+    assert.ok(ctx.agentsFileScan!.directoriesVisited >= 0, "directoriesVisited should be >= 0");
+    assert.ok(ctx.agentsFileScan!.entriesVisited >= 0, "entriesVisited should be >= 0");
   }
 
   // ─── 4. toolWidgetDescriptorMeta — widget gate logic ─────────
