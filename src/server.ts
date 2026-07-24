@@ -116,7 +116,7 @@ function registerAppTool(server: McpServer, name: string, definition: any, handl
     };
     return {
       ...response,
-      content: [{ type: "text", text: JSON.stringify(envelope, null, 2) }],
+      content: [{ type: "text", text: `${name}: ${status} (${envelope.metrics?.durationMs ?? 0}ms)` }],
       structuredContent: envelope,
     };
   });
@@ -2554,26 +2554,29 @@ export function createServer(config = loadConfig()): RunningServer {
     host: config.host,
     ...(allowedHosts ? { allowedHosts } : {}),
   });
-  const transports = new Map<string, StreamableHTTPServerTransport>();
+  const transports = new Map<string, ManagedTransport>();
 
   // ─── Transport GC ────────────────────────────────────────
-  // The MCP SDK's StreamableHTTPServerTransport handles its own lifecycle,
-  // but we still need to prevent unbounded growth from orphaned sessions.
-  // A periodic sweep closes stale entries.
-  const TRANSPORT_TTL_MS = 30 * 60 * 1000;
+  // Prevent unbounded growth from orphaned MCP sessions.
+  // Each session gets a creation timestamp; stale entries are evicted
+  // by a periodic sweep when the map exceeds MAX_TRANSPORTS.
   const MAX_TRANSPORTS = 100;
-  setInterval(() => {
-    if (transports.size > MAX_TRANSPORTS) {
-      // Keep the most recent MAX_TRANSPORTS entries
-      const sorted = [...transports.entries()].sort((a, b) =>
-        (a[1] as any)._createdAt ? (b[1] as any)._createdAt - (a[1] as any)._createdAt : 0
-      );
-      for (const [sid] of sorted.slice(MAX_TRANSPORTS)) {
-        try { (transports.get(sid) as any)?.close?.(); } catch {}
-        transports.delete(sid);
-      }
+  interface ManagedTransport {
+    transport: StreamableHTTPServerTransport;
+    sessionId: string;
+    createdAt: number;
+  }
+  const transportGcTimer = setInterval(() => {
+    if (transports.size <= MAX_TRANSPORTS) return;
+    const sorted = [...transports.entries()].sort((a, b) => a[1].createdAt - b[1].createdAt);
+    for (const [sid] of sorted.slice(0, sorted.length - MAX_TRANSPORTS)) {
+      try { transports.get(sid)?.transport.close(); } catch {}
+      transports.delete(sid);
     }
   }, 60_000).unref();
+
+  // Store the timer for cleanup on shutdown
+  (globalThis as any).__agentic_transport_gc_timer = transportGcTimer;
   const mcpUrl = new URL("/mcp", config.publicBaseUrl);
   const resourceServerUrl = resourceUrlFromServerUrl(mcpUrl);
   const oauthProvider = new SingleUserOAuthProvider(config.oauth, mcpUrl, config.stateDir);
@@ -2684,16 +2687,17 @@ export function createServer(config = loadConfig()): RunningServer {
       let transport: Transport | undefined;
 
       if (sessionId) {
-        transport = transports.get(sessionId);
-        if (!transport) {
+        const managed = transports.get(sessionId);
+        if (!managed) {
           sendJsonRpcError(res, 404, -32000, "Unknown MCP session");
           return;
         }
+        transport = managed.transport;
       } else if (initializeRequest) {
         transport = new StreamableHTTPServerTransport({
           sessionIdGenerator: () => randomUUID(),
           onsessioninitialized: (newSessionId) => {
-            if (transport) transports.set(newSessionId, transport);
+            if (transport) transports.set(newSessionId, { transport, sessionId: newSessionId, createdAt: Date.now() });
             logEvent(config.logging, "info", "mcp_session_created", {
               requestId,
               sessionIdPrefix: sessionIdPrefix(newSessionId),
@@ -2745,6 +2749,12 @@ export function createServer(config = loadConfig()): RunningServer {
     close: () => {
       if (closed) return;
       closed = true;
+      clearInterval((globalThis as any).__agentic_transport_gc_timer);
+      // Close any remaining transport sessions
+      for (const [, mt] of transports) {
+        try { mt.transport.close(); } catch {}
+      }
+      transports.clear();
       processSessions.shutdown();
       oauthProvider.close();
       workspaceStore.close?.();
