@@ -9,8 +9,6 @@ import { homedir } from "node:os";
 import { isAbsolute, normalize, resolve, sep } from "node:path";
 import { realpathSync } from "node:fs";
 
-const HOME_DIR = normalize(homedir());
-
 export class AccessDeniedError extends Error {
   public readonly requestedPath?: string;
   constructor(message: string, path?: string) {
@@ -21,9 +19,9 @@ export class AccessDeniedError extends Error {
 }
 
 export function expandHomePath(raw: string): string {
-  if (raw === "~") return HOME_DIR;
+  if (raw === "~") return normalize(homedir());
   if (raw.length > 1 && raw[0] === "~" && (raw[1] === "/" || raw[1] === "\\")) {
-    return resolve(HOME_DIR, raw.slice(2));
+    return resolve(normalize(homedir()), raw.slice(2));
   }
   return raw;
 }

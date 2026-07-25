@@ -111,8 +111,8 @@ try {
 
     // No workspace root → returns path as-is with forward slashes
     assert.equal(
-      formatAgentsPath("C:\\users\\test\\file.md", undefined),
-      "C:/users/test/file.md",
+      formatAgentsPath(join("users", "test", "file.md"), undefined),
+      "users/test/file.md",
     );
   }
 
