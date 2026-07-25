@@ -195,7 +195,11 @@ try {
       path: join(aliasRoot, "git-project"),
       mode: "worktree",
     });
-    assert.equal(aliasWorkspace.workspace.sourceRoot, join(aliasRoot, "git-project"));
+    // Workspace source roots are canonicalized to avoid preserving symlink aliases.
+    assert.equal(
+      aliasWorkspace.workspace.sourceRoot,
+      realpathSync(join(aliasRoot, "git-project"))
+    );
 
     const aliasCheckout = await new WorkspaceRegistry(aliasConfig).openWorkspace(aliasRoot);
     assert.deepEqual(
