@@ -36,11 +36,13 @@ import {
 import {
   projectBootstrapTool, codingContextTool, suggestChecksTool, monorepoMapTool, changedFilesSummaryTool,
 } from "./bootstrap-tools.js";
+import { taskContextTool } from "./change-intelligence/task-context.js";
 import { nextRouteMapTool, payloadSchemaMapTool, fileDependenciesTool } from "./ast-tools.js";
 import {
   checkpointSaveTool, checkpointListTool, checkpointRestoreTool, checkpointDeleteTool,
 } from "./checkpoint-tools.js";
 import { proposePlanTool } from "./contract-tools.js";
+import { TOOL_CONTRACTS } from "./tool-contracts.js";
 import { checkEditAllowed, recordPlan, recordDryRun, recordCheckpoint, recordCheckpointRestore, recordChange, markChangesShown, getChangeSummary, getSessionActivity, getSessionLedger, resetSession as resetPvdlState } from "./change-session.js";
 import { semanticPackTool, contextBudgetTool } from "./semantic-tools.js";
 import { knowledgeCaptureTool, knowledgeSearchTool } from "./knowledge-tools.js";
@@ -358,7 +360,7 @@ function createMcpServer(
         title: "Worktree Install Dependencies",
         description: "[General] Hydrates dependencies (e.g., npm install or pnpm install) inside a managed git worktree sandbox.",
         inputSchema: {
-          workspaceId: z.string(),
+          workspaceId: z.string().optional().describe("Workspace ID"),
           verify: z.boolean().optional().describe("Load declared native runtime dependencies after installation to verify the installed binding."),
           allowLifecycleScripts: z.boolean().optional().describe("Explicitly permit package lifecycle scripts in this isolated worktree. Required when native packages must build during installation."),
         },
@@ -2161,16 +2163,39 @@ function createMcpServer(
       server,
       "coding_context",
       {
-        title: TOOL_CONTRACTS.codingContext.title,
-        description: TOOL_CONTRACTS.codingContext.description,
-        inputSchema: { workspaceId: z.string().describe("Workspace ID"), path: z.string().optional().describe("Ignored parameter to prevent schema errors"), goal: z.string().optional().describe("Optional: filter context to only items relevant to this goal (e.g. 'onboarding', 'dashboard', 'tenant')") },
-        outputSchema: resultOutputSchema(),
+        title: "[CORE] Coding Context",
+        description: "[Context] Returns a structured context map based on the active goal and project footprint. Maps domain boundaries (e.g. 'tenant', 'auth') to actual files and routes. Always call this BEFORE searching or reading code when you receive a new goal.",
+        inputSchema: {
+          workspaceId: z.string().describe("Workspace ID"),
+          goal: z.string().describe("The user's goal or current task (e.g., 'add tenant isolation', 'fix login button')")
+        },
         ...toolWidgetDescriptorMeta(config, "read"),
         annotations: READ_TOOL_ANNOTATIONS,
       } as any,
       async (req: any) => {
         const workspace = workspaces.getWorkspace(req.workspaceId);
         return wrap("coding_context", req, await codingContextTool(workspace.root, config.allowedRoots, { goal: req.goal }));
+      }
+    );
+    
+    registerAppTool(
+      server,
+      "task_context",
+      {
+        title: "[CORE] Task Context",
+        description: "[Context] Returns a minimal, stateless, goal-directed map for a coding task. Discovers primary candidates, test proximity, and limited dependencies. Call this to bootstrap context for a focused coding goal.",
+        inputSchema: {
+          workspaceId: z.string().describe("Workspace ID"),
+          goal: z.string().describe("The goal to contextualize"),
+          focusPaths: z.array(z.string()).optional().describe("Explicit paths to focus on"),
+          excludePaths: z.array(z.string()).optional().describe("Paths to exclude")
+        },
+        ...toolWidgetDescriptorMeta(config, "read"),
+        annotations: READ_TOOL_ANNOTATIONS,
+      } as any,
+      async (req: any) => {
+        const workspace = workspaces.getWorkspace(req.workspaceId);
+        return wrap("task_context", req, await taskContextTool(workspace.root, config.allowedRoots, { goal: req.goal, focusPaths: req.focusPaths, excludePaths: req.excludePaths }));
       }
     );
     registerAppTool(

@@ -1,0 +1,4 @@
+{
+  "goal": "corrigir bug de paginacao na view principal",
+  "focusPaths": ["src/ui/card-types.ts"]
+}

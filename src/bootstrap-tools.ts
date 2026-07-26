@@ -8,6 +8,7 @@ import { resolveAllowedPath } from "./roots.js";
 import { treeTool, workspaceSummaryTool } from "./assistant-tools.js";
 import { nextRouteMapTool, payloadSchemaMapTool } from "./ast-tools.js";
 import { readWorkspaceKnowledge } from "./knowledge-tools.js";
+import { normalizeGoal } from "./change-intelligence/goal-normalizer.js";
 import { getWorkspaceGitEligibility } from "./git.js";
 import { classifyPackageScripts, type ClassifiedCheck } from "./check-classifier.js";
 import { getGitChangedPaths, selectTargetedChecks, type SuggestChecksOptions } from "./check-selector.js";

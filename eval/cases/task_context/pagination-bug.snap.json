@@ -1,0 +1,223 @@
+{
+  "version": 1,
+  "goal": "corrigir bug de paginacao na view principal",
+  "taskType": "bug_fix",
+  "taskTypeSource": "inferred",
+  "primaryFiles": [
+    {
+      "path": "src/ui/card-types.ts",
+      "role": "primary",
+      "confidence": "high",
+      "evidence": [
+        {
+          "type": "focus_path",
+          "detail": "Provided directly in request"
+        },
+        {
+          "type": "test_proximity",
+          "detail": "Has nearby tests: src/ui/card-types.test.ts"
+        }
+      ],
+      "recommendedReadTool": "read"
+    },
+    {
+      "path": "src/review-checkpoints.test.ts",
+      "role": "test",
+      "confidence": "medium",
+      "evidence": [
+        {
+          "type": "filename_partial",
+          "detail": "Basename contains keyword: view"
+        },
+        {
+          "type": "test_proximity",
+          "detail": "Is test for: src/review-checkpoints.ts"
+        }
+      ],
+      "recommendedReadTool": "read_adaptive"
+    },
+    {
+      "path": "src/ui/card-types.test.ts",
+      "role": "test",
+      "confidence": "medium",
+      "evidence": [
+        {
+          "type": "test_proximity",
+          "detail": "Is test for: src/ui/card-types.ts"
+        }
+      ],
+      "recommendedReadTool": "read_adaptive"
+    }
+  ],
+  "supportingFiles": [
+    {
+      "path": "src/review-checkpoints.ts",
+      "role": "supporting",
+      "confidence": "medium",
+      "evidence": [
+        {
+          "type": "filename_partial",
+          "detail": "Basename contains keyword: view"
+        },
+        {
+          "type": "test_proximity",
+          "detail": "Has nearby tests: src/review-checkpoints.test.ts"
+        }
+      ],
+      "recommendedReadTool": "read_adaptive"
+    },
+    {
+      "path": ".github/ISSUE_TEMPLATE/bug_report.md",
+      "role": "supporting",
+      "confidence": "medium",
+      "evidence": [
+        {
+          "type": "filename_partial",
+          "detail": "Basename contains keyword: bug"
+        }
+      ],
+      "recommendedReadTool": "read_adaptive"
+    },
+    {
+      "path": "eval/cases/task_context/pagination-bug.input.json",
+      "role": "supporting",
+      "confidence": "medium",
+      "evidence": [
+        {
+          "type": "filename_partial",
+          "detail": "Basename contains keyword: bug"
+        }
+      ],
+      "recommendedReadTool": "read_adaptive"
+    },
+    {
+      "path": "examples/agents/copilot-reviewer.md",
+      "role": "supporting",
+      "confidence": "medium",
+      "evidence": [
+        {
+          "type": "filename_partial",
+          "detail": "Basename contains keyword: view"
+        }
+      ],
+      "recommendedReadTool": "read_adaptive"
+    },
+    {
+      "path": "examples/agents/pi-reviewer.md",
+      "role": "supporting",
+      "confidence": "medium",
+      "evidence": [
+        {
+          "type": "filename_partial",
+          "detail": "Basename contains keyword: view"
+        }
+      ],
+      "recommendedReadTool": "read_adaptive"
+    },
+    {
+      "path": "scripts/debug-token.mjs",
+      "role": "supporting",
+      "confidence": "medium",
+      "evidence": [
+        {
+          "type": "filename_partial",
+          "detail": "Basename contains keyword: bug"
+        }
+      ],
+      "recommendedReadTool": "read_adaptive"
+    },
+    {
+      "path": "src/ui/review-payload.tsx",
+      "role": "supporting",
+      "confidence": "medium",
+      "evidence": [
+        {
+          "type": "filename_partial",
+          "detail": "Basename contains keyword: view"
+        }
+      ],
+      "recommendedReadTool": "read_adaptive"
+    }
+  ],
+  "directDependents": [
+    {
+      "source": "src/ui/card-types.ts",
+      "dependents": [
+        "eval/cases/read/package-json.snap.json",
+        "eval/cases/read_many/two-files.snap.json",
+        "eval/cases/semantic_pack/workspace-lifecycle.snap.json",
+        "package.json",
+        "src/ui/card-types.test.ts",
+        "src/ui/heavy-payload.tsx",
+        "src/ui/patch-display.ts",
+        "src/ui/review-payload.tsx",
+        "src/ui/workspace-app.tsx"
+      ],
+      "confidence": "medium",
+      "limitations": [
+        "Lexical search only (no AST)"
+      ]
+    },
+    {
+      "source": "src/review-checkpoints.test.ts",
+      "dependents": [
+        "eval/cases/read/package-json.snap.json",
+        "eval/cases/read_many/two-files.snap.json",
+        "eval/cases/semantic_pack/workspace-lifecycle.snap.json",
+        "package.json"
+      ],
+      "confidence": "medium",
+      "limitations": [
+        "Lexical search only (no AST)"
+      ]
+    },
+    {
+      "source": "src/ui/card-types.test.ts",
+      "dependents": [
+        "eval/cases/read/package-json.snap.json",
+        "eval/cases/read_many/two-files.snap.json",
+        "eval/cases/semantic_pack/workspace-lifecycle.snap.json",
+        "package.json"
+      ],
+      "confidence": "medium",
+      "limitations": [
+        "Lexical search only (no AST)"
+      ]
+    }
+  ],
+  "applicableInstructions": [],
+  "nearbyTestCandidates": [
+    {
+      "sourcePath": "src/ui/card-types.ts",
+      "testPaths": [
+        "src/ui/card-types.test.ts"
+      ]
+    },
+    {
+      "sourcePath": "src/review-checkpoints.ts",
+      "testPaths": [
+        "src/review-checkpoints.test.ts"
+      ]
+    }
+  ],
+  "suggestedNextSteps": [
+    {
+      "tool": "read_many",
+      "arguments": {
+        "paths": [
+          "src/ui/card-types.ts",
+          "src/review-checkpoints.test.ts",
+          "src/ui/card-types.test.ts"
+        ]
+      },
+      "reason": "Read the most confident primary candidates first to understand the implementation details."
+    }
+  ],
+  "limitations": [],
+  "budget": {
+    "maxTokens": 15000,
+    "estimatedTokens": 2000,
+    "truncated": false,
+    "omittedCandidates": 0
+  }
+}

@@ -1,0 +1,99 @@
+{
+  "version": 1,
+  "goal": "migrar mutation-receipt.ts para usar dependencias limitadas",
+  "taskType": "migration",
+  "taskTypeSource": "inferred",
+  "primaryFiles": [
+    {
+      "path": "src/server/mutation-receipt.ts",
+      "role": "primary",
+      "confidence": "high",
+      "evidence": [
+        {
+          "type": "extracted_path",
+          "detail": "Extracted from goal text"
+        },
+        {
+          "type": "filename_partial",
+          "detail": "Basename contains keyword: mutation-receipt.ts"
+        },
+        {
+          "type": "test_proximity",
+          "detail": "Has nearby tests: src/server/mutation-receipt.test.ts"
+        }
+      ],
+      "recommendedReadTool": "read"
+    },
+    {
+      "path": "src/server/mutation-receipt.test.ts",
+      "role": "test",
+      "confidence": "medium",
+      "evidence": [
+        {
+          "type": "test_proximity",
+          "detail": "Is test for: src/server/mutation-receipt.ts"
+        }
+      ],
+      "recommendedReadTool": "read_adaptive"
+    }
+  ],
+  "supportingFiles": [],
+  "directDependents": [
+    {
+      "source": "src/server/mutation-receipt.ts",
+      "dependents": [
+        "eval/cases/read/package-json.snap.json",
+        "eval/cases/read_many/two-files.snap.json",
+        "eval/cases/semantic_pack/workspace-lifecycle.snap.json",
+        "package.json",
+        "src/server.ts",
+        "src/server/mutation-receipt.test.ts"
+      ],
+      "confidence": "medium",
+      "limitations": [
+        "Lexical search only (no AST)"
+      ]
+    },
+    {
+      "source": "src/server/mutation-receipt.test.ts",
+      "dependents": [
+        "eval/cases/read/package-json.snap.json",
+        "eval/cases/read_many/two-files.snap.json",
+        "eval/cases/semantic_pack/workspace-lifecycle.snap.json",
+        "package.json"
+      ],
+      "confidence": "medium",
+      "limitations": [
+        "Lexical search only (no AST)"
+      ]
+    }
+  ],
+  "applicableInstructions": [],
+  "nearbyTestCandidates": [
+    {
+      "sourcePath": "src/server/mutation-receipt.ts",
+      "testPaths": [
+        "src/server/mutation-receipt.test.ts"
+      ]
+    }
+  ],
+  "suggestedNextSteps": [
+    {
+      "tool": "read_many",
+      "arguments": {
+        "paths": [
+          "src/server/mutation-receipt.ts",
+          "src/server/mutation-receipt.test.ts"
+        ]
+      },
+      "reason": "Read the most confident primary candidates first to understand the implementation details."
+    }
+  ],
+  "limitations": [],
+  "budget": {
+    "maxTokens": 15000,
+    "estimatedTokens": 800,
+    "truncated": false,
+    "omittedCandidates": 0
+  }
+}

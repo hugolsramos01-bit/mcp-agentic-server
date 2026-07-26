@@ -105,7 +105,7 @@ export function serverInstructions(config: ServerConfig): string {
     ? "TURBO MODE — optimize for SPEED, not token cost:\n" +
       "• Read MULTIPLE files at once using read_many (batch up to 5-10 files per call)\n" +
       "• Use grep to find what you need instead of reading files line-by-line\n" +
-      "• Prefer semantic_pack with a goal to get a compact overview in one call\n" +
+      "  Prefer task_context with a goal to get a fast minimal map in one call\n" +
       "• Batch multiple edits to the same file into one edit call\n" +
       "• Skip edit_dry_run for trivially obvious single-line changes\n" +
       "• Skip checkpoint_save for non-destructive changes (config-only, comments)\n" +
@@ -118,11 +118,12 @@ export function serverInstructions(config: ServerConfig): string {
     ? `In minimal tool mode, ${toolNames.grep}, ${toolNames.glob}, and ${toolNames.ls} are disabled; use ${toolNames.shell} with command-line tools such as grep, rg, find, ls, and tree for search and directory inspection. `
     : config.toolMode === "assistant"
     ? `Tools are organized by visibility:
-[CORE] — Always use these first: open_workspace, suggest_checks, semantic_pack, grep, read_adaptive, read, read_many, git_status, git_diff, propose_plan, edit_dry_run, checkpoint_save, edit, write, run_package_script, show_changes, tree.
+[CORE] — Always use these first: open_workspace, suggest_checks, task_context, semantic_pack, grep, read_adaptive, read, read_many, git_status, git_diff, propose_plan, edit_dry_run, checkpoint_save, edit, write, run_package_script, show_changes, tree.
 [ADVANCED] — Use when core tools are insufficient: tournament_*, knowledge_*, set_policy, reset_policy, token_audit, context_budget, safe_file_preview, apply_patch, coding_context.
 
 Tool selection:
-- Unknown relevant files: semantic_pack.
+- Bootstrapping a focused coding goal: task_context (minimal, fast, test proximity).
+- Understanding broad architecture: semantic_pack (deep, inter-file relationships).
 - Known symbol or text: grep.
 - One known file, general inspection: read_adaptive.
 - One known file, exact ranges or pre-edit source: read.
