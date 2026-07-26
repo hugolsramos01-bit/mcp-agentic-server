@@ -55,7 +55,7 @@ export interface ReadManyInput {
 }
 
 export async function readManyTool(input: ReadManyInput, cwd: string, allowedRoots: string[]): Promise<ToolResponse> {
-  let result = "";
+  const resultFiles: any[] = [];
   let totalTokens = 0;
   const maxTokens = input.maxTokens ?? 64000;
 
@@ -67,7 +67,8 @@ export async function readManyTool(input: ReadManyInput, cwd: string, allowedRoo
         `Proceeding with maxTokens=${maxTokens} budget guard.\n\n`
       : "";
 
-  const { statSync } = await import("node:fs");
+  const { statSync, readFileSync } = await import("node:fs");
+  const { createHash } = await import("node:crypto");
 
   // Sort files by size (smallest first) to maximize what fits in budget
   type FileEntry = { path: string; fullPath: string; stat: import("node:fs").Stats };
@@ -84,7 +85,8 @@ export async function readManyTool(input: ReadManyInput, cwd: string, allowedRoo
   for (const file of files) {
     const p = file.path;
     try {
-      let content = readFileSync(file.fullPath, "utf8");
+      const rawBytes = readFileSync(file.fullPath);
+      let content = rawBytes.toString("utf8");
 
       // Apply compression if requested — pass filePath+mtime to benefit from AST cache
       if (input.compressionLevel && input.compressionLevel !== "none") {
@@ -99,21 +101,34 @@ export async function readManyTool(input: ReadManyInput, cwd: string, allowedRoo
         continue;
       }
 
-      result += `\n--- ${p} ---\n${content}\n`;
       totalTokens += estimatedTokens;
+      
+      const contentHash = "sha256:" + createHash("sha256").update(rawBytes).digest("hex");
+      
+      resultFiles.push({
+        path: p,
+        contentHash,
+        sizeBytes: file.stat.size,
+        mtimeNs: Number(file.stat.mtimeMs) * 1000000,
+        content,
+      });
     } catch (e: any) {
-      result += `\n--- ${p} ---\nError: ${e.message}\n`;
+      skipped.push({ path: p, reason: e.message });
     }
   }
-  
-  // Append skipped files summary
-  if (skipped.length > 0) {
-    result += `\n[SKIPPED files (use read_compressed with a compression level to fit):\n${skipped.map(s => `  - ${s.path}: ${s.reason}`).join("\n")}]\n`;
-  }
-  
-  result = `${bloatWarning}[Token budget: ~${totalTokens} used of ${maxTokens}]\n` + result;
+
+  const envelope = {
+    status: "success",
+    data: {
+      files: resultFiles,
+      skipped,
+      warning: bloatWarning ? bloatWarning.trim() : undefined,
+    }
+  };
+
   return {
-    content: [{ type: "text", text: result }]
+    content: [{ type: "text", text: JSON.stringify(envelope.data, null, 2) }],
+    structuredContent: { envelope }
   };
 }
 

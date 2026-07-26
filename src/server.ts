@@ -11,6 +11,7 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { createMcpExpressApp } from "@modelcontextprotocol/sdk/server/express.js";
 import { mcpAuthRouter, getOAuthProtectedResourceMetadataUrl } from "@modelcontextprotocol/sdk/server/auth/router.js";
 import { requireBearerAuth } from "@modelcontextprotocol/sdk/server/auth/middleware/bearerAuth.js";
+import { TransportRegistry } from "./server/transport-registry.js";
 import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { isInitializeRequest } from "@modelcontextprotocol/sdk/types.js";
@@ -97,7 +98,31 @@ function registerAppTool(server: McpServer, name: string, definition: any, handl
   registerExtAppTool(server, name, definition, async (request: any) => {
     const startedAt = performance.now();
     request.__startedAt = startedAt;
-    const response = await handler(request);
+    let response: any;
+    try {
+      response = await handler(request);
+    } catch (err: any) {
+      if (err.code === "workspace_unavailable" || err.code === "recovery_required" || err.code === "file_version_conflict") {
+        const envelope = {
+          status: "error",
+          data: {
+             code: err.code,
+             workspaceRoot: err.workspaceRoot,
+             sourceRoot: err.sourceRoot,
+          },
+          error: err.message,
+          diagnostics: [],
+          metrics: { durationMs: Math.round(performance.now() - startedAt), truncated: false }
+        };
+        response = {
+          content: [{ type: "text", text: JSON.stringify(envelope, null, 2) }],
+          isError: true,
+          structuredContent: envelope.data
+        };
+      } else {
+        throw err;
+      }
+    }
 
     if (name === "open_workspace") return response;
 
@@ -117,13 +142,30 @@ function registerAppTool(server: McpServer, name: string, definition: any, handl
     const inlineCap = _lc().inlineOutputCharacters;
     let returnText = text;
 
-    const { truncateOutput } = await import("./server/tool-utils.js");
-    const truncResult = truncateOutput(returnText, inlineCap);
+    const { truncatePayload, truncateOutput } = await import("./server/tool-utils.js");
 
-    // For string-type data, use the truncated preview (head/tail).
-    // Structured objects (route maps, schema trees) pass through unchanged.
+    const basePolicy = {
+      defaultStringLimit: inlineCap,
+      hardStringLimit: 64000,
+    };
+    
+    let policy: any = { ...basePolicy };
+    if (name === "git_diff" || name === "show_changes") {
+      policy.fieldLimits = { "diff": 32000, "patch": 32000 };
+    } else if (name === "apply_patch") {
+      policy.fieldLimits = { "preview": 32000 };
+    }
+
     const rawData = existing?.data ?? (status === "error" && typeof parsed === "string" ? {} : parsed);
-    const data = typeof rawData === "string" && truncResult.truncated ? truncResult.preview : rawData;
+    const data = truncatePayload(rawData, policy);
+
+    const isTruncated = (val: any): boolean => {
+      if (typeof val === "string") return val.includes("characters omitted");
+      if (Array.isArray(val)) return val.some(isTruncated);
+      if (typeof val === "object" && val !== null) return Object.values(val).some(isTruncated);
+      return false;
+    };
+    const wasTruncated = isTruncated(data) || Boolean(response._meta?.truncated || text.includes("[truncated]") || text.includes("... [truncated"));
 
     const envelope = {
       status,
@@ -132,10 +174,7 @@ function registerAppTool(server: McpServer, name: string, definition: any, handl
       diagnostics: existing?.diagnostics ?? [],
       metrics: {
         durationMs: existing?.metrics?.durationMs ?? Math.round(performance.now() - startedAt),
-        truncated: truncResult.truncated || Boolean(response._meta?.truncated || text.includes("[truncated]") || text.includes("... [truncated")),
-        originalCharacters: truncResult.characters,
-        returnedCharacters: truncResult.returnedCharacters,
-        omittedCharacters: truncResult.omittedCharacters,
+        truncated: wasTruncated,
       },
     };
 
@@ -156,7 +195,7 @@ function registerAppTool(server: McpServer, name: string, definition: any, handl
     return {
       ...responseBody,
       ...(sanitizedMeta && Object.keys(sanitizedMeta).length > 0 ? { _meta: sanitizedMeta } : {}),
-      content: [{ type: "text" as const, text: `${name}: ${status}${errorSuffix} (${truncResult.returnedCharacters} chars, ${envelope.metrics.durationMs}ms)` }],
+      content: [{ type: "text" as const, text: `${name}: ${status}${errorSuffix} (${JSON.stringify(envelope).length} chars, ${envelope.metrics.durationMs}ms)` }],
       structuredContent: envelope,
     };
   });
@@ -511,6 +550,10 @@ function createMcpServer(
           .boolean()
           .optional()
           .describe("Only for mode=\"worktree\": explicitly allow a requested subdirectory to be promoted to its parent Git root, expanding workspace scope."),
+        alias: z
+          .string()
+          .optional()
+          .describe("Optional friendly name for this workspace. If provided, the workspace can be reopened later using resume_workspace. Must be unique."),
       },
       outputSchema: {
         workspaceId: z.string(),
@@ -546,9 +589,36 @@ function createMcpServer(
       ...toolWidgetDescriptorMeta(config, "workspace"),
       annotations: READ_TOOL_ANNOTATIONS,
     },
-    async ({ path, mode, baseRef, allowParentGitRoot }) => {
+    async ({ path, mode, baseRef, allowParentGitRoot, alias }) => {
       const startedAt = performance.now();
-      const { workspace, agentsFiles, availableAgentsFiles, agentsFileScan } = await workspaces.openWorkspace({ path, mode, baseRef, allowParentGitRoot });
+      let workspaceInfo: Awaited<ReturnType<typeof workspaces.openWorkspace>>;
+      try {
+        workspaceInfo = await workspaces.openWorkspace({ path, mode, baseRef, allowParentGitRoot, alias });
+      } catch (err: any) {
+        if (err.code === "workspace_alias_conflict") {
+          const envelope = {
+            status: "error",
+            data: {
+              code: err.code,
+              alias: err.alias,
+              recovery: {
+                action: "resume_workspace",
+                workspaceRef: err.workspaceRef
+              }
+            },
+            error: err.message,
+            diagnostics: [],
+            metrics: { durationMs: Math.round(performance.now() - startedAt), truncated: false }
+          };
+          return {
+            content: [{ type: "text", text: JSON.stringify(envelope, null, 2) }],
+            isError: true,
+            structuredContent: envelope.data,
+          };
+        }
+        throw err;
+      }
+      const { workspace, agentsFiles, availableAgentsFiles, agentsFileScan } = workspaceInfo;
       if (config.widgets === "changes") {
         // The baseline must be captured before open_workspace returns. Running
         // this in the background races the first edit: a newly-created source
@@ -658,6 +728,96 @@ function createMcpServer(
           agentsFileScan,
           instruction,
         },
+      };
+    },
+  );
+
+  registerAppTool(
+    server,
+    "resume_workspace",
+    {
+      title: "[CORE] Resume workspace",
+      description: "Reopen a previously opened workspace using its alias. Returns the workspace context.",
+      inputSchema: {
+        alias: z.string().describe("The friendly name (alias) of the workspace to reopen."),
+      },
+      outputSchema: resultOutputSchema(),
+      ...toolWidgetDescriptorMeta(config, "workspace"),
+      annotations: READ_TOOL_ANNOTATIONS,
+    },
+    async ({ alias }) => {
+      const { workspace } = workspaces.resumeWorkspace(alias);
+      return {
+        content: [{ type: "text" as const, text: `Resumed workspace ${workspace.id} (alias: ${alias})` }],
+        _meta: { tool: "resume_workspace", card: { workspaceId: workspace.id, summary: `Resumed ${alias}`, payload: { workspaceId: workspace.id } } },
+        structuredContent: { workspaceId: workspace.id, root: workspace.root, mode: workspace.mode, alias: workspace.alias },
+      };
+    },
+  );
+
+  registerAppTool(
+    server,
+    "list_workspaces",
+    {
+      title: "List workspaces",
+      description: "List all known workspaces and their aliases.",
+      inputSchema: {},
+      outputSchema: resultOutputSchema(),
+      ...toolWidgetDescriptorMeta(config, "read"),
+      annotations: READ_TOOL_ANNOTATIONS,
+    },
+    async () => {
+      const list = workspaces.listWorkspaces();
+      const result = list.map(w => `- ${w.id} (alias: ${w.alias ?? "none"}) at ${w.root} [mode: ${w.mode}, lastUsed: ${w.lastUsedAt}]`).join("\n");
+      return {
+        content: [{ type: "text" as const, text: result || "No workspaces found." }],
+        _meta: { tool: "list_workspaces", card: { summary: "Listed workspaces", payload: { workspaces: list } } },
+        structuredContent: { workspaces: list },
+      };
+    },
+  );
+
+  registerAppTool(
+    server,
+    "rename_workspace",
+    {
+      title: "Rename workspace",
+      description: "Rename an existing workspace alias.",
+      inputSchema: {
+        workspaceId: z.string().describe("Workspace identifier."),
+        alias: z.string().describe("The new alias."),
+      },
+      outputSchema: resultOutputSchema(),
+      ...toolWidgetDescriptorMeta(config, "read"),
+      annotations: READ_TOOL_ANNOTATIONS,
+    },
+    async ({ workspaceId, alias }) => {
+      workspaces.renameWorkspace(workspaceId, alias);
+      return {
+        content: [{ type: "text" as const, text: `Workspace ${workspaceId} renamed to ${alias}.` }],
+        structuredContent: { result: "success" }
+      };
+    },
+  );
+
+  registerAppTool(
+    server,
+    "close_workspace",
+    {
+      title: "Close workspace",
+      description: "Close a workspace and remove its session.",
+      inputSchema: {
+        workspaceId: z.string().describe("Workspace identifier to close."),
+      },
+      outputSchema: resultOutputSchema(),
+      ...toolWidgetDescriptorMeta(config, "read"),
+      annotations: READ_TOOL_ANNOTATIONS,
+    },
+    async ({ workspaceId }) => {
+      workspaces.closeWorkspace(workspaceId);
+      return {
+        content: [{ type: "text" as const, text: `Closed workspace ${workspaceId}.` }],
+        structuredContent: { result: "success" }
       };
     },
   );
@@ -957,6 +1117,7 @@ function createMcpServer(
           .string()
           .describe("File path to write, relative to the workspace root."),
         content: z.string().describe("Complete new file content."),
+        ifMatch: z.string().nullable().optional().describe("sha256 hash of the expected current file contents, or null if the file must not exist."),
       },
       outputSchema: resultOutputSchema(),
       ...toolWidgetDescriptorMeta(config, "write"),
@@ -966,9 +1127,20 @@ function createMcpServer(
       const startedAt = performance.now();
       const workspace = workspaces.getWorkspace(workspaceId);
       workspaces.resolvePath(workspace, input.path);
-      const response = await writeFileTool(input, {
+      
+      const { applyAtomicMutation } = await import("./server/tool-utils.js");
+      const response = await applyAtomicMutation({
         cwd: workspace.root,
         root: workspace.root,
+        targetPath: input.path,
+        ifMatch: input.ifMatch,
+        requireIfMatch: config.requireIfMatch,
+        mutate: async (tempAbsolutePath) => {
+          return await writeFileTool({ ...input, path: tempAbsolutePath }, {
+            cwd: workspace.root,
+            root: workspace.root,
+          });
+        }
       });
 
       if (response.isError) {
@@ -1042,6 +1214,7 @@ function createMcpServer(
             }),
           )
           .min(1),
+        ifMatch: z.string().nullable().optional().describe("sha256 hash of the expected current file contents, or null if the file must not exist."),
       },
       outputSchema: resultOutputSchema({
         status: z.literal("applied"),
@@ -1060,9 +1233,19 @@ function createMcpServer(
         return { content: [{ type: "text", text: pvdl.reason! }], isError: true };
       }
 
-      const response = await editFileTool(input, {
+      const { applyAtomicMutation } = await import("./server/tool-utils.js");
+      const response = await applyAtomicMutation({
         cwd: workspace.root,
         root: workspace.root,
+        targetPath: input.path,
+        ifMatch: input.ifMatch,
+        requireIfMatch: config.requireIfMatch,
+        mutate: async (tempAbsolutePath) => {
+          return await editFileTool({ ...input, path: tempAbsolutePath }, {
+            cwd: workspace.root,
+            root: workspace.root,
+          });
+        }
       });
 
       // Attach PVDL warning to the response if any step was skipped
@@ -1234,7 +1417,10 @@ function createMcpServer(
             return { content: [{ type: "text" as const, text: "File does not exist." }], isError: true, _meta: { tool: "edit_dry_run", card: { workspaceId: req.workspaceId, path: req.path, summary: "File not found", payload: { content: [] } } }, structuredContent: { result: "File does not exist." } };
           }
           
-          let content = fsModule.readFileSync(fullPath, "utf8");
+          const rawBytes = fsModule.readFileSync(fullPath);
+          let content = rawBytes.toString("utf8");
+          const cryptoModule = await import("node:crypto");
+          const baseHash = "sha256:" + cryptoModule.createHash("sha256").update(rawBytes).digest("hex");
           let success = true;
           let errors = [];
           let additions = 0;
@@ -1268,16 +1454,19 @@ function createMcpServer(
                content: errContent,
                isError: true,
                _meta: { tool: "edit_dry_run", card: { workspaceId: req.workspaceId, path: req.path, summary: "Preview failed", payload: { content: errContent } } },
-               structuredContent: { result: `Preview failed:\n${errors.join("\n")}` }
+               structuredContent: { result: `Preview failed:\n${errors.join("\n")}`, baseHash }
              };
           }
           
-          const successContent = [{ type: "text" as const, text: `Preview Success: +${additions} -${removals} lines.\n\n${previews.join("\n\n")}\n\nEdit is safe to apply using the 'edit' tool.` }];
+          const successContent = [{ type: "text" as const, text: `Preview Success: +${additions} -${removals} lines.\n\n${previews.join("\n\n")}\n\nEdit is safe to apply using the 'edit' tool (use ifMatch: "${baseHash}").` }];
           recordDryRun(req.workspaceId, req.path, JSON.stringify(req.edits));
           return {
             content: successContent,
             _meta: { tool: "edit_dry_run", card: { workspaceId: req.workspaceId, path: req.path, summary: "Preview success", payload: { content: successContent } } },
-            structuredContent: { result: `Preview Success: +${additions} -${removals} lines.\n\n${previews.join("\n\n")}\n\nEdit is safe to apply using the 'edit' tool.` }
+            structuredContent: { 
+              result: `Preview Success: +${additions} -${removals} lines.\n\n${previews.join("\n\n")}\n\nEdit is safe to apply using the 'edit' tool.`,
+              baseHash 
+            }
           };
         } catch (err: any) {
           const errMsg = `Internal error in edit_dry_run: ${err.message}. The session is still active — try a different approach.`;
@@ -1979,6 +2168,68 @@ function createMcpServer(
         return wrap("check_recommendations", req, await suggestChecksTool(workspace.root));
       }
     );
+
+    registerAppTool(
+      server,
+      "apply_patch",
+      {
+        title: "Apply Patch",
+        description: "Apply a unified diff (patch) to the workspace. Use this to make complex changes across multiple files or when edit/write are insufficient.",
+        inputSchema: {
+          workspaceId: z.string().describe("Workspace identifier."),
+          patch: z.string().describe("The unified diff (patch) to apply."),
+          ifMatch: z.record(z.string(), z.string()).optional().describe("Map of file paths to their expected sha256 hashes."),
+        },
+        outputSchema: resultOutputSchema({
+          status: z.literal("applied"),
+        }),
+        ...toolWidgetDescriptorMeta(config, "write"),
+        annotations: WRITE_TOOL_ANNOTATIONS,
+      } as any,
+      async (req: any) => {
+        const startedAt = performance.now();
+        const workspace = workspaces.getWorkspace(req.workspaceId);
+        
+        try {
+          const { applyPatch } = await import("./apply-patch.js");
+          const result = await applyPatch(workspace.root, req.patch, req.ifMatch, config.requireIfMatch);
+          
+          recordChange(req.workspaceId, "multiple files", "apply_patch", `Applied patch to ${result.files.length} files (+${result.additions} -${result.removals})`);
+          
+          const summary = `Applied patch to ${result.files.length} files (+${result.additions} -${result.removals})`;
+          const content = [textBlock(summary)];
+          
+          return {
+            content,
+            _meta: { 
+              tool: "apply_patch", 
+              card: { 
+                workspaceId: req.workspaceId, 
+                summary, 
+                payload: { 
+                  files: result.files, 
+                  preview: result.patch 
+                } 
+              } 
+            },
+            structuredContent: {
+              status: "applied",
+              result: summary,
+              files: result.files
+            }
+          };
+        } catch (error: any) {
+          logFailedToolResponse(config, {
+            tool: "apply_patch",
+            workspaceId: req.workspaceId,
+          }, [{ type: "text", text: `Failed to apply patch: ${error.message}` }], startedAt);
+          return {
+            content: [{ type: "text", text: `Failed to apply patch: ${error.message}` }],
+            isError: true,
+          };
+        }
+      }
+    );
     registerAppTool(server, "project_bootstrap",
       {
         title: "[CORE] Project Bootstrap",
@@ -2606,63 +2857,17 @@ export function createServer(config = loadConfig()): RunningServer {
     host: config.host,
     ...(allowedHosts ? { allowedHosts } : {}),
   });
-  const transports = new Map<string, ManagedTransport>();
+
 
   // ─── Transport GC ────────────────────────────────────────
   // Limit sessions by count + inactivity. Each transport tracks creation and
   // last-activity timestamps; stale entries are evicted by a periodic sweep.
-  const MAX_TRANSPORTS = 100;
-  const TRANSPORT_TTL_MS = 30 * 60 * 1000; // 30 min
-  interface ManagedTransport {
-    transport: StreamableHTTPServerTransport;
-    sessionId: string;
-    createdAt: number;
-    lastActivityAt: number;
-    inFlight: number;
-  }
+  const transportRegistry = new TransportRegistry({
+    maxTransports: 100,
+    transportTtlMs: 30 * 60 * 1000,
+  });
 
-  function markActive(sid: string): void {
-    const mt = transports.get(sid);
-    if (mt) { mt.inFlight++; mt.lastActivityAt = Date.now(); }
-  }
 
-  function markIdle(sid: string): void {
-    const mt = transports.get(sid);
-    if (mt && mt.inFlight > 0) mt.inFlight--;
-  }
-
-  function sweepTransports(): void {
-    const now = Date.now();
-    for (const [sid, mt] of transports) {
-      if (mt.inFlight > 0) continue; // never close active requests
-      if (now - mt.lastActivityAt > TRANSPORT_TTL_MS) {
-        try { mt.transport.close(); } catch {}
-        transports.delete(sid);
-      }
-    }
-    if (transports.size > MAX_TRANSPORTS) {
-      const sorted = [...transports.entries()]
-        .filter(([, mt]) => mt.inFlight === 0)
-        .sort((a, b) => a[1].lastActivityAt - b[1].lastActivityAt);
-      for (const [sid] of sorted.slice(0, sorted.length - MAX_TRANSPORTS)) {
-        try { transports.get(sid)?.transport.close(); } catch {}
-        transports.delete(sid);
-      }
-    }
-  }
-
-  // Enforce limits immediately on add
-  function addTransport(sessionId: string, transport: StreamableHTTPServerTransport): void {
-    transports.set(sessionId, { transport, sessionId, createdAt: Date.now(), lastActivityAt: Date.now(), inFlight: 0 });
-    if (transports.size > MAX_TRANSPORTS) sweepTransports();
-  }
-
-  function touchTransport(sessionId: string): void {
-    const mt = transports.get(sessionId);
-    if (mt && mt.inFlight === 0) mt.lastActivityAt = Date.now();
-  }
-
-  const transportGcTimer = setInterval(sweepTransports, 60_000).unref();
   const mcpUrl = new URL("/mcp", config.publicBaseUrl);
   const resourceServerUrl = resourceUrlFromServerUrl(mcpUrl);
   const oauthProvider = new SingleUserOAuthProvider(config.oauth, mcpUrl, config.stateDir);
@@ -2680,7 +2885,9 @@ export function createServer(config = loadConfig()): RunningServer {
     : [];
 
   if (config.logging.trustProxy) {
-    app.set("trust proxy", true);
+    // Use hop count (1) instead of boolean `true` to satisfy express-rate-limit's
+    // ERR_ERL_PERMISSIVE_TRUST_PROXY validation while still trusting ngrok/reverse proxies.
+    app.set("trust proxy", 1);
   }
 
   app.use((req, res, next) => {
@@ -2773,18 +2980,18 @@ export function createServer(config = loadConfig()): RunningServer {
       let transport: Transport | undefined;
 
       if (sessionId) {
-        const managed = transports.get(sessionId);
+        const managed = transportRegistry.get(sessionId);
         if (!managed) {
           sendJsonRpcError(res, 404, -32000, "Unknown MCP session");
           return;
         }
-        touchTransport(sessionId);
+        transportRegistry.touch(sessionId);
         transport = managed.transport;
       } else if (initializeRequest) {
         transport = new StreamableHTTPServerTransport({
           sessionIdGenerator: () => randomUUID(),
           onsessioninitialized: (newSessionId) => {
-            if (transport) addTransport(newSessionId, transport);
+            if (transport) transportRegistry.add(newSessionId, transport);
             logEvent(config.logging, "info", "mcp_session_created", {
               requestId,
               sessionIdPrefix: sessionIdPrefix(newSessionId),
@@ -2796,7 +3003,7 @@ export function createServer(config = loadConfig()): RunningServer {
         transport.onclose = () => {
           const closedSessionId = transport?.sessionId;
           if (closedSessionId) {
-            transports.delete(closedSessionId);
+            transportRegistry.remove(closedSessionId);
             logEvent(config.logging, "info", "mcp_session_closed", {
               sessionIdPrefix: sessionIdPrefix(closedSessionId),
             });
@@ -2816,11 +3023,11 @@ export function createServer(config = loadConfig()): RunningServer {
         return;
       }
 
-      if (sessionId) markActive(sessionId);
+      if (sessionId) transportRegistry.markActive(sessionId);
       try {
         await transport.handleRequest(req, res, req.body);
       } finally {
-        if (sessionId) markIdle(sessionId);
+        if (sessionId) transportRegistry.markIdle(sessionId);
       }
     } catch (error) {
       logEvent(config.logging, "error", "mcp_request_error", {
@@ -2841,12 +3048,7 @@ export function createServer(config = loadConfig()): RunningServer {
     close: () => {
       if (closed) return;
       closed = true;
-      clearInterval(transportGcTimer);
-      // Close any remaining transport sessions
-      for (const [, mt] of transports) {
-        try { mt.transport.close(); } catch {}
-      }
-      transports.clear();
+      transportRegistry.shutdown();
       processSessions.shutdown();
       oauthProvider.close();
       workspaceStore.close?.();

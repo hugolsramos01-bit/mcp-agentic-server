@@ -33,6 +33,7 @@ export interface ServerConfig {
   agentDir: string;
   logging: LoggingConfig;
   inlineOutputCharacters: number;
+  requireIfMatch: "off" | "existing" | "all";
 }
 
 function parsePort(value: string | number | undefined): number {
@@ -252,7 +253,14 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): ServerConfig {
     agentDir: resolve(expandHomePath(env.AGENTIC_AGENT_DIR ?? files.config.agentDir ?? defaultAgentDir())),
     logging: parseLoggingConfig(env),
     inlineOutputCharacters: parsePositiveInteger(env.AGENTIC_INLINE_OUTPUT_CHARACTERS, 12000, "AGENTIC_INLINE_OUTPUT_CHARACTERS"),
+    requireIfMatch: parseRequireIfMatch(env.AGENTIC_REQUIRE_IF_MATCH),
   };
+}
+
+function parseRequireIfMatch(value: string | undefined): "off" | "existing" | "all" {
+  if (value === "off") return "off";
+  if (value === "all") return "all";
+  return "existing";
 }
 
 function parsePublicBaseUrl(value: string): string {

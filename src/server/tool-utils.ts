@@ -263,23 +263,99 @@ export interface TruncatedOutput {
   truncated: boolean;
 }
 
+export interface PayloadLimitPolicy {
+  defaultStringLimit: number;
+  hardStringLimit: number;
+  fieldLimits?: Record<string, number>;
+  preserveExactPaths?: string[];
+}
+
 export function truncateOutput(text: string, maxChars: number): TruncatedOutput {
-  const chars = text.length;
+  const codePoints = Array.from(text);
+  const chars = codePoints.length;
   if (chars <= maxChars) {
     return { preview: text, characters: chars, returnedCharacters: chars, omittedCharacters: 0, truncated: false };
   }
-  const half = Math.floor(maxChars / 2);
-  const head = text.slice(0, half);
-  const tail = text.slice(chars - half);
-  const omitted = chars - 2 * half;
-  const preview = `${head}\n\n... [${omitted.toLocaleString()} characters omitted] ...\n\n${tail}`;
+  
+  // Calculate marker size
+  const getMarker = (omitted: number) => `\n\n... [${omitted.toLocaleString()} characters omitted] ...\n\n`;
+  let marker = getMarker(chars - maxChars);
+  let markerLen = Array.from(marker).length;
+  
+  // If the limit is so small it can't even fit the marker, just return the marker
+  if (maxChars <= markerLen) {
+    const preview = getMarker(chars);
+    return {
+      preview,
+      characters: chars,
+      returnedCharacters: Array.from(preview).length,
+      omittedCharacters: chars,
+      truncated: true,
+    };
+  }
+
+  // Calculate head and tail sizes
+  let available = maxChars - markerLen;
+  let half = Math.floor(available / 2);
+  let omitted = chars - 2 * half;
+  
+  // Recalculate just in case the marker length changed due to omitted size change
+  marker = getMarker(omitted);
+  markerLen = Array.from(marker).length;
+  available = maxChars - markerLen;
+  half = Math.floor(available / 2);
+  omitted = chars - 2 * half;
+  
+  const head = codePoints.slice(0, half).join("");
+  const tail = codePoints.slice(chars - half).join("");
+  const preview = `${head}${marker}${tail}`;
+
   return {
     preview,
     characters: chars,
-    returnedCharacters: preview.length,
+    returnedCharacters: Array.from(preview).length,
     omittedCharacters: omitted,
     truncated: true,
   };
+}
+
+export function truncatePayload(value: any, policy: PayloadLimitPolicy, currentPath: string = ""): any {
+  if (value === null || value === undefined) return value;
+  
+  if (typeof value === "string") {
+    // Determine limit for this path
+    let limit = policy.defaultStringLimit;
+    if (policy.fieldLimits && policy.fieldLimits[currentPath]) {
+      limit = policy.fieldLimits[currentPath];
+    }
+    // Hard cap takes precedence if it's smaller
+    limit = Math.min(limit, policy.hardStringLimit);
+    
+    // Check if path is preserved
+    if (policy.preserveExactPaths?.includes(currentPath)) {
+      return value;
+    }
+    
+    const trunc = truncateOutput(value, limit);
+    return trunc.truncated ? trunc.preview : value;
+  }
+  
+  if (Array.isArray(value)) {
+    return value.map((item, index) => 
+      truncatePayload(item, policy, currentPath ? `${currentPath}[${index}]` : `[${index}]`)
+    );
+  }
+  
+  if (typeof value === "object") {
+    const result: any = {};
+    for (const [k, v] of Object.entries(value)) {
+      const nextPath = currentPath ? `${currentPath}.${k}` : k;
+      result[k] = truncatePayload(v, policy, nextPath);
+    }
+    return result;
+  }
+  
+  return value;
 }
 
 export function newFilePatch(path: string, content: string): string {
@@ -342,4 +418,118 @@ export async function assertWorkspaceAppAssets(): Promise<void> {
   const entry = getWorkspaceAppManifestEntry();
   const candidates = [entry.file, ...(entry.css ?? [])].map((p) => new URL(`../../dist/ui/${p}`, import.meta.url));
   for (const candidate of candidates) await access(candidate);
+}
+
+// ─── Atomic File Mutations ──────────────────────────────────────────
+
+export interface AtomicMutationOptions {
+  cwd: string;
+  root: string;
+  targetPath: string;
+  ifMatch: string | null | undefined;
+  requireIfMatch: "off" | "existing" | "all";
+  mutate: (tempAbsolutePath: string) => Promise<any>;
+}
+
+export function computeFileHash(absolutePath: string): string | null {
+  const { readFileSync, existsSync } = require("node:fs");
+  if (!existsSync(absolutePath)) return null;
+  try {
+    const rawBytes = readFileSync(absolutePath);
+    return "sha256:" + require("node:crypto").createHash("sha256").update(rawBytes).digest("hex");
+  } catch {
+    return null;
+  }
+}
+
+export async function applyAtomicMutation(options: AtomicMutationOptions): Promise<any> {
+  const { enforceSecurePath } = await import("../pi-tools.js");
+  const { copyFileSync, renameSync, unlinkSync, existsSync } = await import("node:fs");
+  const { dirname, resolve, basename } = await import("node:path");
+  
+  const absolutePath = enforceSecurePath(options.targetPath, options.cwd, [options.root], true);
+  
+  const currentHash = computeFileHash(absolutePath);
+  const exists = currentHash !== null;
+  
+  const mustProvide = options.requireIfMatch === "all" || (options.requireIfMatch === "existing" && exists);
+  if (mustProvide && options.ifMatch === undefined) {
+    return {
+      isError: true,
+      content: [{ type: "text", text: `file_version_conflict: AGENTIC_REQUIRE_IF_MATCH=${options.requireIfMatch} requires an ifMatch pre-condition for this operation.` }],
+      structuredContent: {
+        code: "file_version_conflict",
+        path: options.targetPath,
+        expectedHash: options.ifMatch,
+        actualHash: currentHash,
+        retrySafe: true,
+        recovery: "Read the current file and rebuild the mutation."
+      }
+    };
+  }
+
+  if (options.ifMatch !== undefined) {
+    if (options.ifMatch !== currentHash) {
+      return {
+        isError: true,
+        content: [{ type: "text", text: `file_version_conflict: Expected hash ${options.ifMatch}, but actual hash is ${currentHash}` }],
+        structuredContent: {
+          code: "file_version_conflict",
+          path: options.targetPath,
+          expectedHash: options.ifMatch,
+          actualHash: currentHash,
+          retrySafe: true,
+          recovery: "Read the current file and rebuild the mutation."
+        }
+      };
+    }
+  }
+
+  const dir = dirname(absolutePath);
+  const tmpPath = resolve(dir, `.${basename(absolutePath)}.tmp.${Date.now()}`);
+
+  try {
+    if (exists) {
+      copyFileSync(absolutePath, tmpPath);
+    }
+
+    const mutationResult = await options.mutate(tmpPath);
+    if (mutationResult && mutationResult.isError) {
+      if (existsSync(tmpPath)) unlinkSync(tmpPath);
+      return mutationResult;
+    }
+
+    const preRenameHash = computeFileHash(absolutePath);
+    if (preRenameHash !== currentHash) {
+      if (existsSync(tmpPath)) unlinkSync(tmpPath);
+      return {
+        isError: true,
+        content: [{ type: "text", text: `file_version_conflict: File changed on disk during mutation. Expected hash ${currentHash}, but actual hash is ${preRenameHash}` }],
+        structuredContent: {
+          code: "file_version_conflict",
+          path: options.targetPath,
+          expectedHash: currentHash,
+          actualHash: preRenameHash,
+          retrySafe: true,
+          recovery: "Read the current file and rebuild the mutation."
+        }
+      };
+    }
+
+    renameSync(tmpPath, absolutePath);
+    
+    const newHash = computeFileHash(absolutePath);
+    if (mutationResult && typeof mutationResult === "object") {
+      if (mutationResult.structuredContent && typeof mutationResult.structuredContent === "object") {
+         mutationResult.structuredContent.newHash = newHash;
+      }
+    }
+    return mutationResult;
+  } catch (error: any) {
+    if (existsSync(tmpPath)) unlinkSync(tmpPath);
+    return {
+      isError: true,
+      content: [{ type: "text", text: `Mutation failed: ${error.message}` }],
+    };
+  }
 }

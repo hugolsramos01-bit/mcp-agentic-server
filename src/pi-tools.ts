@@ -116,11 +116,39 @@ export async function readFileTool(input: ReadToolInput, context: ToolContext): 
   const path = enforceSecurePath(input.path, context.cwd, context.readRoots ?? [context.root], false);
   const tool = createReadTool(context.cwd);
 
-  return runTool((params) => tool.execute("read_file", params), {
+  const result = await runTool((params) => tool.execute("read_file", params), {
     path,
     offset: input.offset,
     limit: input.limit,
   }, context);
+
+  if (!result.isError && result.content[0]?.type === "text") {
+    try {
+      const { statSync, readFileSync } = await import("node:fs");
+      const { createHash } = await import("node:crypto");
+      
+      const st = statSync(path);
+      const buf = readFileSync(path);
+      const contentHash = "sha256:" + createHash("sha256").update(buf).digest("hex");
+      
+      const text = result.content[0].text;
+      result.structuredContent = {
+        envelope: {
+          status: "success",
+          data: {
+            content: text,
+            contentHash,
+            sizeBytes: st.size,
+            mtimeNs: Number(st.mtimeMs) * 1000000,
+          },
+        }
+      };
+    } catch (e) {
+      // Ignore stat errors if file doesn't exist or similar
+    }
+  }
+
+  return result;
 }
 
 export async function writeFileTool(input: WriteToolInput, context: ToolContext): Promise<ToolResponse> {

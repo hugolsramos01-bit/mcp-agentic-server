@@ -12,6 +12,8 @@ export interface AppliedPatchFile {
   path: string;
   previousPath?: string;
   operation: PatchOperation;
+  beforeHash?: string | null;
+  afterHash?: string | null;
 }
 
 export interface ApplyPatchResult {
@@ -341,14 +343,52 @@ export async function isSamePatchFile(
   }
 }
 
-export async function applyPatch(root: string, patch: string): Promise<ApplyPatchResult> {
+export async function applyPatch(
+  root: string, 
+  patch: string, 
+  ifMatch?: Record<string, string>, 
+  requireIfMatch: "off" | "existing" | "all" = "off"
+): Promise<ApplyPatchResult> {
   const actions = parsePatch(patch);
   const results: AppliedPatchFile[] = [];
   const patches: string[] = [];
   const staged = new Map<string, StagedTextFile>();
 
+  const { createHash } = await import("node:crypto");
+  const { readFile } = await import("node:fs/promises");
+
+  const computeHash = async (absolute: string): Promise<string | null> => {
+    try {
+      const bytes = await readFile(absolute);
+      return "sha256:" + createHash("sha256").update(bytes).digest("hex");
+    } catch {
+      return null;
+    }
+  };
+
+  const computeStringHash = (content: string | null): string | null => {
+    if (content === null) return null;
+    return "sha256:" + createHash("sha256").update(Buffer.from(content, "utf8")).digest("hex");
+  };
+
+  const checkIfMatch = async (absolute: string, displayPath: string) => {
+    const currentHash = await computeHash(absolute);
+    const exists = currentHash !== null;
+    const expectedHash = ifMatch?.[displayPath];
+
+    const mustProvide = requireIfMatch === "all" || (requireIfMatch === "existing" && exists);
+    if (mustProvide && expectedHash === undefined) {
+      throw patchError(`AGENTIC_REQUIRE_IF_MATCH=${requireIfMatch} requires an ifMatch pre-condition for ${displayPath}`);
+    }
+
+    if (expectedHash !== undefined && expectedHash !== currentHash) {
+      throw patchError(`file_version_conflict for ${displayPath}: Expected hash ${expectedHash}, but actual hash is ${currentHash}`);
+    }
+  };
+
   const readStagedOptional = async (absolute: string, displayPath: string): Promise<StagedTextFile> => {
     if (staged.has(absolute)) return staged.get(absolute) ?? null;
+    await checkIfMatch(absolute, displayPath);
     const file = await readOptionalTextFile(absolute, displayPath);
     staged.set(absolute, file);
     return file;
@@ -366,7 +406,12 @@ export async function applyPatch(root: string, patch: string): Promise<ApplyPatc
       const original = await readStagedOptional(absolute, action.path);
       staged.set(absolute, { content: action.content, mode: original?.mode });
       patches.push(unifiedFilePatch(action.path, action.path, original?.content ?? null, action.content));
-      results.push({ path: action.path, operation: "add" });
+      results.push({ 
+        path: action.path, 
+        operation: "add",
+        beforeHash: computeStringHash(original?.content ?? null),
+        afterHash: computeStringHash(action.content)
+      });
       continue;
     }
 
@@ -376,7 +421,12 @@ export async function applyPatch(root: string, patch: string): Promise<ApplyPatc
     if (action.kind === "delete") {
       staged.set(absolute, null);
       patches.push(unifiedFilePatch(action.path, action.path, file.content, null));
-      results.push({ path: action.path, operation: "delete" });
+      results.push({ 
+        path: action.path, 
+        operation: "delete",
+        beforeHash: computeStringHash(file.content),
+        afterHash: null
+      });
       continue;
     }
 
@@ -389,11 +439,22 @@ export async function applyPatch(root: string, patch: string): Promise<ApplyPatc
       staged.set(destination, { content: updated, mode: file.mode });
       if (!samePatchFile) staged.set(absolute, null);
       patches.push(unifiedFilePatch(action.path, action.moveTo, file.content, updated));
-      results.push({ path: action.moveTo, previousPath: action.path, operation: "move" });
+      results.push({ 
+        path: action.moveTo, 
+        previousPath: action.path, 
+        operation: "move",
+        beforeHash: computeStringHash(file.content),
+        afterHash: computeStringHash(updated)
+      });
     } else {
       staged.set(absolute, { content: updated, mode: file.mode });
       patches.push(unifiedFilePatch(action.path, action.path, file.content, updated));
-      results.push({ path: action.path, operation: "update" });
+      results.push({ 
+        path: action.path, 
+        operation: "update",
+        beforeHash: computeStringHash(file.content),
+        afterHash: computeStringHash(updated)
+      });
     }
   }
 

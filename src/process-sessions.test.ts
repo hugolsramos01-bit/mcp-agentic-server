@@ -61,8 +61,8 @@ assert.match(environment.output, /1,dumb,cat,cat,cat,1,workspace-a,\/tmp\/agenti
 const background = await manager.start({
   workspaceId: "workspace-a",
   cwd: process.cwd(),
-  command: `${node} -e "setTimeout(() => console.log('finished'), 100)"`,
-  yieldTimeMs: 5,
+  command: `${node} -e "process.stdin.once('data', () => { console.log('finished'); process.exit(0); })"`,
+  yieldTimeMs: 50,
 });
 assert.equal(background.running, true);
 assert.ok(background.sessionId);
@@ -80,6 +80,7 @@ await assert.rejects(
 const completed = await manager.write({
   workspaceId: "workspace-a",
   sessionId: background.sessionId,
+  chars: "\n",
   yieldTimeMs: 2_000,
 });
 assert.equal(completed.running, false);
@@ -108,8 +109,8 @@ assert.match(inputResult.output, /input:hello/);
 const defaultInteractive = await manager.start({
   workspaceId: "workspace-a",
   cwd: process.cwd(),
-  command: `${node} -e "process.stdin.once('data', data => setTimeout(() => { console.log('default-input:' + data.toString().trim()); process.exit(0); }, 100))"`,
-  yieldTimeMs: 5,
+  command: `${node} -e "process.stdin.once('data', data => { console.log('default-input:' + data.toString().trim()); process.exit(0); })"`,
+  yieldTimeMs: 50,
 });
 assert.equal(defaultInteractive.running, true);
 assert.ok(defaultInteractive.sessionId);
@@ -126,12 +127,22 @@ const noisyInteractive = await manager.start({
   workspaceId: "workspace-a",
   cwd: process.cwd(),
   command: `${node} -e "setInterval(() => console.log('tick'), 10); process.stdin.once('data', data => { console.log('input:' + data.toString().trim()); process.exit(0); })"`,
-  yieldTimeMs: 100,
+  yieldTimeMs: 50,
 });
 assert.equal(noisyInteractive.running, true);
 assert.ok(noisyInteractive.sessionId);
 
-await new Promise((resolve) => setTimeout(resolve, 50));
+// Wait deterministically for at least one tick
+let noisyOutput = noisyInteractive.output;
+while (!noisyOutput.includes("tick") && noisyInteractive.sessionId) {
+  const peek = await manager.write({
+    workspaceId: "workspace-a",
+    sessionId: noisyInteractive.sessionId,
+    yieldTimeMs: 50,
+  });
+  noisyOutput += peek.output;
+}
+
 const noisyInputResult = await manager.write({
   workspaceId: "workspace-a",
   sessionId: noisyInteractive.sessionId,
@@ -145,12 +156,22 @@ const interruptible = await manager.start({
   workspaceId: "workspace-a",
   cwd: process.cwd(),
   command: `${node} -e "setInterval(() => console.log('tick'), 10)"`,
-  yieldTimeMs: 100,
+  yieldTimeMs: 50,
 });
 assert.equal(interruptible.running, true);
 assert.ok(interruptible.sessionId);
 
-await new Promise((resolve) => setTimeout(resolve, 50));
+// Wait deterministically for at least one tick
+let interruptibleOutput = interruptible.output;
+while (!interruptibleOutput.includes("tick") && interruptible.sessionId) {
+  const peek = await manager.write({
+    workspaceId: "workspace-a",
+    sessionId: interruptible.sessionId,
+    yieldTimeMs: 50,
+  });
+  interruptibleOutput += peek.output;
+}
+
 const interrupted = await manager.write({
   workspaceId: "workspace-a",
   sessionId: interruptible.sessionId,
@@ -163,7 +184,7 @@ if (process.platform !== "win32") assert.equal(interrupted.signal, "SIGINT");
 let buffered = await manager.start({
   workspaceId: "workspace-a",
   cwd: process.cwd(),
-  command: `${node} -e "console.log('x'.repeat(5000)); setTimeout(() => {}, 100)"`,
+  command: `${node} -e "console.log('x'.repeat(5000)); process.stdin.resume(); process.stdin.once('data', () => process.exit(0))"`,
   yieldTimeMs: 50,
   maxOutputTokens: 100,
 });
@@ -193,11 +214,11 @@ try {
     const pty = await manager.start({
       workspaceId: "workspace-a",
       cwd: process.cwd(),
-      command: `${node} -e "setTimeout(() => console.log('columns:' + process.stdout.columns), 250)"`,
+      command: `${node} -e "process.stdin.once('data', () => { console.log('columns:' + process.stdout.columns); process.exit(0); })"`,
       tty: true,
       columns: 80,
       rows: 24,
-      yieldTimeMs: 10,
+      yieldTimeMs: 50,
     });
     assert.equal(pty.running, true);
     assert.ok(pty.sessionId);
@@ -207,6 +228,7 @@ try {
       sessionId: pty.sessionId,
       columns: 120,
       rows: 30,
+      chars: "\n",
       yieldTimeMs: 2_000,
     });
     assert.equal(resizedPty.running, false);

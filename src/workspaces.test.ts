@@ -240,6 +240,34 @@ try {
     }
   }
 
+  // ─── Regression: scan diagnostics (width / max_files) ──────
+  // Verify that findAvailableAgentsFiles stops correctly when exceeding max files.
+  {
+    const wideDir = join(root, "wide-scan-test");
+    await mkdir(wideDir, { recursive: true });
+    
+    // Create > 500 entries (walker maxFiles is 500) to trigger max_files limit
+    const batchSize = 100;
+    for (let i = 0; i < 510; i += batchSize) {
+      const promises = [];
+      for (let j = 0; j < batchSize && i + j < 510; j++) {
+        promises.push(writeFile(join(wideDir, `file-${i + j}.txt`), "data"));
+      }
+      await Promise.all(promises);
+    }
+
+    const wideConfig = loadConfig({
+      AGENTIC_CONFIG_DIR: join(root, ".agentic-wide"),
+      AGENTIC_ALLOWED_ROOTS: root,
+      AGENTIC_OAUTH_OWNER_TOKEN: "test-owner-token-that-is-long-enough",
+      PORT: "3",
+    });
+    
+    const wideContext = await new WorkspaceRegistry(wideConfig).openWorkspace(wideDir);
+    assert.equal(wideContext.agentsFileScan?.truncated, true);
+    assert.equal(wideContext.agentsFileScan?.stopReason, "max_files");
+  }
+
   // ─── Regression: _meta.card sanitization ──────────────────────
   // Verify the output of registerAppTool doesn't have _meta.card for non-widget tools.
   // This is tested indirectly by ensuring the open_workspace response (which IS a widget

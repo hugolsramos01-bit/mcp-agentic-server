@@ -69,8 +69,7 @@ try {
     assert.ok(capped.preview.endsWith("aaa"), "should end with tail");
     assert.ok(capped.preview.includes("characters omitted"), "should include omission marker");
     assert.equal(capped.characters, 500);
-    assert.equal(capped.omittedCharacters, 500 - 100);
-    assert.ok(capped.returnedCharacters < 500, "returned should be less than original");
+    assert.ok(capped.returnedCharacters <= 100, "returned should be less than or equal to limit");
 
     // Exactly at limit: no truncation
     const exact = "x".repeat(12000);
@@ -79,11 +78,12 @@ try {
     assert.equal(exactCapped.characters, 12000);
 
     // Unicode (multi-byte characters) — counted correctly
-    const emoji = "🔥".repeat(100); // 100 emoji * 2 JS chars = 200
+    const emoji = "🔥".repeat(100); // 100 emoji code points
     const emojiCapped = truncateOutput(emoji, 50);
     assert.equal(emojiCapped.truncated, true);
     assert.ok(emojiCapped.preview.includes("🔥"), "should preserve emoji");
-    assert.equal(emojiCapped.characters, 200);
+    assert.equal(emojiCapped.characters, 100); // Array.from gives 100 code points
+    assert.ok(emojiCapped.returnedCharacters <= 50, "returned code points <= 50");
 
     // Empty string
     const empty = truncateOutput("", 100);

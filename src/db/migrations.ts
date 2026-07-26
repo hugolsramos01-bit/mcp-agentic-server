@@ -22,6 +22,11 @@ const migrations: Migration[] = [
     name: "local-agent-sessions",
     up: migrateLocalAgentSessions,
   },
+  {
+    version: 4,
+    name: "workspace-alias",
+    up: migrateWorkspaceAlias,
+  },
 ];
 
 export function migrateDatabase(sqlite: Database.Database): void {
@@ -98,6 +103,15 @@ function migrateWorkspaceState(sqlite: Database.Database): void {
   addColumnIfMissing(sqlite, "workspace_sessions", "base_ref", "text");
   addColumnIfMissing(sqlite, "workspace_sessions", "base_sha", "text");
   addColumnIfMissing(sqlite, "workspace_sessions", "managed", "text not null default 'false'");
+}
+
+function migrateWorkspaceAlias(sqlite: Database.Database): void {
+  addColumnIfMissing(sqlite, "workspace_sessions", "alias", "text");
+  addColumnIfMissing(sqlite, "workspace_sessions", "normalized_alias", "text");
+  sqlite.exec(`
+    create unique index if not exists workspace_sessions_normalized_alias_idx
+      on workspace_sessions(normalized_alias) where normalized_alias is not null;
+  `);
 }
 
 function migrateOAuthState(sqlite: Database.Database): void {

@@ -58,6 +58,8 @@ export interface Workspace {
   id: string;
   root: string;
   mode: WorkspaceMode;
+  alias?: string;
+  normalizedAlias?: string;
   sourceRoot?: string;
   worktree?: WorkspaceWorktree;
   skills: LoadedSkills["skills"];
@@ -82,6 +84,7 @@ export interface WorkspaceReadPath {
 export interface OpenWorkspaceInput {
   path: string;
   mode?: WorkspaceMode;
+  alias?: string;
   baseRef?: string;
   allowParentGitRoot?: boolean;
 }
@@ -104,11 +107,24 @@ export class WorkspaceRegistry {
     const options = typeof input === "string" ? { path: input } : input;
     const mode = options.mode ?? "checkout";
 
-    if (mode === "worktree") {
-      return this.openWorktreeWorkspace(options.path, options.baseRef, options.allowParentGitRoot);
+    let normalizedAlias: string | undefined = undefined;
+    if (options.alias) {
+      normalizedAlias = options.alias.trim().toLowerCase();
+      const existingSession = this.store?.getSessionByAlias(normalizedAlias);
+      if (existingSession) {
+        const error: any = new Error(`Workspace alias "${options.alias}" is already in use. Use resume_workspace if you want to reopen it.`);
+        error.code = "workspace_alias_conflict";
+        error.alias = options.alias;
+        error.workspaceRef = existingSession.id;
+        throw error;
+      }
     }
 
-    return this.openCheckoutWorkspace(options.path);
+    if (mode === "worktree") {
+      return this.openWorktreeWorkspace(options.path, options.baseRef, options.allowParentGitRoot, options.alias, normalizedAlias);
+    }
+
+    return this.openCheckoutWorkspace(options.path, options.alias, normalizedAlias);
   }
 
   getWorkspace(workspaceId: string): Workspace {
@@ -128,6 +144,8 @@ export class WorkspaceRegistry {
       id: session.id,
       root,
       mode: session.mode,
+      alias: session.alias,
+      normalizedAlias: session.normalizedAlias,
       sourceRoot: session.sourceRoot,
       worktree:
         session.mode === "worktree"
@@ -148,6 +166,63 @@ export class WorkspaceRegistry {
     this.workspaces.set(restoredWorkspace.id, restoredWorkspace);
 
     return restoredWorkspace;
+  }
+
+  resumeWorkspace(alias: string): WorkspaceContext {
+    const normalizedAlias = alias.trim().toLowerCase();
+    const session = this.store?.getSessionByAlias(normalizedAlias);
+    if (!session) {
+      throw new Error(`No workspace found with alias: ${alias}`);
+    }
+    const workspace = this.getWorkspace(session.id);
+    return {
+      workspace,
+      agentsFiles: [], // Usually re-loaded later or from client cache
+      availableAgentsFiles: [],
+    };
+  }
+
+  closeWorkspace(workspaceId: string): void {
+    if (this.workspaces.has(workspaceId)) {
+      this.workspaces.delete(workspaceId);
+    }
+    this.store?.deleteSession(workspaceId);
+  }
+
+  renameWorkspace(workspaceId: string, newAlias: string): void {
+    const normalizedAlias = newAlias.trim().toLowerCase();
+    const existing = this.store?.getSessionByAlias(normalizedAlias);
+    if (existing && existing.id !== workspaceId) {
+      throw new Error(`Workspace alias "${newAlias}" is already in use by another workspace.`);
+    }
+    if (this.workspaces.has(workspaceId)) {
+      const ws = this.workspaces.get(workspaceId)!;
+      ws.alias = newAlias;
+      ws.normalizedAlias = normalizedAlias;
+    }
+    this.store?.updateAlias(workspaceId, newAlias, normalizedAlias);
+  }
+
+  listWorkspaces(): (Workspace & { lastUsedAt: string })[] {
+    const sessions = this.store?.listSessions() || [];
+    return sessions.map(session => {
+      // Memory merge if it's currently open
+      const memory = this.workspaces.get(session.id);
+      return {
+        id: session.id,
+        root: session.root,
+        mode: session.mode,
+        alias: memory?.alias ?? session.alias,
+        normalizedAlias: memory?.normalizedAlias ?? session.normalizedAlias,
+        sourceRoot: session.sourceRoot,
+        worktree: memory?.worktree,
+        skills: memory?.skills ?? [],
+        skillDiagnostics: memory?.skillDiagnostics ?? [],
+        agentProfiles: memory?.agentProfiles ?? [],
+        activatedSkillDirs: memory?.activatedSkillDirs ?? new Set(),
+        lastUsedAt: session.lastUsedAt
+      };
+    });
   }
 
   resolvePath(workspace: Workspace, inputPath: string): string {
@@ -235,12 +310,14 @@ export class WorkspaceRegistry {
       baseRef: workspace.worktree?.baseRef,
       baseSha: workspace.worktree?.baseSha,
       managed: workspace.worktree?.managed,
+      alias: workspace.alias,
+      normalizedAlias: workspace.normalizedAlias,
     });
     this.workspaces.set(workspace.id, workspace);
     return { workspaceId: wsId };
   }
 
-  private async openCheckoutWorkspace(path: string): Promise<WorkspaceContext> {
+  private async openCheckoutWorkspace(path: string, alias?: string, normalizedAlias?: string): Promise<WorkspaceContext> {
     let root = "";
     let lastError: Error | null = null;
     for (const allowed of this.config.allowedRoots) {
@@ -261,12 +338,18 @@ export class WorkspaceRegistry {
       throw new Error(`Workspace root must be a directory: ${path}`);
     }
 
-    return this.createWorkspaceContext({ root, mode: "checkout" });
+    return this.createWorkspaceContext({ root, mode: "checkout", alias, normalizedAlias });
   }
 
-  private async openWorktreeWorkspace(path: string, baseRef: string | undefined, allowParentGitRoot = false): Promise<WorkspaceContext> {
+  private async openWorktreeWorkspace(
+    inputPath: string,
+    baseRef?: string,
+    allowParentGitRoot = false,
+    alias?: string,
+    normalizedAlias?: string,
+  ): Promise<WorkspaceContext> {
     const worktree = await createManagedWorktree({
-      sourcePath: path,
+      sourcePath: inputPath,
       baseRef,
       config: this.config,
       allowParentGitRoot,
@@ -276,6 +359,8 @@ export class WorkspaceRegistry {
       root: worktree.path,
       mode: "worktree",
       sourceRoot: worktree.sourceRoot,
+      alias,
+      normalizedAlias,
       worktree,
     });
   }
@@ -284,6 +369,8 @@ export class WorkspaceRegistry {
     root: string;
     mode: WorkspaceMode;
     sourceRoot?: string;
+    alias?: string;
+    normalizedAlias?: string;
     worktree?: WorkspaceWorktree;
   }): Promise<WorkspaceContext> {
     const workspace: Workspace = {
@@ -291,6 +378,8 @@ export class WorkspaceRegistry {
       root: input.root,
       mode: input.mode,
       sourceRoot: input.sourceRoot,
+      alias: input.alias,
+      normalizedAlias: input.normalizedAlias,
       worktree: input.worktree,
       ...this.loadSkillsForWorkspace(input.root),
       agentProfiles: await loadLocalAgentProfiles(this.config, input.root),
@@ -305,6 +394,8 @@ export class WorkspaceRegistry {
       baseRef: workspace.worktree?.baseRef,
       baseSha: workspace.worktree?.baseSha,
       managed: workspace.worktree?.managed,
+      alias: workspace.alias,
+      normalizedAlias: workspace.normalizedAlias,
     });
     this.workspaces.set(workspace.id, workspace);
     const agentsFiles = await this.loadInitialAgentsFiles(workspace.root);
@@ -339,19 +430,36 @@ export class WorkspaceRegistry {
       try {
         const resolved = resolveWorkspacePath(this.config.worktreeRoot, root, true);
         return resolved.canonicalPath;
-      } catch (e) {
+      } catch (e: any) {
+        if (e.code === "ENOENT" || e.message.includes("ENOENT")) {
+          const err: any = new Error(`Worktree directory missing: ${root}. This workspace requires recovery.`);
+          err.code = "recovery_required";
+          err.workspaceRoot = root;
+          err.sourceRoot = sourceRoot;
+          throw err;
+        }
         throw new Error(`Worktree root is outside allowed roots: ${root}`);
       }
     }
 
     let lastError: Error | null = null;
+    let missing = false;
     for (const allowed of this.config.allowedRoots) {
       try {
         const resolved = resolveWorkspacePath(allowed, root, true);
         return resolved.canonicalPath;
       } catch (e: any) {
+        if (e.code === "ENOENT" || e.message.includes("ENOENT")) {
+          missing = true;
+        }
         lastError = e;
       }
+    }
+    if (missing) {
+      const err: any = new Error(`Workspace root directory missing: ${root}`);
+      err.code = "workspace_unavailable";
+      err.workspaceRoot = root;
+      throw err;
     }
     throw lastError || new Error(`Path is outside allowed roots: ${root}`);
   }

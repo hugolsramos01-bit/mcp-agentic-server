@@ -22,6 +22,8 @@ export interface WorkspaceSession {
   baseRef?: string;
   baseSha?: string;
   managed: boolean;
+  alias?: string;
+  normalizedAlias?: string;
   createdAt: string;
   lastUsedAt: string;
 }
@@ -29,6 +31,10 @@ export interface WorkspaceSession {
 export interface WorkspaceStore {
   createSession(spec: WorkspaceSessionSpec): WorkspaceSession;
   getSession(id: string): WorkspaceSession | undefined;
+  getSessionByAlias(normalizedAlias: string): WorkspaceSession | undefined;
+  listSessions(): WorkspaceSession[];
+  deleteSession(id: string): boolean;
+  updateAlias(id: string, alias: string | null, normalizedAlias: string | null): boolean;
   touchSession(id: string): void;
   close?(): void;
 }
@@ -41,6 +47,8 @@ export interface WorkspaceSessionSpec {
   baseRef?: string;
   baseSha?: string;
   managed?: boolean;
+  alias?: string;
+  normalizedAlias?: string;
 }
 
 // ─── SQLite implementation ───────────────────────────────────
@@ -63,6 +71,8 @@ export class SqliteWorkspaceStore implements WorkspaceStore {
       baseRef: spec.baseRef,
       baseSha: spec.baseSha,
       managed: spec.managed ?? false,
+      alias: spec.alias,
+      normalizedAlias: spec.normalizedAlias,
       createdAt: ts,
       lastUsedAt: ts,
     };
@@ -72,7 +82,10 @@ export class SqliteWorkspaceStore implements WorkspaceStore {
         id: record.id, root: record.root, status: record.status,
         mode: record.mode, sourceRoot: record.sourceRoot ?? null,
         baseRef: record.baseRef ?? null, baseSha: record.baseSha ?? null,
-        managed: String(record.managed), createdAt: record.createdAt,
+        managed: String(record.managed), 
+        alias: record.alias ?? null,
+        normalizedAlias: record.normalizedAlias ?? null,
+        createdAt: record.createdAt,
         lastUsedAt: record.lastUsedAt,
       })
       .run();
@@ -82,6 +95,29 @@ export class SqliteWorkspaceStore implements WorkspaceStore {
   getSession(id: string): WorkspaceSession | undefined {
     const row = this.#db.db.select().from(workspaceSessions).where(eq(workspaceSessions.id, id)).get();
     return row ? mapRow(row) : undefined;
+  }
+
+  getSessionByAlias(normalizedAlias: string): WorkspaceSession | undefined {
+    const row = this.#db.db.select().from(workspaceSessions).where(eq(workspaceSessions.normalizedAlias, normalizedAlias)).get();
+    return row ? mapRow(row) : undefined;
+  }
+
+  listSessions(): WorkspaceSession[] {
+    const rows = this.#db.db.select().from(workspaceSessions).orderBy(workspaceSessions.lastUsedAt).all();
+    return rows.map(mapRow).reverse();
+  }
+
+  deleteSession(id: string): boolean {
+    const result = this.#db.db.delete(workspaceSessions).where(eq(workspaceSessions.id, id)).run();
+    return result.changes > 0;
+  }
+
+  updateAlias(id: string, alias: string | null, normalizedAlias: string | null): boolean {
+    const result = this.#db.db.update(workspaceSessions)
+      .set({ alias, normalizedAlias, lastUsedAt: new Date().toISOString() })
+      .where(eq(workspaceSessions.id, id))
+      .run();
+    return result.changes > 0;
   }
 
   touchSession(id: string): void {
@@ -109,6 +145,8 @@ function mapRow(r: WorkspaceSessionRow): WorkspaceSession {
     baseRef: r.baseRef ?? undefined,
     baseSha: r.baseSha ?? undefined,
     managed: r.managed === "true",
+    alias: r.alias ?? undefined,
+    normalizedAlias: r.normalizedAlias ?? undefined,
     createdAt: r.createdAt, lastUsedAt: r.lastUsedAt,
   };
 }

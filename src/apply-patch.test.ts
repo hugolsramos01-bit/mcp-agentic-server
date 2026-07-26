@@ -47,12 +47,15 @@ const result = await applyPatch(
 *** End Patch`,
 );
 
-assert.deepEqual(result.files, [
-  { path: "nested/added.txt", operation: "add" },
-  { path: "alpha.txt", operation: "update" },
-  { path: "windows.txt", operation: "update" },
-  { path: "remove.txt", operation: "delete" },
-]);
+assert.deepEqual(
+  result.files.map((f) => ({ path: f.path, operation: f.operation })),
+  [
+    { path: "nested/added.txt", operation: "add" },
+    { path: "alpha.txt", operation: "update" },
+    { path: "windows.txt", operation: "update" },
+    { path: "remove.txt", operation: "delete" },
+  ]
+);
 assert.equal(result.additions, 4);
 assert.equal(result.removals, 3);
 assert.match(result.patch, /diff --git a\/alpha\.txt b\/alpha\.txt/);
@@ -74,9 +77,12 @@ const moveResult = await applyPatch(
  changed
 *** End Patch`,
 );
-assert.deepEqual(moveResult.files, [
-  { path: "moved/alpha.txt", previousPath: "alpha.txt", operation: "move" },
-]);
+assert.deepEqual(
+  moveResult.files.map((f) => ({ path: f.path, previousPath: f.previousPath, operation: f.operation })),
+  [
+    { path: "moved/alpha.txt", previousPath: "alpha.txt", operation: "move" },
+  ]
+);
 assert.equal(await readFile(join(root, "moved/alpha.txt"), "utf8"), "ONE\nchanged\nthree\n");
 if (process.platform !== "win32") {
   assert.notEqual((await stat(join(root, "moved/alpha.txt"))).mode & 0o111, 0);

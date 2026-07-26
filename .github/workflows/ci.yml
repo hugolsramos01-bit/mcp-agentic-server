@@ -48,3 +48,8 @@ jobs:
       - name: Doctor
         run: node dist/cli.js doctor
 
+      - name: Package Smoke Test
+        run: npm run smoke:package
+
+      - name: HTTP Authentication Test
+        run: npm run test:http
