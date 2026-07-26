@@ -142,7 +142,7 @@ function registerAppTool(server: McpServer, name: string, definition: any, handl
     const inlineCap = _lc().inlineOutputCharacters;
     let returnText = text;
 
-    const { truncatePayload, truncateOutput } = await import("./server/tool-utils.js");
+    const { truncatePayloadWithMetrics, truncateOutput } = await import("./server/tool-utils.js");
 
     const basePolicy = {
       defaultStringLimit: inlineCap,
@@ -157,15 +157,9 @@ function registerAppTool(server: McpServer, name: string, definition: any, handl
     }
 
     const rawData = existing?.data ?? (status === "error" && typeof parsed === "string" ? {} : parsed);
-    const data = truncatePayload(rawData, policy);
+    const { payload: data, metrics: truncMetrics } = truncatePayloadWithMetrics(rawData, policy);
 
-    const isTruncated = (val: any): boolean => {
-      if (typeof val === "string") return val.includes("characters omitted");
-      if (Array.isArray(val)) return val.some(isTruncated);
-      if (typeof val === "object" && val !== null) return Object.values(val).some(isTruncated);
-      return false;
-    };
-    const wasTruncated = isTruncated(data) || Boolean(response._meta?.truncated || text.includes("[truncated]") || text.includes("... [truncated"));
+    const wasTruncated = truncMetrics.totalTruncatedFields > 0 || Boolean(response._meta?.truncated || text.includes("[truncated]") || text.includes("... [truncated"));
 
     const envelope = {
       status,
@@ -175,6 +169,7 @@ function registerAppTool(server: McpServer, name: string, definition: any, handl
       metrics: {
         durationMs: existing?.metrics?.durationMs ?? Math.round(performance.now() - startedAt),
         truncated: wasTruncated,
+        omittedCharacters: truncMetrics.omittedCharacters,
       },
     };
 
@@ -805,18 +800,49 @@ function createMcpServer(
     "close_workspace",
     {
       title: "Close workspace",
-      description: "Close a workspace and remove its session.",
+      description: "Close a workspace, releasing its resources from memory. The workspace remains in history and can be resumed later with its alias.",
       inputSchema: {
         workspaceId: z.string().describe("Workspace identifier to close."),
+      },
+      outputSchema: z.object({
+        status: z.string(),
+        alreadyClosed: z.boolean().optional(),
+      }).passthrough(),
+      ...toolWidgetDescriptorMeta(config, "read"),
+      annotations: READ_TOOL_ANNOTATIONS,
+    },
+    async ({ workspaceId }) => {
+      const isAlreadyClosed = !workspaces.listWorkspaces().some(w => w.id === workspaceId);
+      workspaces.closeWorkspace(workspaceId);
+      return {
+        content: [{ type: "text" as const, text: isAlreadyClosed ? `Workspace ${workspaceId} was already closed.` : `Closed workspace ${workspaceId}.` }],
+        structuredContent: { status: "closed", alreadyClosed: isAlreadyClosed }
+      };
+    },
+  );
+
+  registerAppTool(
+    server,
+    "forget_workspace",
+    {
+      title: "Forget workspace",
+      description: "Permanently delete a workspace session from history and free its alias.",
+      inputSchema: {
+        workspaceId: z.string().describe("Workspace identifier to forget."),
+        force: z.boolean().optional().describe("If true, forget the workspace even if it is not closed."),
       },
       outputSchema: resultOutputSchema(),
       ...toolWidgetDescriptorMeta(config, "read"),
       annotations: READ_TOOL_ANNOTATIONS,
     },
-    async ({ workspaceId }) => {
-      workspaces.closeWorkspace(workspaceId);
+    async ({ workspaceId, force }) => {
+      const session = workspaces.store?.getSession(workspaceId);
+      if (session && session.status !== "closed" && !force) {
+        throw new Error(`Workspace ${workspaceId} is not closed. Close it first or use force: true.`);
+      }
+      workspaces.forgetWorkspace(workspaceId);
       return {
-        content: [{ type: "text" as const, text: `Closed workspace ${workspaceId}.` }],
+        content: [{ type: "text" as const, text: `Forgot workspace ${workspaceId}.` }],
         structuredContent: { result: "success" }
       };
     },
@@ -971,6 +997,14 @@ function createMcpServer(
         },
         structuredContent: {
           result: contentText(response.content),
+          ...(response.structuredContent?.envelope?.data?.contentHash ? {
+            file: {
+              path: input.path,
+              contentHash: response.structuredContent.envelope.data.contentHash,
+              sizeBytes: response.structuredContent.envelope.data.sizeBytes,
+              mtimeNs: response.structuredContent.envelope.data.mtimeNs,
+            }
+          } : {})
         },
       };
     },
@@ -2178,7 +2212,7 @@ function createMcpServer(
         inputSchema: {
           workspaceId: z.string().describe("Workspace identifier."),
           patch: z.string().describe("The unified diff (patch) to apply."),
-          ifMatch: z.record(z.string(), z.string()).optional().describe("Map of file paths to their expected sha256 hashes."),
+          ifMatch: z.record(z.string(), z.string().nullable()).optional().describe("Map of file paths to their expected sha256 hashes, or null if the file must not exist."),
         },
         outputSchema: resultOutputSchema({
           status: z.literal("applied"),
@@ -2219,6 +2253,24 @@ function createMcpServer(
             }
           };
         } catch (error: any) {
+          if (error.code === "file_version_conflict") {
+            logFailedToolResponse(config, {
+              tool: "apply_patch",
+              workspaceId: req.workspaceId,
+            }, [{ type: "text", text: `Failed to apply patch: ${error.message}` }], startedAt);
+            return {
+              content: [{ type: "text", text: `file_version_conflict: ${error.message}` }],
+              isError: true,
+              structuredContent: {
+                code: "file_version_conflict",
+                path: error.path,
+                expectedHash: error.expectedHash,
+                actualHash: error.actualHash,
+                mutationApplied: false,
+                retryableAfterRefresh: true
+              }
+            };
+          }
           logFailedToolResponse(config, {
             tool: "apply_patch",
             workspaceId: req.workspaceId,

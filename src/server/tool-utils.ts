@@ -267,12 +267,31 @@ export interface PayloadLimitPolicy {
   defaultStringLimit: number;
   hardStringLimit: number;
   fieldLimits?: Record<string, number>;
-  preserveExactPaths?: string[];
+  bypassFieldLimitPaths?: string[];
+}
+
+export interface TruncatePayloadResult {
+  payload: any;
+  metrics: {
+    totalTruncatedFields: number;
+    omittedCharacters: number;
+  };
 }
 
 export function truncateOutput(text: string, maxChars: number): TruncatedOutput {
   const codePoints = Array.from(text);
   const chars = codePoints.length;
+  if (maxChars <= 0) {
+    if (chars === 0) return { preview: "", characters: 0, returnedCharacters: 0, omittedCharacters: 0, truncated: false };
+    const marker = `\n\n... [${chars.toLocaleString()} characters omitted] ...\n\n`;
+    return {
+      preview: marker,
+      characters: chars,
+      returnedCharacters: Array.from(marker).length,
+      omittedCharacters: chars,
+      truncated: true,
+    };
+  }
   if (chars <= maxChars) {
     return { preview: text, characters: chars, returnedCharacters: chars, omittedCharacters: 0, truncated: false };
   }
@@ -319,30 +338,32 @@ export function truncateOutput(text: string, maxChars: number): TruncatedOutput 
   };
 }
 
-export function truncatePayload(value: any, policy: PayloadLimitPolicy, currentPath: string = ""): any {
+export function truncatePayload(value: any, policy: PayloadLimitPolicy, currentPath: string = "", metrics: TruncatePayloadResult["metrics"] = { totalTruncatedFields: 0, omittedCharacters: 0 }): any {
   if (value === null || value === undefined) return value;
   
   if (typeof value === "string") {
-    // Determine limit for this path
     let limit = policy.defaultStringLimit;
-    if (policy.fieldLimits && policy.fieldLimits[currentPath]) {
+    
+    if (policy.bypassFieldLimitPaths?.includes(currentPath)) {
+      limit = policy.hardStringLimit;
+    } else if (policy.fieldLimits && policy.fieldLimits[currentPath]) {
       limit = policy.fieldLimits[currentPath];
     }
-    // Hard cap takes precedence if it's smaller
+    
     limit = Math.min(limit, policy.hardStringLimit);
     
-    // Check if path is preserved
-    if (policy.preserveExactPaths?.includes(currentPath)) {
-      return value;
-    }
-    
     const trunc = truncateOutput(value, limit);
-    return trunc.truncated ? trunc.preview : value;
+    if (trunc.truncated) {
+      metrics.totalTruncatedFields++;
+      metrics.omittedCharacters += trunc.omittedCharacters;
+      return trunc.preview;
+    }
+    return value;
   }
   
   if (Array.isArray(value)) {
     return value.map((item, index) => 
-      truncatePayload(item, policy, currentPath ? `${currentPath}[${index}]` : `[${index}]`)
+      truncatePayload(item, policy, currentPath ? `${currentPath}[${index}]` : `[${index}]`, metrics)
     );
   }
   
@@ -350,12 +371,18 @@ export function truncatePayload(value: any, policy: PayloadLimitPolicy, currentP
     const result: any = {};
     for (const [k, v] of Object.entries(value)) {
       const nextPath = currentPath ? `${currentPath}.${k}` : k;
-      result[k] = truncatePayload(v, policy, nextPath);
+      result[k] = truncatePayload(v, policy, nextPath, metrics);
     }
     return result;
   }
   
   return value;
+}
+
+export function truncatePayloadWithMetrics(value: any, policy: PayloadLimitPolicy): TruncatePayloadResult {
+  const metrics = { totalTruncatedFields: 0, omittedCharacters: 0 };
+  const payload = truncatePayload(value, policy, "", metrics);
+  return { payload, metrics };
 }
 
 export function newFilePatch(path: string, content: string): string {
@@ -462,8 +489,8 @@ export async function applyAtomicMutation(options: AtomicMutationOptions): Promi
         path: options.targetPath,
         expectedHash: options.ifMatch,
         actualHash: currentHash,
-        retrySafe: true,
-        recovery: "Read the current file and rebuild the mutation."
+        mutationApplied: false,
+        retryableAfterRefresh: true
       }
     };
   }
@@ -478,8 +505,8 @@ export async function applyAtomicMutation(options: AtomicMutationOptions): Promi
           path: options.targetPath,
           expectedHash: options.ifMatch,
           actualHash: currentHash,
-          retrySafe: true,
-          recovery: "Read the current file and rebuild the mutation."
+          mutationApplied: false,
+          retryableAfterRefresh: true
         }
       };
     }
@@ -510,8 +537,8 @@ export async function applyAtomicMutation(options: AtomicMutationOptions): Promi
           path: options.targetPath,
           expectedHash: currentHash,
           actualHash: preRenameHash,
-          retrySafe: true,
-          recovery: "Read the current file and rebuild the mutation."
+          mutationApplied: false,
+          retryableAfterRefresh: true
         }
       };
     }

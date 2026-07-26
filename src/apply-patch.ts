@@ -48,6 +48,17 @@ type StagedTextFile = TextFile | null;
 type FileIdentity = Pick<Stats, "dev" | "ino">;
 type FileIdentityReader = (path: string) => Promise<FileIdentity>;
 
+export class FileVersionConflictError extends Error {
+  readonly code = "file_version_conflict";
+  constructor(
+    readonly path: string,
+    readonly expectedHash: string | null,
+    readonly actualHash: string | null,
+  ) {
+    super(`File changed after it was read: ${path}`);
+  }
+}
+
 function patchError(message: string): Error {
   return new Error(`Invalid patch: ${message}`);
 }
@@ -346,52 +357,67 @@ export async function isSamePatchFile(
 export async function applyPatch(
   root: string, 
   patch: string, 
-  ifMatch?: Record<string, string>, 
+  ifMatch?: Record<string, string | null>, 
   requireIfMatch: "off" | "existing" | "all" = "off"
 ): Promise<ApplyPatchResult> {
   const actions = parsePatch(patch);
   const results: AppliedPatchFile[] = [];
   const patches: string[] = [];
   const staged = new Map<string, StagedTextFile>();
+  const initialHashes = new Map<string, string | null>();
+  const displayPaths = new Map<string, string>();
 
   const { createHash } = await import("node:crypto");
-  const { readFile } = await import("node:fs/promises");
+  const { readFile, writeFile, mkdir, rm } = await import("node:fs/promises");
+  const { dirname } = await import("node:path");
 
-  const computeHash = async (absolute: string): Promise<string | null> => {
+  const computeHashAndContent = async (absolute: string, displayPath: string): Promise<{ hash: string | null, content: string | null, mode: number | undefined }> => {
     try {
+      const metadata = await stat(absolute);
+      if (!metadata.isFile()) throw patchError(`path is not a regular file: ${displayPath}`);
       const bytes = await readFile(absolute);
-      return "sha256:" + createHash("sha256").update(bytes).digest("hex");
-    } catch {
-      return null;
+      const hash = "sha256:" + createHash("sha256").update(bytes).digest("hex");
+      let content: string;
+      try {
+        content = new TextDecoder("utf-8", { fatal: true }).decode(bytes);
+      } catch {
+        throw patchError(`file is not valid UTF-8 text: ${displayPath}`);
+      }
+      if (content.includes("\\0")) throw patchError(`file appears to be binary: ${displayPath}`);
+      return { hash, content, mode: metadata.mode };
+    } catch (e: any) {
+      if (e.code === 'ENOENT' || e.code === 'ENOTDIR') return { hash: null, content: null, mode: undefined };
+      throw e;
     }
   };
 
-  const computeStringHash = (content: string | null): string | null => {
-    if (content === null) return null;
+  const computeBytesHash = (content: string): string => {
     return "sha256:" + createHash("sha256").update(Buffer.from(content, "utf8")).digest("hex");
   };
 
   const checkIfMatch = async (absolute: string, displayPath: string) => {
-    const currentHash = await computeHash(absolute);
-    const exists = currentHash !== null;
+    if (initialHashes.has(absolute)) return;
+    
+    const { hash, content, mode } = await computeHashAndContent(absolute, displayPath);
+    const exists = hash !== null;
     const expectedHash = ifMatch?.[displayPath];
 
     const mustProvide = requireIfMatch === "all" || (requireIfMatch === "existing" && exists);
     if (mustProvide && expectedHash === undefined) {
       throw patchError(`AGENTIC_REQUIRE_IF_MATCH=${requireIfMatch} requires an ifMatch pre-condition for ${displayPath}`);
     }
-
-    if (expectedHash !== undefined && expectedHash !== currentHash) {
-      throw patchError(`file_version_conflict for ${displayPath}: Expected hash ${expectedHash}, but actual hash is ${currentHash}`);
+    if (expectedHash !== undefined && expectedHash !== hash) {
+      throw new FileVersionConflictError(displayPath, expectedHash ?? null, hash);
     }
+    
+    initialHashes.set(absolute, hash);
+    displayPaths.set(absolute, displayPath);
+    if (exists && content !== null) staged.set(absolute, { content, mode });
   };
 
   const readStagedOptional = async (absolute: string, displayPath: string): Promise<StagedTextFile> => {
-    if (staged.has(absolute)) return staged.get(absolute) ?? null;
     await checkIfMatch(absolute, displayPath);
-    const file = await readOptionalTextFile(absolute, displayPath);
-    staged.set(absolute, file);
-    return file;
+    return staged.get(absolute) ?? null;
   };
 
   const readStagedRequired = async (absolute: string, displayPath: string): Promise<TextFile> => {
@@ -407,10 +433,9 @@ export async function applyPatch(
       staged.set(absolute, { content: action.content, mode: original?.mode });
       patches.push(unifiedFilePatch(action.path, action.path, original?.content ?? null, action.content));
       results.push({ 
-        path: action.path, 
-        operation: "add",
-        beforeHash: computeStringHash(original?.content ?? null),
-        afterHash: computeStringHash(action.content)
+        path: action.path, operation: "add",
+        beforeHash: initialHashes.get(absolute) ?? null,
+        afterHash: computeBytesHash(action.content)
       });
       continue;
     }
@@ -422,9 +447,8 @@ export async function applyPatch(
       staged.set(absolute, null);
       patches.push(unifiedFilePatch(action.path, action.path, file.content, null));
       results.push({ 
-        path: action.path, 
-        operation: "delete",
-        beforeHash: computeStringHash(file.content),
+        path: action.path, operation: "delete",
+        beforeHash: initialHashes.get(absolute) ?? null,
         afterHash: null
       });
       continue;
@@ -440,66 +464,55 @@ export async function applyPatch(
       if (!samePatchFile) staged.set(absolute, null);
       patches.push(unifiedFilePatch(action.path, action.moveTo, file.content, updated));
       results.push({ 
-        path: action.moveTo, 
-        previousPath: action.path, 
-        operation: "move",
-        beforeHash: computeStringHash(file.content),
-        afterHash: computeStringHash(updated)
+        path: action.moveTo, previousPath: action.path, operation: "move",
+        beforeHash: initialHashes.get(absolute) ?? null,
+        afterHash: computeBytesHash(updated)
       });
     } else {
       staged.set(absolute, { content: updated, mode: file.mode });
       patches.push(unifiedFilePatch(action.path, action.path, file.content, updated));
       results.push({ 
-        path: action.path, 
-        operation: "update",
-        beforeHash: computeStringHash(file.content),
-        afterHash: computeStringHash(updated)
+        path: action.path, operation: "update",
+        beforeHash: initialHashes.get(absolute) ?? null,
+        afterHash: computeBytesHash(updated)
       });
     }
   }
 
+  const temporaries = new Map<string, string>();
   for (const [absolute, file] of staged) {
-    if (file) await writeTextFile(absolute, file.content, file.mode);
+    if (file) {
+      await mkdir(dirname(absolute), { recursive: true });
+      const temporary = `${absolute}.agentic-patch-${process.pid}-${randomUUID()}`;
+      await writeFile(temporary, file.content, file.mode === undefined ? undefined : { mode: file.mode });
+      temporaries.set(absolute, temporary);
+    }
   }
 
-  for (const [absolute, file] of staged) {
-    if (!file) await rm(absolute, { force: true });
+  try {
+    for (const [absolute, originalHash] of initialHashes) {
+      const { hash } = await computeHashAndContent(absolute, displayPaths.get(absolute)!);
+      if (hash !== originalHash) {
+        throw new FileVersionConflictError(displayPaths.get(absolute)!, originalHash, hash);
+      }
+    }
+    for (const [absolute, file] of staged) {
+      if (file) {
+        const temporary = temporaries.get(absolute)!;
+        await replaceFile(temporary, absolute, await fileExists(absolute));
+      } else {
+        await rm(absolute, { force: true }).catch(() => {});
+      }
+    }
+  } finally {
+    for (const temp of temporaries.values()) {
+      await rm(temp, { force: true }).catch(() => {});
+    }
   }
 
   const unifiedPatch = patches.filter(Boolean).join("\n");
   const stats = countPatchStats(unifiedPatch);
   return { files: results, patch: unifiedPatch, ...stats };
-}
-
-async function readOptionalTextFile(absolute: string, displayPath: string): Promise<TextFile | null> {
-  if (!(await fileExists(absolute))) return null;
-  const metadata = await stat(absolute);
-  if (!metadata.isFile()) throw patchError(`path is not a regular file: ${displayPath}`);
-  return { content: await readUtf8Text(absolute, displayPath), mode: metadata.mode };
-}
-
-async function readUtf8Text(absolute: string, displayPath: string): Promise<string> {
-  const bytes = await readFile(absolute);
-  let content: string;
-  try {
-    content = new TextDecoder("utf-8", { fatal: true }).decode(bytes);
-  } catch {
-    throw patchError(`file is not valid UTF-8 text: ${displayPath}`);
-  }
-  if (content.includes("\0")) throw patchError(`file appears to be binary: ${displayPath}`);
-  return content;
-}
-
-async function writeTextFile(destination: string, content: string, mode?: number): Promise<void> {
-  await mkdir(dirname(destination), { recursive: true });
-  const temporary = `${destination}.agentic-patch-${process.pid}-${randomUUID()}`;
-  try {
-    await writeFile(temporary, content, mode === undefined ? undefined : { mode });
-    await replaceFile(temporary, destination, await fileExists(destination));
-  } catch (error) {
-    await rm(temporary, { force: true });
-    throw error;
-  }
 }
 
 function unifiedFilePatch(

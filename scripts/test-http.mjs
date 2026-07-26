@@ -8,7 +8,7 @@ import { createHash } from "node:crypto";
 const __dirname = fileURLToPath(new URL(".", import.meta.url));
 const cliPath = resolve(__dirname, "../dist/cli.js");
 
-const port = 17676;
+let port = 0;
 const ownerToken = "test-owner-token-that-is-long-enough";
 const simulatedToken = "test-access-token";
 const simulatedTokenHash = createHash("sha256").update(simulatedToken).digest("base64url");
@@ -51,10 +51,14 @@ serverProcess.stderr.on("data", (data) => {
 console.log(`Starting test MCP HTTP server on port ${port}...`);
 
 await new Promise((resolve, reject) => {
-  const timeout = setTimeout(() => reject(new Error("Timeout waiting for server to start")), 5000);
-  
-  const check = (data) => {
-    if (serverOutput.includes("agentic listening")) {
+  const timeout = setTimeout(() => {
+    console.log("SERVER OUTPUT:\n" + serverOutput);
+    reject(new Error("Timeout waiting for server to start in test-http.mjs"));
+  }, 5000);
+  const check = () => {
+    const match = serverOutput.match(/listening on http:\/\/[^:]+:(\d+)\/mcp/);
+    if (match) {
+      port = parseInt(match[1]);
       clearTimeout(timeout);
       serverProcess.stdout.removeListener("data", check);
       serverProcess.stderr.removeListener("data", check);
@@ -63,7 +67,7 @@ await new Promise((resolve, reject) => {
   };
   serverProcess.stdout.on("data", check);
   serverProcess.stderr.on("data", check);
-  serverProcess.on("exit", (code) => reject(new Error(`Server exited with code ${code}`)));
+  serverProcess.on("exit", (code) => reject(new Error(`Server exited with code ${code}. Output: ${serverOutput}`)));
 });
 
 try {

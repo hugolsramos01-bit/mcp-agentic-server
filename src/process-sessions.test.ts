@@ -1,5 +1,27 @@
 import assert from "node:assert/strict";
+import * as childProcess from "node:child_process";
+import { promisify } from "node:util";
 import { HeadTailBuffer, ProcessSessionManager } from "./process-sessions.js";
+
+async function pollUntil<T>(
+  fn: () => Promise<T>,
+  predicate: (value: T) => boolean,
+  options: { maxAttempts?: number; intervalMs?: number } = {}
+): Promise<T> {
+  const maxAttempts = options.maxAttempts ?? 20;
+  const intervalMs = options.intervalMs ?? 50;
+  let lastValue: T | undefined;
+  
+  for (let i = 0; i < maxAttempts; i++) {
+    lastValue = await fn();
+    if (predicate(lastValue)) return lastValue;
+    await new Promise(r => setTimeout(r, intervalMs));
+  }
+  
+  throw new Error(`pollUntil exhausted after ${maxAttempts} attempts. Last value: ${JSON.stringify(lastValue)}`);
+}
+
+const execFile = promisify(childProcess.execFile);
 
 const smallBuffer = new HeadTailBuffer(100);
 smallBuffer.append("hello\n");
@@ -134,14 +156,18 @@ assert.ok(noisyInteractive.sessionId);
 
 // Wait deterministically for at least one tick
 let noisyOutput = noisyInteractive.output;
-while (!noisyOutput.includes("tick") && noisyInteractive.sessionId) {
-  const peek = await manager.write({
-    workspaceId: "workspace-a",
-    sessionId: noisyInteractive.sessionId,
-    yieldTimeMs: 50,
-  });
-  noisyOutput += peek.output;
-}
+noisyOutput = await pollUntil(
+  async () => {
+    const peek = await manager.write({
+      workspaceId: "workspace-a",
+      sessionId: noisyInteractive.sessionId!,
+      yieldTimeMs: 50,
+    });
+    noisyOutput += peek.output;
+    return noisyOutput;
+  },
+  (out) => out.includes("tick") || !noisyInteractive.sessionId
+);
 
 const noisyInputResult = await manager.write({
   workspaceId: "workspace-a",
@@ -163,14 +189,18 @@ assert.ok(interruptible.sessionId);
 
 // Wait deterministically for at least one tick
 let interruptibleOutput = interruptible.output;
-while (!interruptibleOutput.includes("tick") && interruptible.sessionId) {
-  const peek = await manager.write({
-    workspaceId: "workspace-a",
-    sessionId: interruptible.sessionId,
-    yieldTimeMs: 50,
-  });
-  interruptibleOutput += peek.output;
-}
+interruptibleOutput = await pollUntil(
+  async () => {
+    const peek = await manager.write({
+      workspaceId: "workspace-a",
+      sessionId: interruptible.sessionId!,
+      yieldTimeMs: 50,
+    });
+    interruptibleOutput += peek.output;
+    return interruptibleOutput;
+  },
+  (out) => out.includes("tick") || !interruptible.sessionId
+);
 
 const interrupted = await manager.write({
   workspaceId: "workspace-a",

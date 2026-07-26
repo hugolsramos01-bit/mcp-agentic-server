@@ -35,42 +35,52 @@ try {
   console.log("   --help passed.");
 
   console.log("4. Testing 401 without auth (Clean Shutdown)...");
-  const port = 17677;
-  const serverProcess = spawn(process.execPath, [cliPath, "serve"], {
-    env: { ...process.env, PORT: port.toString(), AGENTIC_PUBLIC_BASE_URL: `http://127.0.0.1:${port}` },
-    stdio: "pipe",
-  });
+  let serverProcess;
+  try {
+    serverProcess = spawn(process.execPath, [cliPath, "serve"], {
+      env: { ...process.env, PORT: "0", AGENTIC_PUBLIC_BASE_URL: `http://127.0.0.1:0` },
+      stdio: "pipe",
+    });
 
   let serverOutput = "";
   serverProcess.stdout.on("data", (data) => serverOutput += data.toString());
   serverProcess.stderr.on("data", (data) => serverOutput += data.toString());
 
-  await new Promise((resolve, reject) => {
-    const timeout = setTimeout(() => reject(new Error("Timeout waiting for server to start")), 5000);
-    const check = () => {
-      if (serverOutput.includes("agentic listening")) {
-        clearTimeout(timeout);
-        resolve();
-      }
-    };
-    serverProcess.stdout.on("data", check);
-    serverProcess.stderr.on("data", check);
-  });
+    let actualPort = 0;
+    await new Promise((resolve, reject) => {
+      const timeout = setTimeout(() => reject(new Error(`Timeout waiting for server to start. Output: ${serverOutput}`)), 5000);
+      const check = () => {
+        const match = serverOutput.match(/listening on http:\/\/[^:]+:(\d+)\/mcp/);
+        if (match) {
+          actualPort = parseInt(match[1]);
+          clearTimeout(timeout);
+          resolve();
+        }
+      };
+      serverProcess.stdout.on("data", check);
+      serverProcess.stderr.on("data", check);
+    });
 
-  const noTokenRes = await fetch(`http://127.0.0.1:${port}/mcp`);
+    console.log("SERVER OUTPUT:\n" + serverOutput);
+    const noTokenRes = await fetch(`http://127.0.0.1:${actualPort}/mcp`);
   if (noTokenRes.status !== 401 && noTokenRes.status !== 403) {
     throw new Error(`Expected 401/403 for unauthorized request, got ${noTokenRes.status}`);
   }
-  console.log("   401 unauthorized passed.");
+    console.log("   401 unauthorized passed.");
 
-  console.log("5. Testing clean shutdown...");
-  serverProcess.kill("SIGINT");
-  await new Promise((resolve) => {
-    serverProcess.on("exit", () => resolve());
-  });
-  console.log("   Shutdown passed.");
+    console.log("5. Testing clean shutdown...");
+    serverProcess.kill("SIGINT");
+    await new Promise((resolve) => {
+      serverProcess.on("exit", () => resolve());
+    });
+    console.log("   Shutdown passed.");
 
-  console.log("Smoke tests completed successfully!");
+    console.log("Smoke tests completed successfully!");
+  } finally {
+    if (serverProcess) {
+      serverProcess.kill();
+    }
+  }
 } finally {
   await rm(testDir, { recursive: true, force: true });
   await rm(join(rootDir, tarballName), { force: true });

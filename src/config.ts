@@ -40,7 +40,7 @@ function parsePort(value: string | number | undefined): number {
   if (value === undefined || value === "") return 7676;
 
   const port = Number(value);
-  if (!Number.isInteger(port) || port < 1 || port > 65535) {
+  if (!Number.isInteger(port) || port < 0 || port > 65535) {
     throw new Error(`Invalid PORT: ${value}`);
   }
 

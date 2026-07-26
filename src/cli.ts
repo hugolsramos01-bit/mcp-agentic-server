@@ -219,7 +219,9 @@ async function serve(): Promise<void> {
   const config = loadConfig();
   const { app, close, localAgentProviders } = createServer(config);
   const httpServer = app.listen(config.port, config.host, () => {
-    console.log(`agentic listening on http://${config.host}:${config.port}/mcp`);
+    const address = httpServer.address();
+    const actualPort = address && typeof address === 'object' ? address.port : config.port;
+    console.log(`agentic listening on http://${config.host}:${actualPort}/mcp`);
     console.log(`public base url: ${config.publicBaseUrl}`);
     console.log(`allowed roots: ${config.allowedRoots.join(", ")}`);
     console.log(`allowed hosts: ${config.allowedHosts.join(", ")}`);

@@ -35,6 +35,7 @@ export interface WorkspaceStore {
   listSessions(): WorkspaceSession[];
   deleteSession(id: string): boolean;
   updateAlias(id: string, alias: string | null, normalizedAlias: string | null): boolean;
+  updateStatus(id: string, status: string): boolean;
   touchSession(id: string): void;
   close?(): void;
 }
@@ -115,6 +116,14 @@ export class SqliteWorkspaceStore implements WorkspaceStore {
   updateAlias(id: string, alias: string | null, normalizedAlias: string | null): boolean {
     const result = this.#db.db.update(workspaceSessions)
       .set({ alias, normalizedAlias, lastUsedAt: new Date().toISOString() })
+      .where(eq(workspaceSessions.id, id))
+      .run();
+    return result.changes > 0;
+  }
+
+  updateStatus(id: string, status: string): boolean {
+    const result = this.#db.db.update(workspaceSessions)
+      .set({ status, lastUsedAt: new Date().toISOString() })
       .where(eq(workspaceSessions.id, id))
       .run();
     return result.changes > 0;

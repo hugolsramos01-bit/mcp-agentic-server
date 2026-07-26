@@ -186,6 +186,11 @@ export class WorkspaceRegistry {
     if (this.workspaces.has(workspaceId)) {
       this.workspaces.delete(workspaceId);
     }
+    this.store?.updateStatus(workspaceId, "closed");
+  }
+
+  forgetWorkspace(workspaceId: string): void {
+    this.closeWorkspace(workspaceId);
     this.store?.deleteSession(workspaceId);
   }
 
