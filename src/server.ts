@@ -36,7 +36,7 @@ import {
 import {
   projectBootstrapTool, codingContextTool, suggestChecksTool, monorepoMapTool, changedFilesSummaryTool,
 } from "./bootstrap-tools.js";
-import { taskContextTool } from "./change-intelligence/task-context.js";
+import { taskContextTool, TASK_CONTEXT_BUDGET } from "./change-intelligence/task-context.js";
 import { nextRouteMapTool, payloadSchemaMapTool, fileDependenciesTool } from "./ast-tools.js";
 import {
   checkpointSaveTool, checkpointListTool, checkpointRestoreTool, checkpointDeleteTool,
@@ -2163,11 +2163,11 @@ function createMcpServer(
       server,
       "coding_context",
       {
-        title: "[CORE] Coding Context",
-        description: "[Context] Returns a structured context map based on the active goal and project footprint. Maps domain boundaries (e.g. 'tenant', 'auth') to actual files and routes. Always call this BEFORE searching or reading code when you receive a new goal.",
+        title: TOOL_CONTRACTS.codingContext.title,
+        description: TOOL_CONTRACTS.codingContext.description,
         inputSchema: {
           workspaceId: z.string().describe("Workspace ID"),
-          goal: z.string().describe("The user's goal or current task (e.g., 'add tenant isolation', 'fix login button')")
+          goal: z.string().optional().describe("Optional: filter context to items relevant to this goal (e.g. 'onboarding', 'dashboard', 'tenant')")
         },
         ...toolWidgetDescriptorMeta(config, "read"),
         annotations: READ_TOOL_ANNOTATIONS,
@@ -2182,20 +2182,36 @@ function createMcpServer(
       server,
       "task_context",
       {
-        title: "[CORE] Task Context",
-        description: "[Context] Returns a minimal, stateless, goal-directed map for a coding task. Discovers primary candidates, test proximity, and limited dependencies. Call this to bootstrap context for a focused coding goal.",
+        title: TOOL_CONTRACTS.taskContext.title,
+        description: TOOL_CONTRACTS.taskContext.description,
         inputSchema: {
           workspaceId: z.string().describe("Workspace ID"),
-          goal: z.string().describe("The goal to contextualize"),
-          focusPaths: z.array(z.string()).optional().describe("Explicit paths to focus on"),
-          excludePaths: z.array(z.string()).optional().describe("Paths to exclude")
+          goal: z.string().min(3).max(1000).describe("The coding goal to contextualize"),
+          type: z.enum(["auto", "bug_fix", "feature", "refactor", "security_review", "migration", "frontend", "release"])
+            .optional().describe("Explicit task type; inferred from goal if omitted"),
+          maxTokens: z.number().int()
+            .min(TASK_CONTEXT_BUDGET.minTokens)
+            .max(TASK_CONTEXT_BUDGET.maxTokens)
+            .optional().describe(`Token budget for the response (default: ${TASK_CONTEXT_BUDGET.defaultTokens})`),
+          focusPaths: z.array(z.string().max(500)).max(10).optional().describe("Paths to prioritize explicitly"),
+          excludePaths: z.array(z.string().max(500)).max(20).optional().describe("Paths to exclude from candidates"),
         },
         ...toolWidgetDescriptorMeta(config, "read"),
         annotations: READ_TOOL_ANNOTATIONS,
       } as any,
       async (req: any) => {
         const workspace = workspaces.getWorkspace(req.workspaceId);
-        return wrap("task_context", req, await taskContextTool(workspace.root, config.allowedRoots, { goal: req.goal, focusPaths: req.focusPaths, excludePaths: req.excludePaths }));
+        return wrap("task_context", req, await taskContextTool(
+          workspace.root,
+          config.allowedRoots,
+          {
+            goal: req.goal,
+            type: req.type,
+            maxTokens: req.maxTokens,
+            focusPaths: req.focusPaths,
+            excludePaths: req.excludePaths,
+          }
+        ));
       }
     );
     registerAppTool(

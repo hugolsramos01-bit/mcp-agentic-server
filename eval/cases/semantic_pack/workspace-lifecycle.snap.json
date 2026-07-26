@@ -10,15 +10,15 @@
       "smoke:package": "node scripts/smoke-package.mjs",
       "test:http": "node scripts/test-http.mjs",
       "start": "node dist/cli.js serve",
-      "test": "tsx src/regression.test.ts && tsx src/config.test.ts && tsx src/analysis-regression.test.ts && tsx src/ast-tools.test.ts && tsx src/import-resolver.test.ts && tsx src/diagnostics/log-compressor.test.ts && tsx src/ui/card-types.test.ts && tsx src/ui/patch-display.test.ts && tsx src/apply-patch.test.ts && tsx src/process-platform.test.ts && tsx src/process-sessions.test.ts && tsx src/process-runner/process-runner.test.ts && tsx src/local-agent-runtime.test.ts && tsx src/local-agent-adapters.test.ts && tsx src/local-agent-availability.test.ts && tsx src/local-agent-profiles.test.ts && tsx src/local-agent-targets.test.ts && tsx src/local-agent-store.test.ts && tsx src/roots.test.ts && tsx src/git.test.ts && tsx src/skills.test.ts && tsx src/workspaces.test.ts && tsx src/checkpoint-tools.test.ts && tsx src/review-checkpoints.test.ts && tsx src/native-dependency-verifier.test.ts && tsx src/oauth-store.test.ts && tsx src/cli.test.ts && tsx src/security/security-regression.test.ts && tsx src/check-classifier.test.ts && tsx src/tool-contracts.test.ts && tsx src/server/mutation-receipt.test.ts",
+      "test": "tsx src/regression.test.ts && tsx src/config.test.ts && tsx src/analysis-regression.test.ts && tsx src/ast-tools.test.ts && tsx src/import-resolver.test.ts && tsx src/diagnostics/log-compressor.test.ts && tsx src/ui/card-types.test.ts && tsx src/ui/patch-display.test.ts && tsx src/apply-patch.test.ts && tsx src/process-platform.test.ts && tsx src/process-sessions.test.ts && tsx src/process-runner/process-runner.test.ts && tsx src/local-agent-runtime.test.ts && tsx src/local-agent-adapters.test.ts && tsx src/local-agent-availability.test.ts && tsx src/local-agent-profiles.test.ts && tsx src/local-agent-targets.test.ts && tsx src/local-agent-store.test.ts && tsx src/roots.test.ts && tsx src/git.test.ts && tsx src/skills.test.ts && tsx src/workspaces.test.ts && tsx src/checkpoint-tools.test.ts && tsx src/review-checkpoints.test.ts && tsx src/native-dependency-verifier.test.ts && tsx src/oauth-store.test.ts && tsx src/cli.test.ts && tsx src/security/security-regression.test.ts && tsx src/check-classifier.test.ts && tsx src/tool-contracts.test.ts && tsx src/server/mutation-receipt.test.ts && tsx src/change-intelligence/goal-normalizer.test.ts && tsx src/change-intelligence/test-proximity.test.ts && tsx src/change-intelligence/task-context.test.ts",
       "typecheck": "tsc -p tsconfig.json --noEmit",
       "eval": "node eval/run.mjs",
       "eval:update": "node eval/run.mjs --update"
     }
   },
   "git": {
-    "branch": "## feature/task-context-minimal",
-    "status": "## feature/task-context-minimal\n M eval/cases/read/package-json.snap.json\n M eval/cases/read_many/two-files.snap.json\n M eval/cases/suggest_checks/agentic-docs-only.snap.json\n M eval/cases/suggest_checks/agentic-full-workspace.snap.json\n M eval/cases/suggest_checks/agentic-http-change.snap.json\n M eval/cases/suggest_checks/agentic-package-change.snap.json\n M eval/cases/suggest_checks/agentic-self.snap.json\n M eval/cases/suggest_checks/agentic-source-change.snap.json\n M eval/cases/suggest_checks/agentic-ui-change.snap.json\n M eval/run.mjs\n M src/bootstrap-tools.ts\n M src/server.ts\n M src/server/mutation-receipt.ts\n M src/server/tool-utils.ts\n M src/tool-contracts.ts\n?? eval/cases/task_context/\n?? src/change-intelligence/\n"
+    "branch": "## feature/task-context-minimal...origin/feature/task-context-minimal",
+    "status": "## feature/task-context-minimal...origin/feature/task-context-minimal\n M eval/cases/read/package-json.snap.json\n M eval/cases/read_many/two-files.snap.json\n M package.json\n M src/bootstrap-tools.ts\n M src/change-intelligence/file-dependencies-internal.ts\n M src/change-intelligence/task-context.test.ts\n M src/change-intelligence/task-context.ts\n M src/server.ts\n M src/tool-contracts.test.ts\n M src/tool-contracts.ts\n"
   },
   "routes": [],
   "collections": [],
@@ -109,6 +109,23 @@
       "estimatedTokens": 5550
     },
     {
+      "path": "src/change-intelligence/task-context.ts",
+      "relevanceTier": "textual",
+      "matchedBy": [
+        "content:understand",
+        "content:workspace",
+        "content:lifecycle",
+        "content:how",
+        "content:workspaces",
+        "content:closed",
+        "content:forgotten",
+        "content:tenant"
+      ],
+      "recommendedReadMode": "skeletal",
+      "reason": "Contém termos do objetivo — pode ser relevante",
+      "estimatedTokens": 3418
+    },
+    {
       "path": "src/checkpoint-tools.ts",
       "relevanceTier": "textual",
       "matchedBy": [
@@ -157,7 +174,7 @@
       ],
       "recommendedReadMode": "skeletal",
       "reason": "Contém termos do objetivo — pode ser relevante",
-      "estimatedTokens": 36507
+      "estimatedTokens": 36607
     },
     {
       "path": "src/server/tool-utils.ts",
@@ -191,7 +208,7 @@
       ],
       "recommendedReadMode": "light",
       "reason": "Contém termos do objetivo — pode ser relevante",
-      "estimatedTokens": 829
+      "estimatedTokens": 832
     },
     {
       "path": "src/apply-patch.ts",
@@ -259,10 +276,10 @@
       ],
       "recommendedReadMode": "skeletal",
       "reason": "Contém termos do objetivo — pode ser relevante",
-      "estimatedTokens": 7009
+      "estimatedTokens": 6255
     },
     {
-      "path": "src/change-session.ts",
+      "path": "src/change-intelligence/goal-normalizer.ts",
       "relevanceTier": "textual",
       "matchedBy": [
         "content:understand",
@@ -276,24 +293,7 @@
       ],
       "recommendedReadMode": "light",
       "reason": "Contém termos do objetivo — pode ser relevante",
-      "estimatedTokens": 1739
-    },
-    {
-      "path": "src/check-classifier.ts",
-      "relevanceTier": "textual",
-      "matchedBy": [
-        "content:understand",
-        "content:workspace",
-        "content:lifecycle",
-        "content:how",
-        "content:workspaces",
-        "content:closed",
-        "content:forgotten",
-        "content:tenant"
-      ],
-      "recommendedReadMode": "light",
-      "reason": "Contém termos do objetivo — pode ser relevante",
-      "estimatedTokens": 898
+      "estimatedTokens": 1164
     }
   ],
   "recommendedWorkflow": [
@@ -335,8 +335,8 @@
     }
   ],
   "tokenBudget": {
-    "used": 1443,
+    "used": 1430,
     "max": 8000,
-    "remaining": 6557
+    "remaining": 6570
   }
 }

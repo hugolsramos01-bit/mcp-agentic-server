@@ -21,6 +21,22 @@
       "recommendedReadTool": "read"
     },
     {
+      "path": "src/change-intelligence/goal-normalizer.test.ts",
+      "role": "test",
+      "confidence": "medium",
+      "evidence": [
+        {
+          "type": "content_match",
+          "detail": "Contains keyword: corrigir"
+        },
+        {
+          "type": "test_proximity",
+          "detail": "Is test for: src/change-intelligence/goal-normalizer.ts"
+        }
+      ],
+      "recommendedReadTool": "read_adaptive"
+    },
+    {
       "path": "src/review-checkpoints.test.ts",
       "role": "test",
       "confidence": "medium",
@@ -47,9 +63,125 @@
         }
       ],
       "recommendedReadTool": "read_adaptive"
+    },
+    {
+      "path": "src/change-intelligence/task-context.test.ts",
+      "role": "test",
+      "confidence": "low",
+      "evidence": [
+        {
+          "type": "content_match",
+          "detail": "Contains keyword: corrigir"
+        }
+      ],
+      "recommendedReadTool": "read_many"
     }
   ],
   "supportingFiles": [
+    {
+      "path": "eval/cases/task_context/pagination-bug.input.json",
+      "role": "supporting",
+      "confidence": "medium",
+      "evidence": [
+        {
+          "type": "filename_partial",
+          "detail": "Basename contains keyword: bug"
+        },
+        {
+          "type": "content_match",
+          "detail": "Contains keyword: corrigir"
+        },
+        {
+          "type": "content_match",
+          "detail": "Contains keyword: paginacao"
+        },
+        {
+          "type": "content_match",
+          "detail": "Contains keyword: view"
+        },
+        {
+          "type": "content_match",
+          "detail": "Contains keyword: principal"
+        }
+      ],
+      "recommendedReadTool": "read_adaptive"
+    },
+    {
+      "path": "eval/cases/task_context/pagination-bug.snap.json",
+      "role": "supporting",
+      "confidence": "medium",
+      "evidence": [
+        {
+          "type": "filename_partial",
+          "detail": "Basename contains keyword: bug"
+        },
+        {
+          "type": "content_match",
+          "detail": "Contains keyword: corrigir"
+        },
+        {
+          "type": "content_match",
+          "detail": "Contains keyword: paginacao"
+        },
+        {
+          "type": "content_match",
+          "detail": "Contains keyword: view"
+        },
+        {
+          "type": "content_match",
+          "detail": "Contains keyword: principal"
+        }
+      ],
+      "recommendedReadTool": "read_adaptive"
+    },
+    {
+      "path": "examples/agents/copilot-reviewer.md",
+      "role": "supporting",
+      "confidence": "medium",
+      "evidence": [
+        {
+          "type": "filename_partial",
+          "detail": "Basename contains keyword: view"
+        },
+        {
+          "type": "content_match",
+          "detail": "Contains keyword: view"
+        }
+      ],
+      "recommendedReadTool": "read_adaptive"
+    },
+    {
+      "path": "examples/agents/pi-reviewer.md",
+      "role": "supporting",
+      "confidence": "medium",
+      "evidence": [
+        {
+          "type": "filename_partial",
+          "detail": "Basename contains keyword: view"
+        },
+        {
+          "type": "content_match",
+          "detail": "Contains keyword: view"
+        }
+      ],
+      "recommendedReadTool": "read_adaptive"
+    },
+    {
+      "path": "src/change-intelligence/goal-normalizer.ts",
+      "role": "supporting",
+      "confidence": "medium",
+      "evidence": [
+        {
+          "type": "content_match",
+          "detail": "Contains keyword: corrigir"
+        },
+        {
+          "type": "test_proximity",
+          "detail": "Has nearby tests: src/change-intelligence/goal-normalizer.test.ts"
+        }
+      ],
+      "recommendedReadTool": "read_adaptive"
+    },
     {
       "path": "src/review-checkpoints.ts",
       "role": "supporting",
@@ -79,42 +211,6 @@
       "recommendedReadTool": "read_adaptive"
     },
     {
-      "path": "eval/cases/task_context/pagination-bug.input.json",
-      "role": "supporting",
-      "confidence": "medium",
-      "evidence": [
-        {
-          "type": "filename_partial",
-          "detail": "Basename contains keyword: bug"
-        }
-      ],
-      "recommendedReadTool": "read_adaptive"
-    },
-    {
-      "path": "examples/agents/copilot-reviewer.md",
-      "role": "supporting",
-      "confidence": "medium",
-      "evidence": [
-        {
-          "type": "filename_partial",
-          "detail": "Basename contains keyword: view"
-        }
-      ],
-      "recommendedReadTool": "read_adaptive"
-    },
-    {
-      "path": "examples/agents/pi-reviewer.md",
-      "role": "supporting",
-      "confidence": "medium",
-      "evidence": [
-        {
-          "type": "filename_partial",
-          "detail": "Basename contains keyword: view"
-        }
-      ],
-      "recommendedReadTool": "read_adaptive"
-    },
-    {
       "path": "scripts/debug-token.mjs",
       "role": "supporting",
       "confidence": "medium",
@@ -137,6 +233,198 @@
         }
       ],
       "recommendedReadTool": "read_adaptive"
+    },
+    {
+      "path": ".env.example",
+      "role": "supporting",
+      "confidence": "low",
+      "evidence": [
+        {
+          "type": "content_match",
+          "detail": "Contains keyword: view"
+        }
+      ],
+      "recommendedReadTool": "read_many"
+    },
+    {
+      "path": ".github/PULL_REQUEST_TEMPLATE.md",
+      "role": "supporting",
+      "confidence": "low",
+      "evidence": [
+        {
+          "type": "content_match",
+          "detail": "Contains keyword: view"
+        }
+      ],
+      "recommendedReadTool": "read_many"
+    },
+    {
+      "path": ".github/workflows/release.yml",
+      "role": "supporting",
+      "confidence": "low",
+      "evidence": [
+        {
+          "type": "content_match",
+          "detail": "Contains keyword: view"
+        }
+      ],
+      "recommendedReadTool": "read_many"
+    },
+    {
+      "path": "CHANGELOG.md",
+      "role": "supporting",
+      "confidence": "low",
+      "evidence": [
+        {
+          "type": "content_match",
+          "detail": "Contains keyword: view"
+        }
+      ],
+      "recommendedReadTool": "read_many"
+    },
+    {
+      "path": "CODE_OF_CONDUCT.md",
+      "role": "supporting",
+      "confidence": "low",
+      "evidence": [
+        {
+          "type": "content_match",
+          "detail": "Contains keyword: view"
+        }
+      ],
+      "recommendedReadTool": "read_many"
+    },
+    {
+      "path": "docs/agent-profile-schema.md",
+      "role": "supporting",
+      "confidence": "low",
+      "evidence": [
+        {
+          "type": "content_match",
+          "detail": "Contains keyword: view"
+        }
+      ],
+      "recommendedReadTool": "read_many"
+    },
+    {
+      "path": "docs/configuration.md",
+      "role": "supporting",
+      "confidence": "low",
+      "evidence": [
+        {
+          "type": "content_match",
+          "detail": "Contains keyword: view"
+        }
+      ],
+      "recommendedReadTool": "read_many"
+    },
+    {
+      "path": "docs/gotchas.md",
+      "role": "supporting",
+      "confidence": "low",
+      "evidence": [
+        {
+          "type": "content_match",
+          "detail": "Contains keyword: view"
+        }
+      ],
+      "recommendedReadTool": "read_many"
+    },
+    {
+      "path": "docs/security.md",
+      "role": "supporting",
+      "confidence": "low",
+      "evidence": [
+        {
+          "type": "content_match",
+          "detail": "Contains keyword: view"
+        }
+      ],
+      "recommendedReadTool": "read_many"
+    },
+    {
+      "path": "eval/cases/read_many/two-files.snap.json",
+      "role": "supporting",
+      "confidence": "low",
+      "evidence": [
+        {
+          "type": "content_match",
+          "detail": "Contains keyword: view"
+        }
+      ],
+      "recommendedReadTool": "read_many"
+    },
+    {
+      "path": "eval/cases/read/package-json.snap.json",
+      "role": "supporting",
+      "confidence": "low",
+      "evidence": [
+        {
+          "type": "content_match",
+          "detail": "Contains keyword: view"
+        }
+      ],
+      "recommendedReadTool": "read_many"
+    },
+    {
+      "path": "eval/cases/semantic_pack/workspace-lifecycle.snap.json",
+      "role": "supporting",
+      "confidence": "low",
+      "evidence": [
+        {
+          "type": "content_match",
+          "detail": "Contains keyword: view"
+        }
+      ],
+      "recommendedReadTool": "read_many"
+    },
+    {
+      "path": "examples/agents/codex-qa-tester.md",
+      "role": "supporting",
+      "confidence": "low",
+      "evidence": [
+        {
+          "type": "content_match",
+          "detail": "Contains keyword: view"
+        }
+      ],
+      "recommendedReadTool": "read_many"
+    },
+    {
+      "path": "package.json",
+      "role": "supporting",
+      "confidence": "low",
+      "evidence": [
+        {
+          "type": "content_match",
+          "detail": "Contains keyword: view"
+        }
+      ],
+      "recommendedReadTool": "read_many"
+    },
+    {
+      "path": "README.md",
+      "role": "supporting",
+      "confidence": "low",
+      "evidence": [
+        {
+          "type": "content_match",
+          "detail": "Contains keyword: view"
+        }
+      ],
+      "recommendedReadTool": "read_many"
+    },
+    {
+      "path": "SECURITY.md",
+      "role": "supporting",
+      "confidence": "low",
+      "evidence": [
+        {
+          "type": "content_match",
+          "detail": "Contains keyword: view"
+        }
+      ],
+      "recommendedReadTool": "read_many"
     }
   ],
   "directDependents": [
@@ -146,12 +434,29 @@
         "eval/cases/read/package-json.snap.json",
         "eval/cases/read_many/two-files.snap.json",
         "eval/cases/semantic_pack/workspace-lifecycle.snap.json",
+        "eval/cases/task_context/pagination-bug.input.json",
+        "eval/cases/task_context/pagination-bug.snap.json",
         "package.json",
         "src/ui/card-types.test.ts",
         "src/ui/heavy-payload.tsx",
         "src/ui/patch-display.ts",
-        "src/ui/review-payload.tsx",
-        "src/ui/workspace-app.tsx"
+        "src/ui/review-payload.tsx"
+      ],
+      "confidence": "medium",
+      "limitations": [
+        "Lexical search only (no AST)",
+        "Truncated to 10 files (found 11)"
+      ]
+    },
+    {
+      "source": "src/change-intelligence/goal-normalizer.test.ts",
+      "dependents": [
+        "eval/cases/read/package-json.snap.json",
+        "eval/cases/read_many/two-files.snap.json",
+        "eval/cases/semantic_pack/workspace-lifecycle.snap.json",
+        "eval/cases/task_context/jwt-auth.snap.json",
+        "eval/cases/task_context/mutation-migration.snap.json",
+        "package.json"
       ],
       "confidence": "medium",
       "limitations": [
@@ -164,6 +469,7 @@
         "eval/cases/read/package-json.snap.json",
         "eval/cases/read_many/two-files.snap.json",
         "eval/cases/semantic_pack/workspace-lifecycle.snap.json",
+        "eval/cases/task_context/pagination-bug.snap.json",
         "package.json"
       ],
       "confidence": "medium",
@@ -177,6 +483,21 @@
         "eval/cases/read/package-json.snap.json",
         "eval/cases/read_many/two-files.snap.json",
         "eval/cases/semantic_pack/workspace-lifecycle.snap.json",
+        "eval/cases/task_context/pagination-bug.snap.json",
+        "package.json"
+      ],
+      "confidence": "medium",
+      "limitations": [
+        "Lexical search only (no AST)"
+      ]
+    },
+    {
+      "source": "src/change-intelligence/task-context.test.ts",
+      "dependents": [
+        "eval/cases/read/package-json.snap.json",
+        "eval/cases/read_many/two-files.snap.json",
+        "eval/cases/semantic_pack/workspace-lifecycle.snap.json",
+        "eval/cases/task_context/jwt-auth.snap.json",
         "package.json"
       ],
       "confidence": "medium",
@@ -198,6 +519,12 @@
       "testPaths": [
         "src/review-checkpoints.test.ts"
       ]
+    },
+    {
+      "sourcePath": "src/change-intelligence/goal-normalizer.ts",
+      "testPaths": [
+        "src/change-intelligence/goal-normalizer.test.ts"
+      ]
     }
   ],
   "suggestedNextSteps": [
@@ -206,8 +533,10 @@
       "arguments": {
         "paths": [
           "src/ui/card-types.ts",
+          "src/change-intelligence/goal-normalizer.test.ts",
           "src/review-checkpoints.test.ts",
-          "src/ui/card-types.test.ts"
+          "src/ui/card-types.test.ts",
+          "src/change-intelligence/task-context.test.ts"
         ]
       },
       "reason": "Read the most confident primary candidates first to understand the implementation details."
@@ -216,7 +545,7 @@
   "limitations": [],
   "budget": {
     "maxTokens": 15000,
-    "estimatedTokens": 2000,
+    "estimatedTokens": 5000,
     "truncated": false,
     "omittedCandidates": 0
   }

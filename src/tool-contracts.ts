@@ -21,7 +21,7 @@ export const TOOL_CONTRACTS = {
   },
   semanticPack: {
     title: "Semantic Pack",
-    description: "Build a deep architectural overview of a specific domain when the relevant files are not yet known. Use this to discover broad architecture, workflow, and inter-file relationships within a large token budget. For a fast, minimal goal-directed context containing just candidates and test proximity, use task_context instead.",
+    description: "Build a goal-focused architectural overview of a specific domain when the relevant files are not yet known. Use this to discover broad architecture, workflow, and inter-file relationships within a large token budget. Once the primary files are known, prefer grep, read_adaptive, read_many, or task_context for iterative investigation.",
   },
   taskContext: {
     title: "Task Context",

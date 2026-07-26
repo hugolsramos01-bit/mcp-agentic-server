@@ -5,6 +5,26 @@
   "taskTypeSource": "inferred",
   "primaryFiles": [
     {
+      "path": "src/change-intelligence/goal-normalizer.test.ts",
+      "role": "test",
+      "confidence": "medium",
+      "evidence": [
+        {
+          "type": "content_match",
+          "detail": "Contains keyword: adicionar"
+        },
+        {
+          "type": "content_match",
+          "detail": "Contains keyword: auth"
+        },
+        {
+          "type": "test_proximity",
+          "detail": "Is test for: src/change-intelligence/goal-normalizer.ts"
+        }
+      ],
+      "recommendedReadTool": "read_adaptive"
+    },
+    {
       "path": "src/oauth-store.test.ts",
       "role": "test",
       "confidence": "medium",
@@ -39,9 +59,105 @@
         }
       ],
       "recommendedReadTool": "read_adaptive"
+    },
+    {
+      "path": "src/change-intelligence/task-context.test.ts",
+      "role": "test",
+      "confidence": "low",
+      "evidence": [
+        {
+          "type": "content_match",
+          "detail": "Contains keyword: adicionar"
+        }
+      ],
+      "recommendedReadTool": "read_many"
     }
   ],
   "supportingFiles": [
+    {
+      "path": "eval/cases/task_context/jwt-auth.input.json",
+      "role": "supporting",
+      "confidence": "medium",
+      "evidence": [
+        {
+          "type": "filename_partial",
+          "detail": "Basename contains keyword: jwt"
+        },
+        {
+          "type": "filename_partial",
+          "detail": "Basename contains keyword: auth"
+        },
+        {
+          "type": "content_match",
+          "detail": "Contains keyword: adicionar"
+        },
+        {
+          "type": "content_match",
+          "detail": "Contains keyword: suporte"
+        },
+        {
+          "type": "content_match",
+          "detail": "Contains keyword: middleware"
+        },
+        {
+          "type": "content_match",
+          "detail": "Contains keyword: auth"
+        }
+      ],
+      "recommendedReadTool": "read_adaptive"
+    },
+    {
+      "path": "eval/cases/task_context/jwt-auth.snap.json",
+      "role": "supporting",
+      "confidence": "medium",
+      "evidence": [
+        {
+          "type": "filename_partial",
+          "detail": "Basename contains keyword: jwt"
+        },
+        {
+          "type": "filename_partial",
+          "detail": "Basename contains keyword: auth"
+        },
+        {
+          "type": "content_match",
+          "detail": "Contains keyword: adicionar"
+        },
+        {
+          "type": "content_match",
+          "detail": "Contains keyword: suporte"
+        },
+        {
+          "type": "content_match",
+          "detail": "Contains keyword: middleware"
+        },
+        {
+          "type": "content_match",
+          "detail": "Contains keyword: auth"
+        }
+      ],
+      "recommendedReadTool": "read_adaptive"
+    },
+    {
+      "path": "src/change-intelligence/goal-normalizer.ts",
+      "role": "supporting",
+      "confidence": "medium",
+      "evidence": [
+        {
+          "type": "content_match",
+          "detail": "Contains keyword: adicionar"
+        },
+        {
+          "type": "content_match",
+          "detail": "Contains keyword: middleware"
+        },
+        {
+          "type": "test_proximity",
+          "detail": "Has nearby tests: src/change-intelligence/goal-normalizer.test.ts"
+        }
+      ],
+      "recommendedReadTool": "read_adaptive"
+    },
     {
       "path": "src/oauth-store.ts",
       "role": "supporting",
@@ -58,22 +174,6 @@
         {
           "type": "test_proximity",
           "detail": "Has nearby tests: src/oauth-store.test.ts"
-        }
-      ],
-      "recommendedReadTool": "read_adaptive"
-    },
-    {
-      "path": "eval/cases/task_context/jwt-auth.input.json",
-      "role": "supporting",
-      "confidence": "medium",
-      "evidence": [
-        {
-          "type": "filename_partial",
-          "detail": "Basename contains keyword: jwt"
-        },
-        {
-          "type": "filename_partial",
-          "detail": "Basename contains keyword: auth"
         }
       ],
       "recommendedReadTool": "read_adaptive"
@@ -157,11 +257,255 @@
         }
       ],
       "recommendedReadTool": "read_adaptive"
+    },
+    {
+      "path": "package-lock.json",
+      "role": "supporting",
+      "confidence": "low",
+      "evidence": [
+        {
+          "type": "content_match",
+          "detail": "Contains keyword: middleware"
+        },
+        {
+          "type": "content_match",
+          "detail": "Contains keyword: auth"
+        }
+      ],
+      "recommendedReadTool": "read_many"
+    },
+    {
+      "path": ".env.example",
+      "role": "supporting",
+      "confidence": "low",
+      "evidence": [
+        {
+          "type": "content_match",
+          "detail": "Contains keyword: auth"
+        }
+      ],
+      "recommendedReadTool": "read_many"
+    },
+    {
+      "path": ".github/workflows/ci.yml",
+      "role": "supporting",
+      "confidence": "low",
+      "evidence": [
+        {
+          "type": "content_match",
+          "detail": "Contains keyword: auth"
+        }
+      ],
+      "recommendedReadTool": "read_many"
+    },
+    {
+      "path": ".github/workflows/release.yml",
+      "role": "supporting",
+      "confidence": "low",
+      "evidence": [
+        {
+          "type": "content_match",
+          "detail": "Contains keyword: auth"
+        }
+      ],
+      "recommendedReadTool": "read_many"
+    },
+    {
+      "path": "docs/configuration.md",
+      "role": "supporting",
+      "confidence": "low",
+      "evidence": [
+        {
+          "type": "content_match",
+          "detail": "Contains keyword: auth"
+        }
+      ],
+      "recommendedReadTool": "read_many"
+    },
+    {
+      "path": "docs/gotchas.md",
+      "role": "supporting",
+      "confidence": "low",
+      "evidence": [
+        {
+          "type": "content_match",
+          "detail": "Contains keyword: auth"
+        }
+      ],
+      "recommendedReadTool": "read_many"
+    },
+    {
+      "path": "docs/security.md",
+      "role": "supporting",
+      "confidence": "low",
+      "evidence": [
+        {
+          "type": "content_match",
+          "detail": "Contains keyword: auth"
+        }
+      ],
+      "recommendedReadTool": "read_many"
+    },
+    {
+      "path": "docs/setup.md",
+      "role": "supporting",
+      "confidence": "low",
+      "evidence": [
+        {
+          "type": "content_match",
+          "detail": "Contains keyword: auth"
+        }
+      ],
+      "recommendedReadTool": "read_many"
+    },
+    {
+      "path": "eval/cases/read_many/two-files.snap.json",
+      "role": "supporting",
+      "confidence": "low",
+      "evidence": [
+        {
+          "type": "content_match",
+          "detail": "Contains keyword: auth"
+        }
+      ],
+      "recommendedReadTool": "read_many"
+    },
+    {
+      "path": "eval/cases/read/package-json.snap.json",
+      "role": "supporting",
+      "confidence": "low",
+      "evidence": [
+        {
+          "type": "content_match",
+          "detail": "Contains keyword: auth"
+        }
+      ],
+      "recommendedReadTool": "read_many"
+    },
+    {
+      "path": "eval/cases/semantic_pack/workspace-lifecycle.snap.json",
+      "role": "supporting",
+      "confidence": "low",
+      "evidence": [
+        {
+          "type": "content_match",
+          "detail": "Contains keyword: auth"
+        }
+      ],
+      "recommendedReadTool": "read_many"
+    },
+    {
+      "path": "LICENSE",
+      "role": "supporting",
+      "confidence": "low",
+      "evidence": [
+        {
+          "type": "content_match",
+          "detail": "Contains keyword: auth"
+        }
+      ],
+      "recommendedReadTool": "read_many"
+    },
+    {
+      "path": "package.json",
+      "role": "supporting",
+      "confidence": "low",
+      "evidence": [
+        {
+          "type": "content_match",
+          "detail": "Contains keyword: auth"
+        }
+      ],
+      "recommendedReadTool": "read_many"
+    },
+    {
+      "path": "README.md",
+      "role": "supporting",
+      "confidence": "low",
+      "evidence": [
+        {
+          "type": "content_match",
+          "detail": "Contains keyword: auth"
+        }
+      ],
+      "recommendedReadTool": "read_many"
+    },
+    {
+      "path": "scripts/smoke-package.mjs",
+      "role": "supporting",
+      "confidence": "low",
+      "evidence": [
+        {
+          "type": "content_match",
+          "detail": "Contains keyword: auth"
+        }
+      ],
+      "recommendedReadTool": "read_many"
+    },
+    {
+      "path": "scripts/test-http.mjs",
+      "role": "supporting",
+      "confidence": "low",
+      "evidence": [
+        {
+          "type": "content_match",
+          "detail": "Contains keyword: auth"
+        }
+      ],
+      "recommendedReadTool": "read_many"
+    },
+    {
+      "path": "SECURITY.md",
+      "role": "supporting",
+      "confidence": "low",
+      "evidence": [
+        {
+          "type": "content_match",
+          "detail": "Contains keyword: auth"
+        }
+      ],
+      "recommendedReadTool": "read_many"
+    },
+    {
+      "path": "src/bootstrap-tools.ts",
+      "role": "supporting",
+      "confidence": "low",
+      "evidence": [
+        {
+          "type": "content_match",
+          "detail": "Contains keyword: suporte"
+        }
+      ],
+      "recommendedReadTool": "read_many"
+    },
+    {
+      "path": "src/context-engine/compressors.ts",
+      "role": "supporting",
+      "confidence": "low",
+      "evidence": [
+        {
+          "type": "content_match",
+          "detail": "Contains keyword: middleware"
+        }
+      ],
+      "recommendedReadTool": "read_many"
+    },
+    {
+      "path": "src/server.ts",
+      "role": "supporting",
+      "confidence": "low",
+      "evidence": [
+        {
+          "type": "content_match",
+          "detail": "Contains keyword: middleware"
+        }
+      ],
+      "recommendedReadTool": "read_many"
     }
   ],
   "directDependents": [
     {
-      "source": "src/oauth-store.test.ts",
+      "source": "src/change-intelligence/goal-normalizer.test.ts",
       "dependents": [
         "eval/cases/read/package-json.snap.json",
         "eval/cases/read_many/two-files.snap.json",
@@ -174,7 +518,35 @@
       ]
     },
     {
+      "source": "src/oauth-store.test.ts",
+      "dependents": [
+        "eval/cases/read/package-json.snap.json",
+        "eval/cases/read_many/two-files.snap.json",
+        "eval/cases/semantic_pack/workspace-lifecycle.snap.json",
+        "eval/cases/task_context/jwt-auth.snap.json",
+        "package.json"
+      ],
+      "confidence": "medium",
+      "limitations": [
+        "Lexical search only (no AST)"
+      ]
+    },
+    {
       "source": "src/process-sessions.test.ts",
+      "dependents": [
+        "eval/cases/read/package-json.snap.json",
+        "eval/cases/read_many/two-files.snap.json",
+        "eval/cases/semantic_pack/workspace-lifecycle.snap.json",
+        "eval/cases/task_context/jwt-auth.snap.json",
+        "package.json"
+      ],
+      "confidence": "medium",
+      "limitations": [
+        "Lexical search only (no AST)"
+      ]
+    },
+    {
+      "source": "src/change-intelligence/task-context.test.ts",
       "dependents": [
         "eval/cases/read/package-json.snap.json",
         "eval/cases/read_many/two-files.snap.json",
@@ -200,6 +572,12 @@
       "testPaths": [
         "src/process-sessions.test.ts"
       ]
+    },
+    {
+      "sourcePath": "src/change-intelligence/goal-normalizer.ts",
+      "testPaths": [
+        "src/change-intelligence/goal-normalizer.test.ts"
+      ]
     }
   ],
   "suggestedNextSteps": [
@@ -207,8 +585,10 @@
       "tool": "read_many",
       "arguments": {
         "paths": [
+          "src/change-intelligence/goal-normalizer.test.ts",
           "src/oauth-store.test.ts",
-          "src/process-sessions.test.ts"
+          "src/process-sessions.test.ts",
+          "src/change-intelligence/task-context.test.ts"
         ]
       },
       "reason": "Read the most confident primary candidates first to understand the implementation details."
@@ -217,7 +597,7 @@
   "limitations": [],
   "budget": {
     "maxTokens": 15000,
-    "estimatedTokens": 2000,
+    "estimatedTokens": 5600,
     "truncated": false,
     "omittedCandidates": 0
   }

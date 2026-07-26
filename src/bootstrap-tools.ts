@@ -238,48 +238,9 @@ export async function codingContextTool(cwd: string, allowedRoots: string[], inp
     // Clean punctuation and normalize whitespace
     const goal = rawGoal.replace(/[^\w\s-]/g, ' ').replace(/\s+/g, ' ').trim();
     
-    // ─── Keyword expansion ──────────────────────────────────────
-    // Split goal into tokens, add common synonyms and inflection variants.
-    // Strip stopwords (English + Portuguese) so "tenant security and admin isolation" → ["tenant", "security", "admin", "isolation"]
-    const STOPWORDS = new Set([
-      // English
-      "a", "an", "the", "and", "or", "of", "in", "on", "to", "for", "with", "at", "by", "is",
-      "as", "be", "it", "no", "not", "from", "this", "that", "but", "if", "so", "all", "can",
-      "will", "would", "should", "could", "do", "does", "has", "have", "had", "was", "were",
-      "are", "been", "about", "into", "up", "out", "just", "also", "very", "only", "its", "get",
-      // Portuguese
-      "a", "ao", "aos", "as", "com", "da", "das", "de", "do", "dos", "e", "em", "na", "nas",
-      "no", "nos", "o", "os", "para", "por", "pela", "pelas", "pelo", "pelos", "que", "se",
-      "sem", "sua", "suas", "seu", "seus", "um", "uma", "umas", "uns", "como", "entre",
-      "entender", "avaliar", "melhorar", "usar", "criar", "ver", "ter", "fazer", "sobre",
-    ]);
-    // NFD-normalize and remove combining marks before token matching
-    function normalizeToken(t: string): string { return t.normalize("NFD").replace(/[\u0300-\u036f]/g, ""); }
-    const rawTokens = goal.split(/\s+/).filter(Boolean);
-    const tokens = rawTokens.filter(t => !STOPWORDS.has(normalizeToken(t)) && t.length > 1);
-    const synonyms: Record<string, string[]> = {
-      tenant: ["tenant", "tenancy", "org", "organization", "multi-tenant", "multitenant", "multi_tenant", "account", "workspace"],
-      auth: ["auth", "authentication", "login", "signin", "oauth", "session", "jwt", "token", "password", "credential"],
-      security: ["security", "secure", "safe", "protect", "permission", "acl", "rbac", "access-control", "safety", "vulnerability"],
-      middleware: ["middleware", "interceptor", "filter", "hook", "pipe", "chain"],
-      permission: ["permission", "role", "access", "allow", "deny", "policy", "capability", "scope", "privilege"],
-      isolation: ["isolation", "isolated", "separate", "sandbox", "compartment", "boundary", "partition", "scope", "scoped"],
-      api: ["api", "endpoint", "route", "rest", "graphql", "rpc", "handler", "controller"],
-      database: ["database", "db", "sql", "query", "collection", "model", "schema", "store", "repository"],
-      builder: ["builder", "build", "construct", "factory", "generator", "creator", "page-builder", "pagebuilder", "editor"],
-      public: ["public", "client", "frontend", "customer", "user-facing", "external", "open", "unauthenticated", "anonymous"],
-    };
-    
-    // Build expanded keyword list: original tokens + synonyms of any matching key
-    const expandedKeywords = new Set(tokens);
-    for (const token of tokens) {
-      for (const [key, syns] of Object.entries(synonyms)) {
-        if (token.includes(key) || key.includes(token) || syns.some(s => s.includes(token) || token.includes(s))) {
-          for (const s of syns) expandedKeywords.add(s);
-        }
-      }
-    }
-    const keywords = [...expandedKeywords].filter(k => k.length > 2);
+    // ─── Keyword expansion (via shared normalizer) ──────────────
+    const { expandedKeywords } = normalizeGoal(goal);
+    const keywords = expandedKeywords;
     
     // ─── Grep-based matching ────────────────────────────────────
     // Search the codebase for keyword occurrences, then cross-reference
