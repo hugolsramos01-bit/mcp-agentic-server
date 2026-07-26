@@ -70,6 +70,9 @@ import {
   type ToolContent, type ToolLogFields,
 } from "./server/tool-utils.js";
 import { processResult, processOutputSchema, processToolResponse } from "./server/process-tools.js";
+import { generateMutationReceipt } from "./server/mutation-receipt.js";
+import { stat } from "node:fs/promises";
+import { join } from "node:path";
 import { agenticDoctor } from "./diagnostics.js";
 
 type Transport = StreamableHTTPServerTransport;
@@ -1163,6 +1166,9 @@ function createMcpServer(
       const workspace = workspaces.getWorkspace(workspaceId);
       workspaces.resolvePath(workspace, input.path);
       
+      let writeExistedBefore = false;
+      try { await stat(join(workspace.root, input.path)); writeExistedBefore = true; } catch {}
+      
       const { applyAtomicMutation } = await import("./server/tool-utils.js");
       const response = await applyAtomicMutation({
         cwd: workspace.root,
@@ -1218,6 +1224,12 @@ function createMcpServer(
         },
         structuredContent: {
           result: contentText(response.content),
+          mutationReceipt: await generateMutationReceipt(workspace.root, [{
+            path: input.path,
+            operation: writeExistedBefore ? "update" : "add",
+            additions: summary.lines,
+            removals: 0
+          }])
         },
       };
     },
@@ -1338,6 +1350,12 @@ function createMcpServer(
         structuredContent: {
           status: "applied",
           result: contentText(editContent),
+          mutationReceipt: await generateMutationReceipt(workspace.root, [{
+            path: input.path,
+            operation: "update",
+            additions: stats.additions,
+            removals: stats.removals
+          }])
         },
       };
     },
@@ -2237,6 +2255,7 @@ function createMcpServer(
           recordChange(req.workspaceId, "multiple files", "apply_patch", `Applied patch to ${result.files.length} files (+${result.additions} -${result.removals})`);
           
           const summary = `Applied patch to ${result.files.length} files (+${result.additions} -${result.removals})`;
+          const receipt = await generateMutationReceipt(workspace.root, result.files);
           const content = [textBlock(summary)];
           
           return {
