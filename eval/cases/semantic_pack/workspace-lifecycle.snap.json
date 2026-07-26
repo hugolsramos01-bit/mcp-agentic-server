@@ -1,0 +1,342 @@
+{
+  "goal": "Understand the workspace lifecycle and how workspaces are closed and forgotten",
+  "project": {
+    "scripts": {
+      "clean": "node scripts/clean.mjs",
+      "build": "npm run clean && npm run build:app && tsc -p tsconfig.build.json",
+      "build:app": "vite build",
+      "dev": "node scripts/dev-server.mjs",
+      "postinstall": "node scripts/fix-node-pty-permissions.mjs",
+      "smoke:package": "node scripts/smoke-package.mjs",
+      "test:http": "node scripts/test-http.mjs",
+      "start": "node dist/cli.js serve",
+      "test": "tsx src/regression.test.ts && tsx src/config.test.ts && tsx src/analysis-regression.test.ts && tsx src/ast-tools.test.ts && tsx src/import-resolver.test.ts && tsx src/diagnostics/log-compressor.test.ts && tsx src/ui/card-types.test.ts && tsx src/ui/patch-display.test.ts && tsx src/apply-patch.test.ts && tsx src/process-platform.test.ts && tsx src/process-sessions.test.ts && tsx src/process-runner/process-runner.test.ts && tsx src/local-agent-runtime.test.ts && tsx src/local-agent-adapters.test.ts && tsx src/local-agent-availability.test.ts && tsx src/local-agent-profiles.test.ts && tsx src/local-agent-targets.test.ts && tsx src/local-agent-store.test.ts && tsx src/roots.test.ts && tsx src/git.test.ts && tsx src/skills.test.ts && tsx src/workspaces.test.ts && tsx src/checkpoint-tools.test.ts && tsx src/review-checkpoints.test.ts && tsx src/native-dependency-verifier.test.ts && tsx src/oauth-store.test.ts && tsx src/cli.test.ts && tsx src/security/security-regression.test.ts",
+      "typecheck": "tsc -p tsconfig.json --noEmit",
+      "eval": "node eval/run.mjs",
+      "eval:update": "node eval/run.mjs --update"
+    }
+  },
+  "git": {
+    "branch": "## feature/agent-eval-baseline",
+    "status": "## feature/agent-eval-baseline\n M package.json\n?? eval/\n"
+  },
+  "routes": [],
+  "collections": [],
+  "vite": {
+    "detected": true,
+    "configFile": "vite.config.ts",
+    "plugins": [
+      "react"
+    ],
+    "confidence": "high"
+  },
+  "genericArchitecture": {
+    "confidence": "medium",
+    "coverage": "conventional JavaScript/TypeScript entrypoints detected by filename; inspect imports before editing",
+    "entrypoints": [
+      "dist/server.js",
+      "dist/cli.js",
+      "vite.config.ts"
+    ]
+  },
+  "recommendedFiles": [
+    {
+      "path": "src/ui/workspace-app.tsx",
+      "relevanceTier": "direct",
+      "matchedBy": [
+        "filename:workspace",
+        "content:understand",
+        "content:lifecycle",
+        "content:how",
+        "content:workspaces",
+        "content:closed",
+        "content:forgotten",
+        "content:tenant"
+      ],
+      "recommendedReadMode": "balanced",
+      "reason": "Nome, rota ou símbolo corresponde diretamente ao objetivo",
+      "estimatedTokens": 5110
+    },
+    {
+      "path": "src/workspace-index.ts",
+      "relevanceTier": "direct",
+      "matchedBy": [
+        "filename:workspace",
+        "content:understand",
+        "content:lifecycle",
+        "content:how",
+        "content:workspaces",
+        "content:closed",
+        "content:forgotten",
+        "content:tenant"
+      ],
+      "recommendedReadMode": "balanced",
+      "reason": "Nome, rota ou símbolo corresponde diretamente ao objetivo",
+      "estimatedTokens": 2292
+    },
+    {
+      "path": "src/workspace-store.ts",
+      "relevanceTier": "direct",
+      "matchedBy": [
+        "filename:workspace",
+        "content:understand",
+        "content:lifecycle",
+        "content:how",
+        "content:workspaces",
+        "content:closed",
+        "content:forgotten",
+        "content:tenant"
+      ],
+      "recommendedReadMode": "full",
+      "reason": "Nome, rota ou símbolo corresponde diretamente ao objetivo",
+      "estimatedTokens": 1352
+    },
+    {
+      "path": "src/workspaces.ts",
+      "relevanceTier": "direct",
+      "matchedBy": [
+        "filename:workspace",
+        "filename:workspaces",
+        "content:understand",
+        "content:lifecycle",
+        "content:how",
+        "content:closed",
+        "content:forgotten",
+        "content:tenant"
+      ],
+      "recommendedReadMode": "balanced",
+      "reason": "Nome, rota ou símbolo corresponde diretamente ao objetivo",
+      "estimatedTokens": 5538
+    },
+    {
+      "path": "src/checkpoint-tools.ts",
+      "relevanceTier": "textual",
+      "matchedBy": [
+        "content:understand",
+        "content:workspace",
+        "content:lifecycle",
+        "content:how",
+        "content:workspaces",
+        "content:closed",
+        "content:forgotten",
+        "content:tenant"
+      ],
+      "recommendedReadMode": "skeletal",
+      "reason": "Contém termos do objetivo — pode ser relevante",
+      "estimatedTokens": 5672
+    },
+    {
+      "path": "src/semantic-tools.ts",
+      "relevanceTier": "textual",
+      "matchedBy": [
+        "content:understand",
+        "content:workspace",
+        "content:lifecycle",
+        "content:how",
+        "content:workspaces",
+        "content:closed",
+        "content:forgotten",
+        "content:tenant"
+      ],
+      "recommendedReadMode": "skeletal",
+      "reason": "Contém termos do objetivo — pode ser relevante",
+      "estimatedTokens": 4992
+    },
+    {
+      "path": "src/server.ts",
+      "relevanceTier": "textual",
+      "matchedBy": [
+        "content:understand",
+        "content:workspace",
+        "content:lifecycle",
+        "content:how",
+        "content:workspaces",
+        "content:closed",
+        "content:forgotten",
+        "content:tenant"
+      ],
+      "recommendedReadMode": "skeletal",
+      "reason": "Contém termos do objetivo — pode ser relevante",
+      "estimatedTokens": 35900
+    },
+    {
+      "path": "src/apply-patch.ts",
+      "relevanceTier": "textual",
+      "matchedBy": [
+        "content:understand",
+        "content:workspace",
+        "content:lifecycle",
+        "content:how",
+        "content:workspaces",
+        "content:closed",
+        "content:forgotten",
+        "content:tenant"
+      ],
+      "recommendedReadMode": "skeletal",
+      "reason": "Contém termos do objetivo — pode ser relevante",
+      "estimatedTokens": 4881
+    },
+    {
+      "path": "src/assistant-tools.ts",
+      "relevanceTier": "textual",
+      "matchedBy": [
+        "content:understand",
+        "content:workspace",
+        "content:lifecycle",
+        "content:how",
+        "content:workspaces",
+        "content:closed",
+        "content:forgotten",
+        "content:tenant"
+      ],
+      "recommendedReadMode": "skeletal",
+      "reason": "Contém termos do objetivo — pode ser relevante",
+      "estimatedTokens": 5213
+    },
+    {
+      "path": "src/ast-tools.ts",
+      "relevanceTier": "textual",
+      "matchedBy": [
+        "content:understand",
+        "content:workspace",
+        "content:lifecycle",
+        "content:how",
+        "content:workspaces",
+        "content:closed",
+        "content:forgotten",
+        "content:tenant"
+      ],
+      "recommendedReadMode": "skeletal",
+      "reason": "Contém termos do objetivo — pode ser relevante",
+      "estimatedTokens": 6903
+    },
+    {
+      "path": "src/bootstrap-tools.ts",
+      "relevanceTier": "textual",
+      "matchedBy": [
+        "content:understand",
+        "content:workspace",
+        "content:lifecycle",
+        "content:how",
+        "content:workspaces",
+        "content:closed",
+        "content:forgotten",
+        "content:tenant"
+      ],
+      "recommendedReadMode": "skeletal",
+      "reason": "Contém termos do objetivo — pode ser relevante",
+      "estimatedTokens": 6296
+    },
+    {
+      "path": "src/change-session.ts",
+      "relevanceTier": "textual",
+      "matchedBy": [
+        "content:understand",
+        "content:workspace",
+        "content:lifecycle",
+        "content:how",
+        "content:workspaces",
+        "content:closed",
+        "content:forgotten",
+        "content:tenant"
+      ],
+      "recommendedReadMode": "light",
+      "reason": "Contém termos do objetivo — pode ser relevante",
+      "estimatedTokens": 1739
+    },
+    {
+      "path": "src/cli.ts",
+      "relevanceTier": "textual",
+      "matchedBy": [
+        "content:understand",
+        "content:workspace",
+        "content:lifecycle",
+        "content:how",
+        "content:workspaces",
+        "content:closed",
+        "content:forgotten",
+        "content:tenant"
+      ],
+      "recommendedReadMode": "skeletal",
+      "reason": "Contém termos do objetivo — pode ser relevante",
+      "estimatedTokens": 6355
+    },
+    {
+      "path": "src/contract-tools.ts",
+      "relevanceTier": "textual",
+      "matchedBy": [
+        "content:understand",
+        "content:workspace",
+        "content:lifecycle",
+        "content:how",
+        "content:workspaces",
+        "content:closed",
+        "content:forgotten",
+        "content:tenant"
+      ],
+      "recommendedReadMode": "full",
+      "reason": "Contém termos do objetivo — pode ser relevante",
+      "estimatedTokens": 363
+    },
+    {
+      "path": "src/db/schema.ts",
+      "relevanceTier": "textual",
+      "matchedBy": [
+        "content:understand",
+        "content:workspace",
+        "content:lifecycle",
+        "content:how",
+        "content:workspaces",
+        "content:closed",
+        "content:forgotten",
+        "content:tenant"
+      ],
+      "recommendedReadMode": "light",
+      "reason": "Contém termos do objetivo — pode ser relevante",
+      "estimatedTokens": 970
+    }
+  ],
+  "recommendedWorkflow": [
+    {
+      "action": "read",
+      "arguments": {
+        "path": "src/ui/workspace-app.tsx"
+      },
+      "reason": "Nome, rota ou símbolo corresponde diretamente ao objetivo"
+    },
+    {
+      "action": "read",
+      "arguments": {
+        "path": "src/workspace-index.ts"
+      },
+      "reason": "Nome, rota ou símbolo corresponde diretamente ao objetivo"
+    },
+    {
+      "action": "read",
+      "arguments": {
+        "path": "src/workspace-store.ts"
+      },
+      "reason": "Nome, rota ou símbolo corresponde diretamente ao objetivo"
+    },
+    {
+      "action": "grep",
+      "arguments": {
+        "pattern": "understand|workspace|lifecycle"
+      },
+      "reason": "Buscar referências adicionais (20 arquivos candidatos)"
+    },
+    {
+      "action": "run_package_script",
+      "arguments": {
+        "script": "typecheck",
+        "outputMode": "diagnostic-summary"
+      },
+      "reason": "Verificar impacto das mudanças"
+    }
+  ],
+  "tokenBudget": {
+    "used": 1305,
+    "max": 8000,
+    "remaining": 6695
+  }
+}

@@ -1,0 +1,6 @@
+{
+  "_cwd": ".",
+  "paths": ["package.json", "src/config.ts"],
+  "compressionLevel": "none",
+  "_description": "read_many two files — verifies files[], contentHash, sizeBytes, mtimeNs per file"
+}

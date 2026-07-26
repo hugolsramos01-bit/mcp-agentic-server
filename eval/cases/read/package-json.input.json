@@ -1,0 +1,5 @@
+{
+  "_cwd": ".",
+  "path": "package.json",
+  "_description": "read package.json — verifies contentHash, sizeBytes, mtimeNs are returned"
+}
