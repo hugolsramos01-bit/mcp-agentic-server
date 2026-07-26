@@ -1,0 +1,5 @@
+{
+  "paths": ["src/index.ts"],
+  "scope": "changed",
+  "level": "recommended"
+}

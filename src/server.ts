@@ -2160,15 +2160,20 @@ function createMcpServer(
       "suggest_checks",
       {
         title: "Suggest Checks",
-        description: "[Execution] Read-only recommendation of package scripts based on workspace package.json. Does not execute scripts or commands.",
-        inputSchema: { workspaceId: z.string().describe("Workspace ID") },
+        description: "[Execution] Recommendation of package scripts based on workspace package.json and changed paths.",
+        inputSchema: { 
+          workspaceId: z.string().describe("Workspace ID"),
+          paths: z.array(z.string()).optional().describe("Arquivos que foram alterados ou estão no escopo da tarefa"),
+          scope: z.enum(["changed", "workspace"]).optional().describe("Escopo da verificação: 'changed' (padrão) para foco local, 'workspace' para validação geral"),
+          level: z.enum(["minimal", "recommended", "full"]).optional().describe("Nível de agressividade das verificações")
+        },
         outputSchema: resultOutputSchema(),
         ...toolWidgetDescriptorMeta(config, "read"),
         annotations: READ_TOOL_ANNOTATIONS,
       } as any,
       async (req: any) => {
         const workspace = workspaces.getWorkspace(req.workspaceId);
-        return wrap("suggest_checks", req, await suggestChecksTool(workspace.root));
+        return wrap("suggest_checks", req, await suggestChecksTool(workspace.root, req));
       }
     );
     registerAppTool(

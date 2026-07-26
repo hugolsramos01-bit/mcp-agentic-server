@@ -1,0 +1,72 @@
+{
+  "packageManager": "npm",
+  "selectionMode": "targeted",
+  "changeSource": "provided_paths",
+  "level": "recommended",
+  "changedPaths": [
+    "README.md",
+    "docs/architecture.md"
+  ],
+  "recommended": [],
+  "deferred": [
+    {
+      "script": "build",
+      "reason": "Alterações ignoram este tipo de check (ex. apenas documentação)"
+    },
+    {
+      "script": "build:app",
+      "reason": "Alterações ignoram este tipo de check (ex. apenas documentação)"
+    },
+    {
+      "script": "clean",
+      "reason": "Alterações ignoram este tipo de check (ex. apenas documentação)"
+    },
+    {
+      "script": "dev",
+      "reason": "Alterações ignoram este tipo de check (ex. apenas documentação)"
+    },
+    {
+      "script": "eval",
+      "reason": "Alterações ignoram este tipo de check (ex. apenas documentação)"
+    },
+    {
+      "script": "eval:update",
+      "reason": "Alterações ignoram este tipo de check (ex. apenas documentação)"
+    },
+    {
+      "script": "postinstall",
+      "reason": "Alterações ignoram este tipo de check (ex. apenas documentação)"
+    },
+    {
+      "script": "smoke:package",
+      "reason": "Alterações ignoram este tipo de check (ex. apenas documentação)"
+    },
+    {
+      "script": "start",
+      "reason": "Alterações ignoram este tipo de check (ex. apenas documentação)"
+    },
+    {
+      "script": "test",
+      "reason": "Alterações ignoram este tipo de check (ex. apenas documentação)"
+    },
+    {
+      "script": "test:http",
+      "reason": "Alterações ignoram este tipo de check (ex. apenas documentação)"
+    },
+    {
+      "script": "typecheck",
+      "reason": "Alterações ignoram este tipo de check (ex. apenas documentação)"
+    }
+  ],
+  "stages": {
+    "initial": [],
+    "afterInitialSuccess": [],
+    "beforeRelease": [
+      "build",
+      "build:app",
+      "smoke:package",
+      "test:http"
+    ]
+  },
+  "limitations": []
+}

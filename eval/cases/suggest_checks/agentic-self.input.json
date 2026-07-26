@@ -1,4 +1,5 @@
 {
   "_cwd": ".",
-  "_description": "suggest_checks invoked against the agentic-mcp-server repo itself (has typecheck, test, build, smoke:package, test:http)"
+  "_description": "suggest_checks invoked against the agentic-mcp-server repo itself (has typecheck, test, build, smoke:package, test:http)",
+  "scope": "workspace"
 }

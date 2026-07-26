@@ -1,0 +1,5 @@
+{
+  "paths": ["src/ui/App.tsx", "src/ui/styles.css"],
+  "scope": "changed",
+  "level": "recommended"
+}

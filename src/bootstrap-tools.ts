@@ -10,6 +10,7 @@ import { nextRouteMapTool, payloadSchemaMapTool } from "./ast-tools.js";
 import { readWorkspaceKnowledge } from "./knowledge-tools.js";
 import { getWorkspaceGitEligibility } from "./git.js";
 import { classifyPackageScripts, type ClassifiedCheck } from "./check-classifier.js";
+import { getGitChangedPaths, selectTargetedChecks, type SuggestChecksOptions } from "./check-selector.js";
 
 const execFileAsync = promisify(execFile);
 
@@ -520,7 +521,7 @@ export async function codingContextTool(cwd: string, allowedRoots: string[], inp
   };
 }
 
-export async function suggestChecksTool(cwd: string): Promise<ToolResponse> {
+export async function suggestChecksTool(cwd: string, options: SuggestChecksOptions = {}): Promise<ToolResponse> {
   let packageJson: any = null;
   try {
     const pkgContent = readFileSync(join(cwd, "package.json"), "utf8");
@@ -539,6 +540,40 @@ export async function suggestChecksTool(cwd: string): Promise<ToolResponse> {
 
   const classified = classifyPackageScripts(scripts, packageManager);
 
+  // If we have explicit paths or implicitly want changed paths
+  if (options.paths || options.scope === "changed" || (!options.paths && !options.scope)) {
+    let changedPaths: string[] = [];
+    let changeSource: "provided_paths" | "git_status" = "provided_paths";
+
+    if (options.paths && options.paths.length > 0) {
+      changedPaths = options.paths;
+    } else {
+      try {
+        changedPaths = await getGitChangedPaths(cwd);
+        changeSource = "git_status";
+      } catch (e) {
+        return {
+          content: [{
+            type: "text",
+            text: JSON.stringify({ error: "Failed to detect git changes. Ensure you are in a git repository or explicitly provide paths." })
+          }]
+        };
+      }
+    }
+
+    const targetedResult = selectTargetedChecks(classified, options, changeSource, changedPaths);
+    return {
+      content: [{
+        type: "text",
+        text: JSON.stringify({
+          packageManager,
+          ...targetedResult
+        }, null, 2)
+      }]
+    };
+  }
+
+  // Fallback to workspace scope (full pipeline)
   // Group by tier
   const tiers: Record<string, { label: string; checks: ClassifiedCheck[] }> = {
     static_analysis: { label: "Static Analysis", checks: [] },
@@ -587,6 +622,7 @@ export async function suggestChecksTool(cwd: string): Promise<ToolResponse> {
     content: [{
       type: "text",
       text: JSON.stringify({
+        selectionMode: "workspace",
         packageManager,
         pipeline,
         recommendedOrder,
