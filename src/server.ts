@@ -70,6 +70,7 @@ import {
   type ToolContent, type ToolLogFields,
 } from "./server/tool-utils.js";
 import { processResult, processOutputSchema, processToolResponse } from "./server/process-tools.js";
+import { formatMutationReceipt } from "./server/mutation-receipt.js";
 import { agenticDoctor } from "./diagnostics.js";
 
 type Transport = StreamableHTTPServerTransport;
@@ -2237,7 +2238,8 @@ function createMcpServer(
           recordChange(req.workspaceId, "multiple files", "apply_patch", `Applied patch to ${result.files.length} files (+${result.additions} -${result.removals})`);
           
           const summary = `Applied patch to ${result.files.length} files (+${result.additions} -${result.removals})`;
-          const content = [textBlock(summary)];
+          const receipt = await formatMutationReceipt(workspace.root, result.files);
+          const content = [textBlock(summary + receipt)];
           
           return {
             content,
