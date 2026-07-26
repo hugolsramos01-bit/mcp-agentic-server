@@ -5,16 +5,31 @@ import { readFile } from "node:fs/promises";
 
 export interface MutationReceiptInput {
   path: string;
-  operation: "update" | "add" | "delete" | "move";
+  operation: "add" | "update" | "delete" | "move";
   additions?: number;
   removals?: number;
+  beforeHash?: string | null;
   afterHash?: string | null;
+}
+
+export interface MutationReceipt {
+  version: 1;
+  files: Array<{
+    path: string;
+    operation: "add" | "update" | "delete" | "move";
+    additions: number;
+    removals: number;
+    beforeHash?: string | null;
+    afterHash: string | null;
+    nearbyTestCandidates: string[];
+  }>;
+  limitations: string[];
 }
 
 export async function computeHash(filePath: string): Promise<string | null> {
   try {
     const content = await readFile(filePath);
-    return createHash("sha256").update(content).digest("hex");
+    return `sha256:${createHash("sha256").update(content).digest("hex")}`;
   } catch (e) {
     return null;
   }
@@ -39,7 +54,11 @@ export async function findNearbyTests(filePath: string, rootDir: string): Promis
   for (const candidate of testCandidates) {
     try {
       await access(candidate);
-      found.push(candidate);
+      // Return relative path
+      const relTest = candidate.startsWith(rootDir) 
+        ? candidate.substring(rootDir.length + 1).replace(/\\\\/g, "/") 
+        : candidate.replace(/\\\\/g, "/");
+      found.push(relTest);
     } catch {
       // Ignore
     }
@@ -47,31 +66,39 @@ export async function findNearbyTests(filePath: string, rootDir: string): Promis
   return found;
 }
 
-export async function formatMutationReceipt(workspaceRoot: string, files: MutationReceiptInput[]): Promise<string> {
-  if (files.length === 0) return "";
+export async function generateMutationReceipt(workspaceRoot: string, files: MutationReceiptInput[]): Promise<MutationReceipt | null> {
+  if (files.length === 0) return null;
 
-  let receipt = "\n\n### Mutation Receipt\n";
+  const receipt: MutationReceipt = {
+    version: 1,
+    files: [],
+    limitations: ["Only same-directory test naming conventions were checked"]
+  };
+
   for (const file of files) {
     const absPath = join(workspaceRoot, file.path);
-    const hash = file.afterHash ?? await computeHash(absPath);
-    
-    receipt += `- **${file.path}** (${file.operation})\n`;
-    if (hash) {
-      receipt += `  - Hash: \`${hash}\`\n`;
-    }
-    if (file.additions !== undefined && file.removals !== undefined) {
-      receipt += `  - Changes: +${file.additions}, -${file.removals}\n`;
+    // Determine hash ensuring it follows the sha256: format if not already provided or if provided without prefix
+    let afterHash = file.afterHash ?? await computeHash(absPath);
+    if (afterHash && !afterHash.startsWith("sha256:")) {
+      afterHash = `sha256:${afterHash}`;
     }
     
-    const nearbyTests = await findNearbyTests(absPath, workspaceRoot);
-    if (nearbyTests.length > 0) {
-      receipt += `  - Nearest Tests:\n`;
-      for (const test of nearbyTests) {
-        // Convert absPath back to relative
-        const relTest = test.startsWith(workspaceRoot) ? test.substring(workspaceRoot.length + 1).replace(/\\/g, "/") : test.replace(/\\/g, "/");
-        receipt += `    - \`${relTest}\` (Run with: \`npm run test -- ${relTest}\`)\n`;
-      }
+    let beforeHash = file.beforeHash;
+    if (beforeHash && !beforeHash.startsWith("sha256:")) {
+      beforeHash = `sha256:${beforeHash}`;
     }
+
+    const nearbyTestCandidates = await findNearbyTests(absPath, workspaceRoot);
+
+    receipt.files.push({
+      path: file.path,
+      operation: file.operation,
+      additions: file.additions ?? 0,
+      removals: file.removals ?? 0,
+      beforeHash: beforeHash ?? null,
+      afterHash: afterHash ?? null,
+      nearbyTestCandidates
+    });
   }
   return receipt;
 }
