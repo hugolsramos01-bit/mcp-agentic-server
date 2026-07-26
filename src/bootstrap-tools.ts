@@ -9,6 +9,7 @@ import { treeTool, workspaceSummaryTool } from "./assistant-tools.js";
 import { nextRouteMapTool, payloadSchemaMapTool } from "./ast-tools.js";
 import { readWorkspaceKnowledge } from "./knowledge-tools.js";
 import { getWorkspaceGitEligibility } from "./git.js";
+import { classifyPackageScripts, type ClassifiedCheck } from "./check-classifier.js";
 
 const execFileAsync = promisify(execFile);
 
@@ -529,22 +530,71 @@ export async function suggestChecksTool(cwd: string): Promise<ToolResponse> {
   }
   
   const scripts = packageJson.scripts || {};
-  const checks = [];
-  
-  if (scripts["lint"] || scripts["lint:no-ts-ignore"]) {
-    checks.push({ script: scripts["lint:no-ts-ignore"] ? "lint:no-ts-ignore" : "lint", reason: "Verificar qualidade do codigo (Linting)" });
+  let packageManager: "npm" | "pnpm" | "yarn" = "npm";
+  if (existsSync(join(cwd, "pnpm-lock.yaml"))) {
+    packageManager = "pnpm";
+  } else if (existsSync(join(cwd, "yarn.lock"))) {
+    packageManager = "yarn";
   }
-  if (scripts["typecheck"]) {
-    checks.push({ script: "typecheck", reason: "Verificar tipos TypeScript" });
+
+  const classified = classifyPackageScripts(scripts, packageManager);
+
+  // Group by tier
+  const tiers: Record<string, { label: string; checks: ClassifiedCheck[] }> = {
+    static_analysis: { label: "Static Analysis", checks: [] },
+    unit_tests: { label: "Unit Tests", checks: [] },
+    general_tests: { label: "Test Suite", checks: [] },
+    build: { label: "Build", checks: [] },
+    integration_tests: { label: "Integration Tests", checks: [] },
+    smoke_tests: { label: "Smoke Tests", checks: [] },
+    e2e_tests: { label: "E2E Tests", checks: [] },
+  };
+
+  const unclassified: ClassifiedCheck[] = [];
+
+  for (const check of classified) {
+    if (check.tier === "other" || check.mutatesWorkspace) {
+      unclassified.push(check);
+    } else {
+      if (!tiers[check.tier]) {
+        tiers[check.tier] = { label: check.tier, checks: [] };
+      }
+      tiers[check.tier].checks.push(check);
+    }
   }
-  if (scripts["test:smoke"] || scripts["test"]) {
-    checks.push({ script: scripts["test:smoke"] ? "test:smoke" : "test", reason: "Verificar testes unitarios/smoke" });
+
+  const pipeline = Object.entries(tiers)
+    .filter(([_, data]) => data.checks.length > 0)
+    .map(([tier, data]) => ({
+      tier,
+      label: data.label,
+      checks: data.checks
+    }));
+
+  // Create recommended order array based on natural progression
+  const tierOrder = ["static_analysis", "unit_tests", "general_tests", "build", "integration_tests", "smoke_tests", "e2e_tests"];
+  const recommendedOrder = [];
+  for (const tierName of tierOrder) {
+    const tierData = tiers[tierName];
+    if (tierData) {
+      for (const check of tierData.checks) {
+        recommendedOrder.push(check.script);
+      }
+    }
   }
-  if (scripts["build"]) {
-    checks.push({ script: "build", reason: "Garantir que o build compila sem erros" });
-  }
-  
+
   return {
-    content: [{ type: "text", text: JSON.stringify({ checks }, null, 2) }]
+    content: [{
+      type: "text",
+      text: JSON.stringify({
+        packageManager,
+        pipeline,
+        recommendedOrder,
+        unclassified,
+        limitations: [
+          "A classificação usa nomes e comandos dos scripts; ela ainda não considera os arquivos alterados"
+        ]
+      }, null, 2)
+    }]
   };
 }

@@ -836,7 +836,8 @@ function createMcpServer(
       annotations: READ_TOOL_ANNOTATIONS,
     },
     async ({ workspaceId, force }) => {
-      const session = workspaces.store?.getSession(workspaceId);
+      // Workspaces don't expose their store directly, but listWorkspaces exposes session data
+      const session = workspaces.listWorkspaces().find(w => w.id === workspaceId);
       if (session && session.status !== "closed" && !force) {
         throw new Error(`Workspace ${workspaceId} is not closed. Close it first or use force: true.`);
       }
