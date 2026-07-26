@@ -35,7 +35,7 @@ const suiteFilter = (() => {
 const SUITES = {
   suggest_checks: async (input, cwd) => {
     const { suggestChecksTool } = await import(pathToFileURL(join(DIST, "bootstrap-tools.js")).href);
-    const result = await suggestChecksTool(cwd);
+    const result = await suggestChecksTool(cwd, input);
     return parseToolResponse(result);
   },
 

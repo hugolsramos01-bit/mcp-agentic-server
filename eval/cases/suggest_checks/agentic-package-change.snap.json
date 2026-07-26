@@ -1,0 +1,110 @@
+{
+  "packageManager": "npm",
+  "selectionMode": "targeted",
+  "changeSource": "provided_paths",
+  "level": "recommended",
+  "changedPaths": [
+    "package.json",
+    "package-lock.json"
+  ],
+  "recommended": [
+    {
+      "script": "build",
+      "command": "npm run build",
+      "tier": "build",
+      "reason": "Garante compilação e criação dos artefatos",
+      "confidence": "medium",
+      "mutatesWorkspace": false,
+      "estimatedCost": "high",
+      "priority": 1,
+      "evidence": [
+        {
+          "rule": "package_manifest",
+          "path": "package.json"
+        }
+      ]
+    },
+    {
+      "script": "build:app",
+      "command": "npm run build:app",
+      "tier": "build",
+      "reason": "Garante compilação e criação dos artefatos",
+      "confidence": "medium",
+      "mutatesWorkspace": false,
+      "estimatedCost": "high",
+      "priority": 2,
+      "evidence": [
+        {
+          "rule": "package_manifest",
+          "path": "package.json"
+        }
+      ]
+    },
+    {
+      "script": "smoke:package",
+      "command": "npm run smoke:package",
+      "tier": "smoke_tests",
+      "reason": "Verificação rápida de inicialização ou pacote gerado",
+      "confidence": "medium",
+      "mutatesWorkspace": false,
+      "estimatedCost": "low",
+      "priority": 3,
+      "evidence": [
+        {
+          "rule": "package_manifest",
+          "path": "package.json"
+        }
+      ]
+    }
+  ],
+  "deferred": [
+    {
+      "script": "clean",
+      "reason": "Nenhum sinal detectou relação com os arquivos alterados"
+    },
+    {
+      "script": "dev",
+      "reason": "Nenhum sinal detectou relação com os arquivos alterados"
+    },
+    {
+      "script": "eval",
+      "reason": "Nenhum sinal detectou relação com os arquivos alterados"
+    },
+    {
+      "script": "eval:update",
+      "reason": "Nenhum sinal detectou relação com os arquivos alterados"
+    },
+    {
+      "script": "postinstall",
+      "reason": "Nenhum sinal detectou relação com os arquivos alterados"
+    },
+    {
+      "script": "start",
+      "reason": "Nenhum sinal detectou relação com os arquivos alterados"
+    },
+    {
+      "script": "test",
+      "reason": "Nenhum sinal detectou relação com os arquivos alterados"
+    },
+    {
+      "script": "test:http",
+      "reason": "Nenhum sinal detectou relação com os arquivos alterados"
+    },
+    {
+      "script": "typecheck",
+      "reason": "Nenhum sinal detectou relação com os arquivos alterados"
+    }
+  ],
+  "stages": {
+    "initial": [],
+    "afterInitialSuccess": [
+      "build",
+      "build:app"
+    ],
+    "beforeRelease": [
+      "smoke:package",
+      "test:http"
+    ]
+  },
+  "limitations": []
+}

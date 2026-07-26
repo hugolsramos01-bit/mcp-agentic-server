@@ -17,8 +17,8 @@
     }
   },
   "git": {
-    "branch": "## feature/targeted-checks",
-    "status": "## feature/targeted-checks\n M eval/cases/grep/known-export.snap.json\n M eval/cases/read/package-json.snap.json\n M eval/cases/read_many/two-files.snap.json\n M eval/cases/semantic_pack/workspace-lifecycle.snap.json\n M eval/cases/suggest_checks/agentic-self.snap.json\n M package.json\n M src/bootstrap-tools.ts\n?? src/check-classifier.test.ts\n?? src/check-classifier.ts\n"
+    "branch": "## feature/targeted-selection",
+    "status": "## feature/targeted-selection\n M eval/cases/grep/known-export.snap.json\n M eval/cases/read/package-json.snap.json\n M eval/cases/read_many/two-files.snap.json\n M eval/cases/semantic_pack/workspace-lifecycle.snap.json\n M eval/cases/suggest_checks/agentic-self.input.json\n M eval/cases/suggest_checks/agentic-self.snap.json\n M eval/run.mjs\n M src/bootstrap-tools.ts\n M src/server.ts\n?? eval/cases/suggest_checks/agentic-docs-only.input.json\n?? eval/cases/suggest_checks/agentic-docs-only.snap.json\n?? eval/cases/suggest_checks/agentic-full-workspace.input.json\n?? eval/cases/suggest_checks/agentic-full-workspace.snap.json\n?? eval/cases/suggest_checks/agentic-http-change.input.json\n?? eval/cases/suggest_checks/agentic-http-change.snap.json\n?? eval/cases/suggest_checks/agentic-package-change.input.json\n?? eval/cases/suggest_checks/agentic-package-change.snap.json\n?? eval/cases/suggest_checks/agentic-source-change.input.json\n?? eval/cases/suggest_checks/agentic-source-change.snap.json\n?? eval/cases/suggest_checks/agentic-ui-change.input.json\n?? eval/cases/suggest_checks/agentic-ui-change.snap.json\n?? src/check-selector.test.ts\n?? src/check-selector.ts\n"
   },
   "routes": [],
   "collections": [],
@@ -106,7 +106,7 @@
       ],
       "recommendedReadMode": "balanced",
       "reason": "Nome, rota ou símbolo corresponde diretamente ao objetivo",
-      "estimatedTokens": 5538
+      "estimatedTokens": 5550
     },
     {
       "path": "src/checkpoint-tools.ts",
@@ -157,7 +157,7 @@
       ],
       "recommendedReadMode": "skeletal",
       "reason": "Contém termos do objetivo — pode ser relevante",
-      "estimatedTokens": 35900
+      "estimatedTokens": 36030
     },
     {
       "path": "src/apply-patch.ts",
@@ -225,7 +225,7 @@
       ],
       "recommendedReadMode": "skeletal",
       "reason": "Contém termos do objetivo — pode ser relevante",
-      "estimatedTokens": 6671
+      "estimatedTokens": 6991
     },
     {
       "path": "src/change-session.ts",
@@ -243,6 +243,23 @@
       "recommendedReadMode": "light",
       "reason": "Contém termos do objetivo — pode ser relevante",
       "estimatedTokens": 1739
+    },
+    {
+      "path": "src/check-classifier.ts",
+      "relevanceTier": "textual",
+      "matchedBy": [
+        "content:understand",
+        "content:workspace",
+        "content:lifecycle",
+        "content:how",
+        "content:workspaces",
+        "content:closed",
+        "content:forgotten",
+        "content:tenant"
+      ],
+      "recommendedReadMode": "light",
+      "reason": "Contém termos do objetivo — pode ser relevante",
+      "estimatedTokens": 898
     },
     {
       "path": "src/cli.ts",
@@ -277,23 +294,6 @@
       "recommendedReadMode": "full",
       "reason": "Contém termos do objetivo — pode ser relevante",
       "estimatedTokens": 363
-    },
-    {
-      "path": "src/db/schema.ts",
-      "relevanceTier": "textual",
-      "matchedBy": [
-        "content:understand",
-        "content:workspace",
-        "content:lifecycle",
-        "content:how",
-        "content:workspaces",
-        "content:closed",
-        "content:forgotten",
-        "content:tenant"
-      ],
-      "recommendedReadMode": "light",
-      "reason": "Contém termos do objetivo — pode ser relevante",
-      "estimatedTokens": 970
     }
   ],
   "recommendedWorkflow": [
@@ -335,8 +335,8 @@
     }
   ],
   "tokenBudget": {
-    "used": 1364,
+    "used": 1499,
     "max": 8000,
-    "remaining": 6636
+    "remaining": 6501
   }
 }

@@ -1,0 +1,86 @@
+{
+  "packageManager": "npm",
+  "selectionMode": "targeted",
+  "changeSource": "provided_paths",
+  "level": "recommended",
+  "changedPaths": [
+    "src/index.ts"
+  ],
+  "recommended": [
+    {
+      "script": "typecheck",
+      "command": "npm run typecheck",
+      "tier": "static_analysis",
+      "reason": "Valida tipos estatisticamente sem gerar artefatos",
+      "confidence": "low",
+      "mutatesWorkspace": false,
+      "estimatedCost": "low",
+      "priority": 1,
+      "evidence": [
+        {
+          "rule": "typescript_extension",
+          "path": "src/index.ts"
+        }
+      ]
+    }
+  ],
+  "deferred": [
+    {
+      "script": "build",
+      "reason": "Nenhum sinal detectou relação com os arquivos alterados"
+    },
+    {
+      "script": "build:app",
+      "reason": "Nenhum sinal detectou relação com os arquivos alterados"
+    },
+    {
+      "script": "clean",
+      "reason": "Nenhum sinal detectou relação com os arquivos alterados"
+    },
+    {
+      "script": "dev",
+      "reason": "Nenhum sinal detectou relação com os arquivos alterados"
+    },
+    {
+      "script": "eval",
+      "reason": "Nenhum sinal detectou relação com os arquivos alterados"
+    },
+    {
+      "script": "eval:update",
+      "reason": "Nenhum sinal detectou relação com os arquivos alterados"
+    },
+    {
+      "script": "postinstall",
+      "reason": "Nenhum sinal detectou relação com os arquivos alterados"
+    },
+    {
+      "script": "smoke:package",
+      "reason": "Nenhum sinal detectou relação com os arquivos alterados"
+    },
+    {
+      "script": "start",
+      "reason": "Nenhum sinal detectou relação com os arquivos alterados"
+    },
+    {
+      "script": "test",
+      "reason": "Nenhum sinal detectou relação com os arquivos alterados"
+    },
+    {
+      "script": "test:http",
+      "reason": "Nenhum sinal detectou relação com os arquivos alterados"
+    }
+  ],
+  "stages": {
+    "initial": [
+      "typecheck"
+    ],
+    "afterInitialSuccess": [],
+    "beforeRelease": [
+      "build",
+      "build:app",
+      "smoke:package",
+      "test:http"
+    ]
+  },
+  "limitations": []
+}

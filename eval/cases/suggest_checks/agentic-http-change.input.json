@@ -1,0 +1,5 @@
+{
+  "paths": ["src/server.ts", "src/http-transport.ts"],
+  "scope": "changed",
+  "level": "recommended"
+}
