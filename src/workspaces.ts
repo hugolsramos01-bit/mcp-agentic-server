@@ -208,7 +208,7 @@ export class WorkspaceRegistry {
     this.store?.updateAlias(workspaceId, newAlias, normalizedAlias);
   }
 
-  listWorkspaces(): (Workspace & { lastUsedAt: string })[] {
+  listWorkspaces(): (Workspace & { status: string; lastUsedAt: string })[] {
     const sessions = this.store?.listSessions() || [];
     return sessions.map(session => {
       // Memory merge if it's currently open
@@ -225,6 +225,7 @@ export class WorkspaceRegistry {
         skillDiagnostics: memory?.skillDiagnostics ?? [],
         agentProfiles: memory?.agentProfiles ?? [],
         activatedSkillDirs: memory?.activatedSkillDirs ?? new Set(),
+        status: session.status,
         lastUsedAt: session.lastUsedAt
       };
     });

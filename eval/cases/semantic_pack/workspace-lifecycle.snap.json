@@ -10,15 +10,15 @@
       "smoke:package": "node scripts/smoke-package.mjs",
       "test:http": "node scripts/test-http.mjs",
       "start": "node dist/cli.js serve",
-      "test": "tsx src/regression.test.ts && tsx src/config.test.ts && tsx src/analysis-regression.test.ts && tsx src/ast-tools.test.ts && tsx src/import-resolver.test.ts && tsx src/diagnostics/log-compressor.test.ts && tsx src/ui/card-types.test.ts && tsx src/ui/patch-display.test.ts && tsx src/apply-patch.test.ts && tsx src/process-platform.test.ts && tsx src/process-sessions.test.ts && tsx src/process-runner/process-runner.test.ts && tsx src/local-agent-runtime.test.ts && tsx src/local-agent-adapters.test.ts && tsx src/local-agent-availability.test.ts && tsx src/local-agent-profiles.test.ts && tsx src/local-agent-targets.test.ts && tsx src/local-agent-store.test.ts && tsx src/roots.test.ts && tsx src/git.test.ts && tsx src/skills.test.ts && tsx src/workspaces.test.ts && tsx src/checkpoint-tools.test.ts && tsx src/review-checkpoints.test.ts && tsx src/native-dependency-verifier.test.ts && tsx src/oauth-store.test.ts && tsx src/cli.test.ts && tsx src/security/security-regression.test.ts",
+      "test": "tsx src/regression.test.ts && tsx src/config.test.ts && tsx src/analysis-regression.test.ts && tsx src/ast-tools.test.ts && tsx src/import-resolver.test.ts && tsx src/diagnostics/log-compressor.test.ts && tsx src/ui/card-types.test.ts && tsx src/ui/patch-display.test.ts && tsx src/apply-patch.test.ts && tsx src/process-platform.test.ts && tsx src/process-sessions.test.ts && tsx src/process-runner/process-runner.test.ts && tsx src/local-agent-runtime.test.ts && tsx src/local-agent-adapters.test.ts && tsx src/local-agent-availability.test.ts && tsx src/local-agent-profiles.test.ts && tsx src/local-agent-targets.test.ts && tsx src/local-agent-store.test.ts && tsx src/roots.test.ts && tsx src/git.test.ts && tsx src/skills.test.ts && tsx src/workspaces.test.ts && tsx src/checkpoint-tools.test.ts && tsx src/review-checkpoints.test.ts && tsx src/native-dependency-verifier.test.ts && tsx src/oauth-store.test.ts && tsx src/cli.test.ts && tsx src/security/security-regression.test.ts && tsx src/check-classifier.test.ts",
       "typecheck": "tsc -p tsconfig.json --noEmit",
       "eval": "node eval/run.mjs",
       "eval:update": "node eval/run.mjs --update"
     }
   },
   "git": {
-    "branch": "## feature/agent-eval-baseline",
-    "status": "## feature/agent-eval-baseline\n M package.json\n?? eval/\n"
+    "branch": "## feature/targeted-checks",
+    "status": "## feature/targeted-checks\n M eval/cases/grep/known-export.snap.json\n M eval/cases/read/package-json.snap.json\n M eval/cases/read_many/two-files.snap.json\n M eval/cases/semantic_pack/workspace-lifecycle.snap.json\n M eval/cases/suggest_checks/agentic-self.snap.json\n M package.json\n M src/bootstrap-tools.ts\n?? src/check-classifier.test.ts\n?? src/check-classifier.ts\n"
   },
   "routes": [],
   "collections": [],
@@ -225,7 +225,7 @@
       ],
       "recommendedReadMode": "skeletal",
       "reason": "Contém termos do objetivo — pode ser relevante",
-      "estimatedTokens": 6296
+      "estimatedTokens": 6671
     },
     {
       "path": "src/change-session.ts",
@@ -335,8 +335,8 @@
     }
   ],
   "tokenBudget": {
-    "used": 1305,
+    "used": 1364,
     "max": 8000,
-    "remaining": 6695
+    "remaining": 6636
   }
 }
