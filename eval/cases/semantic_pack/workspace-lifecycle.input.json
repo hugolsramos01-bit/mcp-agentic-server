@@ -1,0 +1,6 @@
+{
+  "_cwd": ".",
+  "goal": "Understand the workspace lifecycle and how workspaces are closed and forgotten",
+  "paths": ["src/workspaces.ts", "src/workspace-store.ts"],
+  "_description": "semantic_pack over workspace lifecycle files — verifies summary, files[] with contentHash"
+}

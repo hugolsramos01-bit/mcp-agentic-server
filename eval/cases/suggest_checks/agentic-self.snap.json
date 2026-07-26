@@ -1,0 +1,16 @@
+{
+  "checks": [
+    {
+      "script": "typecheck",
+      "reason": "Verificar tipos TypeScript"
+    },
+    {
+      "script": "test",
+      "reason": "Verificar testes unitarios/smoke"
+    },
+    {
+      "script": "build",
+      "reason": "Garantir que o build compila sem erros"
+    }
+  ]
+}

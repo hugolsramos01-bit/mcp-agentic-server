@@ -1,0 +1,7 @@
+{
+  "_cwd": ".",
+  "pattern": "suggestChecksTool",
+  "path": "src",
+  "glob": "*.ts",
+  "_description": "grep for a known export — verifies matches[], path, line, content per match"
+}
