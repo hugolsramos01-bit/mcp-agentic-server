@@ -118,10 +118,16 @@ export function serverInstructions(config: ServerConfig): string {
     ? `In minimal tool mode, ${toolNames.grep}, ${toolNames.glob}, and ${toolNames.ls} are disabled; use ${toolNames.shell} with command-line tools such as grep, rg, find, ls, and tree for search and directory inspection. `
     : config.toolMode === "assistant"
     ? `Tools are organized by visibility:
-[CORE] — Always use these first: open_workspace, project_bootstrap, semantic_pack, grep, read_adaptive (auto-compresses!), read, read_many, git_status, git_diff, propose_plan, edit_dry_run, checkpoint_save, edit, write, run_package_script, show_changes, file_dependencies, tree.
-[ADVANCED] — Use when core tools are insufficient: tournament_*, knowledge_*, set_policy, reset_policy, token_audit, context_budget, payload_schema_map, next_route_map, monorepo_map, safe_file_preview, apply_patch.
+[CORE] — Always use these first: open_workspace, suggest_checks, semantic_pack, grep, read_adaptive, read, read_many, git_status, git_diff, propose_plan, edit_dry_run, checkpoint_save, edit, write, run_package_script, show_changes, tree.
+[ADVANCED] — Use when core tools are insufficient: tournament_*, knowledge_*, set_policy, reset_policy, token_audit, context_budget, safe_file_preview, apply_patch, coding_context.
 
-Prefer read_adaptive over read for most cases — it automatically picks the right compression level. Use read only when you need explicit line range control. Use read_compressed only when you need explicit compression level. Use read_many to batch reads.
+Tool selection:
+- Unknown relevant files: semantic_pack.
+- Known symbol or text: grep.
+- One known file, general inspection: read_adaptive.
+- One known file, exact ranges or pre-edit source: read.
+- Several known files: read_many.
+- After material changes: suggest_checks.
 
 Prefer the core tools for all exploration, file inspection, and git tasks instead of using the shell. Use edit_dry_run before edit to preview changes without writing. Before risky edits, use checkpoint_save to snapshot your changes; use checkpoint_restore to revert.
 

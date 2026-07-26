@@ -2143,8 +2143,8 @@ function createMcpServer(
       server,
       "coding_context",
       {
-        title: "Coding Context",
-        description: "[Context] Returns a compact workspace context: git, package manager, scripts, key routes, schemas, relevant instructions, and recommended next inspection points. For rich semantic overviews, prefer semantic_pack (which includes token budget and automatic file compression). Pass a goal to filter context items.",
+        title: TOOL_CONTRACTS.codingContext.title,
+        description: TOOL_CONTRACTS.codingContext.description,
         inputSchema: { workspaceId: z.string().describe("Workspace ID"), path: z.string().optional().describe("Ignored parameter to prevent schema errors"), goal: z.string().optional().describe("Optional: filter context to only items relevant to this goal (e.g. 'onboarding', 'dashboard', 'tenant')") },
         outputSchema: resultOutputSchema(),
         ...toolWidgetDescriptorMeta(config, "read"),
@@ -2159,8 +2159,8 @@ function createMcpServer(
       server,
       "suggest_checks",
       {
-        title: "Suggest Checks",
-        description: "[Execution] Recommendation of package scripts based on workspace package.json and changed paths.",
+        title: TOOL_CONTRACTS.suggestChecks.title,
+        description: TOOL_CONTRACTS.suggestChecks.description,
         inputSchema: { 
           workspaceId: z.string().describe("Workspace ID"),
           paths: z.array(z.string()).optional().describe("Arquivos que foram alterados ou estão no escopo da tarefa"),
