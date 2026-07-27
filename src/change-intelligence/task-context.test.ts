@@ -605,19 +605,41 @@ describe("task-context", () => {
       await mkdir(join(root, "docs", `section${i}`), { recursive: true });
       await writeFile(join(root, "docs", `section${i}`, "readme.md"), `# Doc ${i}\nauth middleware info`);
     }
-    // One real source file with the same keyword
-    await writeFile(join(root, "src", "auth-middleware.ts"), "export const authMiddleware = () => {};");
+    // One real source file with only 1 partial match before grep (auth only, not middleware)
+    // This forces grep to execute (needs content_match to reach high confidence)
+    await writeFile(join(root, "src", "auth-handler.ts"), "export const handler = () => 'jwt auth middleware';");
     await gitAddAll(root);
 
-    const res = await buildTaskContext({ workspaceId: "test",
+    // Warm cache first
+    await buildTaskContext({ workspaceId: "grep-prioritization-test",
       cwd: root,
       allowedRoots: [root],
       goal: "adicionar suporte para JWT middleware em auth",
       depth: "balanced",
     });
 
+    let subprocessCount = 0;
+    const perfRecorder = {
+      enabled: true,
+      increment: (name: string) => { if (name === "subprocessCount") subprocessCount++; },
+      startPhase: () => ({ end: () => {} }),
+      finish: () => undefined,
+    } as any;
+
+    const res = await buildTaskContext({ workspaceId: "grep-prioritization-test",
+      cwd: root,
+      allowedRoots: [root],
+      goal: "adicionar suporte para JWT middleware em auth",
+      depth: "balanced",
+      perf: perfRecorder,
+    });
+
+    // Exactly 1 subprocess (grep) — warm cache means no ls-files
+    assert.equal(subprocessCount, 1,
+      `grep must execute (subprocessCount=${subprocessCount})`);
+
     // source file must be in primaryFiles
-    const srcFile = res.primaryFiles.find(p => p.path.includes("src/auth-middleware.ts"));
+    const srcFile = res.primaryFiles.find(p => p.path.includes("src/auth-handler.ts"));
     assert.ok(srcFile, "source file must be in primaryFiles despite 25 noisy docs");
 
     // All primary files must be source (not docs)
@@ -743,5 +765,83 @@ describe("task-context", () => {
     // With warm cache + no anchor keywords: 0 subprocesses
     assert.equal(subprocessCount, 0,
       `warm cache + action-only goal should produce 0 subprocesses; got ${subprocessCount}`);
+  });
+
+  // ─── P1.2 commit 9: Explicit override + budget guarantee ───────
+
+  it("P1.2: explicitly targeted evaluation file via focusPath can be primary", async () => {
+    const root = await makeWorkspace();
+    await mkdir(join(root, "eval", "cases"), { recursive: true });
+    await writeFile(join(root, "eval", "cases", "my-eval.json"), JSON.stringify({ test: "data" }));
+    await gitAddAll(root);
+
+    const res = await buildTaskContext({ workspaceId: "test",
+      cwd: root,
+      allowedRoots: [root],
+      goal: "fix eval test case",
+      focusPaths: ["eval/cases/my-eval.json"],
+    });
+
+    const evalFile = res.primaryFiles.find(p => p.path.includes("my-eval.json"));
+    assert.ok(evalFile, "explicitly targeted eval via focusPath should be primary");
+    assert.equal(evalFile!.role, "primary", "role must be primary");
+  });
+
+  it("P1.2: explicitly targeted documentation file via extracted path can be primary", async () => {
+    const root = await makeWorkspace();
+    await mkdir(join(root, "docs"), { recursive: true });
+    await writeFile(join(root, "docs", "setup.md"), "# Setup Guide\nHow to install");
+    await gitAddAll(root);
+
+    const res = await buildTaskContext({ workspaceId: "test",
+      cwd: root,
+      allowedRoots: [root],
+      goal: "update docs/setup.md with new instructions",
+    });
+
+    const docFile = res.primaryFiles.find(p => p.path.includes("docs/setup.md"));
+    assert.ok(docFile, "explicitly targeted doc via extracted path should be primary");
+    assert.equal(docFile!.role, "primary", "role must be primary");
+  });
+
+  it("P1.2: generic eval match without explicit target is NOT primary", async () => {
+    const root = await makeWorkspace();
+    await mkdir(join(root, "eval", "cases"), { recursive: true });
+    await writeFile(join(root, "eval", "cases", "jwt-auth.input.json"), JSON.stringify({ goal: "add jwt auth" }));
+    await writeFile(join(root, "src", "auth.ts"), "export const auth = () => {};");
+    await gitAddAll(root);
+
+    const res = await buildTaskContext({ workspaceId: "test",
+      cwd: root,
+      allowedRoots: [root],
+      goal: "adicionar suporte para JWT middleware em auth",
+      depth: "balanced",
+    });
+
+    const evalInPrimary = res.primaryFiles.find(p => p.path.includes("eval/"));
+    assert.equal(evalInPrimary, undefined, "generic eval match must NOT be primary");
+  });
+
+  it("P1.2: budget loop guarantees exact fit even with nextSteps rebuild", async () => {
+    const root = await makeWorkspace();
+    await mkdir(join(root, "src"), { recursive: true });
+    // Create enough files to force tight budget
+    for (let i = 0; i < 8; i++) {
+      await writeFile(join(root, `src/module${i}.ts`), `export const fn${i} = () => {};`);
+    }
+    await gitAddAll(root);
+
+    const res = await buildTaskContext({ workspaceId: "test",
+      cwd: root,
+      allowedRoots: [root],
+      goal: "add module auth support",
+      maxTokens: 300,
+    });
+
+    const exactTokens = Math.ceil(JSON.stringify(res).length / 4);
+    assert.ok(exactTokens <= res.budget.maxTokens,
+      `final JSON (${exactTokens} tokens) must be within budget (${res.budget.maxTokens})`);
+    assert.equal(res.budget.estimatedTokens, exactTokens,
+      "estimatedTokens must match exact final JSON measurement");
   });
 });

@@ -360,14 +360,19 @@ export async function buildTaskContext(input: TaskContextInput): Promise<TaskCon
     const confidence = scoreConfidence(evidences);
     const kind = getKind(path);
 
+    // Allow explicit override: focus_path/extracted_path can promote any kind
+    const explicitlyTargeted = evidences.some(e =>
+      e.type === "focus_path" || e.type === "extracted_path"
+    );
+
     let role: TaskFileRole = "supporting";
     if (kind === "test") {
       role = "test"; // always supporting, no matter the confidence
-    } else if (confidence === "high" && isPrimaryEligibleKind(kind)) {
+    } else if (confidence === "high" && (isPrimaryEligibleKind(kind) || explicitlyTargeted)) {
       role = "primary";
     }
     // Everything else (evaluation, snapshot, generated, documentation)
-    // stays as "supporting" even with high confidence
+    // stays as "supporting" even with high confidence, UNLESS explicitly targeted
 
     const recommendedReadTool: "read" | "read_adaptive" | "read_many" =
       confidence === "high" ? "read" :
@@ -538,39 +543,7 @@ function enforceTaskContextBudget(result: TaskContextResult, maxTokens: number):
 
 // ─── Final budget enforcement (includes suggestedNextSteps in measurement) ──
 
-function enforceFinalContextBudget(result: TaskContextResult, maxTokens: number, anchorKeywords: string[]): TaskContextResult {
-  const measureTokens = () => Math.ceil(JSON.stringify(result).length / 4);
-  let currentTokens = measureTokens();
-
-  if (currentTokens <= maxTokens) {
-    // Already within budget — just record final measurement
-    result.budget.estimatedTokens = currentTokens;
-    return result;
-  }
-
-  // Over budget with nextSteps included — trim more
-  let omittedCandidates = result.budget.omittedCandidates;
-  const estimateCandidateTokens = (c: any) => Math.ceil(JSON.stringify(c).length / 4);
-
-  // Trim supporting files (from end = lowest confidence)
-  while (currentTokens > maxTokens && result.supportingFiles.length > 0) {
-    const popped = result.supportingFiles.pop();
-    currentTokens -= estimateCandidateTokens(popped);
-    omittedCandidates++;
-  }
-
-  // Trim primary files (keep at least 1)
-  while (currentTokens > maxTokens && result.primaryFiles.length > 1) {
-    const popped = result.primaryFiles.pop();
-    currentTokens -= estimateCandidateTokens(popped);
-    omittedCandidates++;
-  }
-
-  result.limitations.push(
-    `Budget: omitted ${omittedCandidates} candidate(s) (final) to stay within ${maxTokens} tokens.`
-  );
-
-  // Rebuild derived structures after final trim
+function cleanDerivedStructures(result: TaskContextResult): void {
   const retainedPaths = new Set([
     ...result.primaryFiles.map(file => file.path),
     ...result.supportingFiles.map(file => file.path),
@@ -586,14 +559,47 @@ function enforceFinalContextBudget(result: TaskContextResult, maxTokens: number,
       ...item,
       testPaths: item.testPaths.filter(path => retainedPaths.has(path)),
     }));
+}
 
-  // Rebuild nextSteps after final trim
-  result.suggestedNextSteps = buildSuggestedNextSteps(result, anchorKeywords);
+function enforceFinalContextBudget(result: TaskContextResult, maxTokens: number, anchorKeywords: string[]): TaskContextResult {
+  const measureTokens = () => Math.ceil(JSON.stringify(result).length / 4);
+  let exactTokens = measureTokens();
+
+  let omittedCandidates = result.budget.omittedCandidates;
+
+  // Loop: trim, rebuild nextSteps, measure — repeat until within budget or minimum structure reached
+  while (
+    exactTokens > maxTokens &&
+    (result.supportingFiles.length > 0 || result.primaryFiles.length > 1)
+  ) {
+    if (result.supportingFiles.length > 0) {
+      result.supportingFiles.pop();
+    } else {
+      result.primaryFiles.pop();
+    }
+    omittedCandidates++;
+
+    cleanDerivedStructures(result);
+    result.suggestedNextSteps = buildSuggestedNextSteps(result, anchorKeywords);
+    exactTokens = measureTokens();
+  }
+
+  if (omittedCandidates > result.budget.omittedCandidates) {
+    result.limitations.push(
+      `Budget: omitted ${omittedCandidates} candidate(s) (final) to stay within ${maxTokens} tokens.`
+    );
+  }
+
+  if (exactTokens > maxTokens) {
+    result.limitations.push(
+      "Minimum task context structure exceeds the requested token budget."
+    );
+  }
 
   result.budget = {
     maxTokens,
-    estimatedTokens: measureTokens(),
-    truncated: true,
+    estimatedTokens: exactTokens,
+    truncated: exactTokens > maxTokens || result.budget.truncated,
     omittedCandidates,
   };
 
