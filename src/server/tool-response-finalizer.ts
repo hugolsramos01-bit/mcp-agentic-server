@@ -49,13 +49,14 @@ export function finalizeToolResponse(
         ? structured
         : undefined;
 
-  const status = existingEnvelope?.status ?? (response.isError ? "error" : "success");
-
   let parsedFromText: any;
   let rawData: any;
   let text: string | undefined;
 
+  let finalStatus = response.isError ? "error" : "success";
+
   if (existingEnvelope) {
+    finalStatus = existingEnvelope.status;
     rawData = existingEnvelope.data;
   } else if (structured !== undefined) {
     // Structured data nativo da ferramenta.
@@ -73,11 +74,19 @@ export function finalizeToolResponse(
       // Texto simples é um fallback válido.
     }
 
-    rawData =
-      status === "error" && typeof parsedFromText === "string"
-        ? {}
-        : parsedFromText;
+    if (isEnvelope(parsedFromText)) {
+      finalStatus = parsedFromText.status;
+      rawData = parsedFromText.data;
+      parsedFromText = parsedFromText.error; // hold error if any
+    } else {
+      rawData =
+        finalStatus === "error" && typeof parsedFromText === "string"
+          ? {}
+          : parsedFromText;
+    }
   }
+
+  const status = finalStatus;
 
   const basePolicy = {
     defaultStringLimit: inlineOutputCharacters,
