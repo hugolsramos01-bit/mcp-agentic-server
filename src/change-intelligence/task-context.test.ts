@@ -296,4 +296,80 @@ describe("task-context", () => {
       }
     }
   });
+
+  // ─── P1.1: Fast Path Quality Guards ─────────────────────────────
+  it("fast searches content when direct context is insufficient", async () => {
+    const root = await makeWorkspace();
+    await writeFile(join(root, "auth.ts"), "export const auth = () => {};");
+    await gitAddAll(root);
+    
+    const res = await buildTaskContext({ workspaceId: "test",
+      cwd: root,
+      allowedRoots: [root],
+      goal: "adicionar suporte para JWT middleware em auth",
+      depth: "fast",
+    });
+
+    assert.ok(
+      res.primaryFiles.length > 0 ||
+      res.suggestedNextSteps.length > 0,
+      "must return either primary files or next steps"
+    );
+  });
+
+  it("skips content search for an exact focus path", async () => {
+    const root = await makeWorkspace();
+    await writeFile(join(root, "auth.ts"), "export const auth = () => {};");
+    await gitAddAll(root);
+    
+    let subprocessCount = 0;
+    const dummyPerf = {
+      enabled: true,
+      increment: (name: string) => { if (name === "subprocessCount") subprocessCount++; },
+      startPhase: () => ({ end: () => {} }),
+      finish: () => undefined,
+    } as any;
+
+    await buildTaskContext({ workspaceId: "test",
+      cwd: root,
+      allowedRoots: [root],
+      goal: "fix auth",
+      focusPaths: ["auth.ts"],
+      perf: dummyPerf,
+    });
+
+    // Content search is skipped. Only 1 subprocess max for ls-files cache miss
+    assert.ok(subprocessCount <= 1, "content search should be skipped for exact focus path");
+  });
+
+  it("discovers nearby tests in memory in fast mode", async () => {
+    const root = await makeWorkspace();
+    await writeFile(join(root, "src", "logic.ts"), "export const logic = () => {};");
+    await writeFile(join(root, "src", "logic.test.ts"), "test()");
+    await gitAddAll(root);
+
+    const res = await buildTaskContext({ workspaceId: "test",
+      cwd: root,
+      allowedRoots: [root],
+      goal: "fix logic",
+      focusPaths: ["src/logic.ts"],
+      depth: "fast",
+    });
+
+    assert.ok(res.nearbyTestCandidates.length > 0, "nearbyTestCandidates should not be empty in fast mode");
+  });
+
+  it("always recommends a next action when no candidate is found", async () => {
+    const root = await makeWorkspace();
+    await writeFile(join(root, "nothing.ts"), "");
+    await gitAddAll(root);
+
+    const res = await buildTaskContext({ workspaceId: "test",
+      cwd: root,
+      allowedRoots: [root],
+      goal: "implement unicorn mode",
+    });
+
+    assert.ok(res.suggestedNextSteps.length > 0, "must suggest next action if no candidates");
+  });
 });

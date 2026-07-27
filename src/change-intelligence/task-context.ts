@@ -263,7 +263,33 @@ export async function buildTaskContext(input: TaskContextInput): Promise<TaskCon
   pPathMatching.end();
 
   // 9. Content grep — unified single subprocess
-  if (effectiveDepth !== "fast") {
+  let hasExactFocusPath = false;
+  let hasExactExtractedPath = false;
+  
+  const currentHighCandidates = [];
+  for (const [path, evidences] of candidatesMap.entries()) {
+    const types = new Set(evidences.map(e => e.type));
+    if (types.has("focus_path")) hasExactFocusPath = true;
+    if (types.has("extracted_path")) hasExactExtractedPath = true;
+    if (scoreConfidence(evidences) === "high") {
+      currentHighCandidates.push({ path, evidences });
+    }
+  }
+
+  const hasUniqueHighConfidenceIndexedCandidate =
+    currentHighCandidates.length === 1 &&
+    currentHighCandidates[0].evidences.length >= 2;
+
+  const directContextSufficient =
+    hasExactFocusPath ||
+    hasExactExtractedPath ||
+    hasUniqueHighConfidenceIndexedCandidate;
+
+  const shouldRunContentSearch =
+    !directContextSufficient &&
+    expandedKeywords.some(kw => kw.length >= 4);
+
+  if (shouldRunContentSearch) {
     const pContentSearch = perf.startPhase("contentSearch");
     const grepKeywords = expandedKeywords.slice(0, 5).filter(kw => kw.length >= 4);
     
@@ -294,8 +320,7 @@ export async function buildTaskContext(input: TaskContextInput): Promise<TaskCon
 
   // 10. Test proximity — discover and add as supporting evidence
   const nearbyTestCandidates: TaskContextResult["nearbyTestCandidates"] = [];
-  if (effectiveDepth !== "fast") {
-    const pTestDiscovery = perf.startPhase("testProximity");
+  const pTestDiscovery = perf.startPhase("testProximity");
     for (const [path] of candidatesMap.entries()) {
       const tests = findNearbyTests(path, allFiles);
       if (tests.length > 0) {
@@ -306,8 +331,7 @@ export async function buildTaskContext(input: TaskContextInput): Promise<TaskCon
         }
       }
     }
-    pTestDiscovery.end();
-  }
+  pTestDiscovery.end();
 
   // 11. Initial assignment of confidence & sorting deterministically
   const confidenceScore: Record<string, number> = { high: 3, medium: 2, low: 1 };
@@ -362,14 +386,24 @@ export async function buildTaskContext(input: TaskContextInput): Promise<TaskCon
 
   // 13. Suggested next steps
   const suggestedNextSteps: TaskContextResult["suggestedNextSteps"] = [];
-  if (effectiveDepth !== "fast") {
-    if (primaryFiles.length > 0) {
-      suggestedNextSteps.push({
-        tool: "read_many",
-        arguments: { paths: primaryFiles.slice(0, 5).map(c => c.path) },
-        reason: "Read the most confident primary candidates to understand implementation details."
-      });
-    }
+  if (primaryFiles.length > 0) {
+    suggestedNextSteps.push({
+      tool: "read_many",
+      arguments: { paths: primaryFiles.slice(0, 5).map(c => c.path) },
+      reason: "Read the strongest implementation candidates."
+    });
+  } else if (supportingFiles.length > 0) {
+    suggestedNextSteps.push({
+      tool: "read_adaptive",
+      arguments: { path: supportingFiles[0].path },
+      reason: "No high-confidence primary file was found; inspect the strongest supporting candidate."
+    });
+  } else {
+    suggestedNextSteps.push({
+      tool: "grep",
+      arguments: { pattern: expandedKeywords.slice(0, 3).join("|") },
+      reason: "No reliable file candidate was found; search for the normalized goal terms."
+    });
   }
 
   // 14. Build result and enforce real budget

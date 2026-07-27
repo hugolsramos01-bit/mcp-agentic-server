@@ -25,38 +25,6 @@
   ],
   "supportingFiles": [
     {
-      "path": "src/change-intelligence/goal-normalizer.test.ts",
-      "role": "test",
-      "confidence": "medium",
-      "evidence": [
-        {
-          "type": "content_match",
-          "detail": "Contains matching keywords"
-        },
-        {
-          "type": "test_proximity",
-          "detail": "Is test for: src/change-intelligence/goal-normalizer.ts"
-        }
-      ],
-      "recommendedReadTool": "read_adaptive"
-    },
-    {
-      "path": "src/change-intelligence/goal-normalizer.ts",
-      "role": "supporting",
-      "confidence": "medium",
-      "evidence": [
-        {
-          "type": "content_match",
-          "detail": "Contains matching keywords"
-        },
-        {
-          "type": "test_proximity",
-          "detail": "Has nearby tests: src/change-intelligence/goal-normalizer.test.ts"
-        }
-      ],
-      "recommendedReadTool": "read_adaptive"
-    },
-    {
       "path": "src/server/mutation-receipt.test.ts",
       "role": "test",
       "confidence": "medium",
@@ -67,30 +35,6 @@
         }
       ],
       "recommendedReadTool": "read_adaptive"
-    },
-    {
-      "path": "eval/cases/task_context/mutation-migration.input.json",
-      "role": "supporting",
-      "confidence": "low",
-      "evidence": [
-        {
-          "type": "content_match",
-          "detail": "Contains matching keywords"
-        }
-      ],
-      "recommendedReadTool": "read_many"
-    },
-    {
-      "path": "eval/cases/task_context/mutation-migration.snap.json",
-      "role": "supporting",
-      "confidence": "low",
-      "evidence": [
-        {
-          "type": "content_match",
-          "detail": "Contains matching keywords"
-        }
-      ],
-      "recommendedReadTool": "read_many"
     }
   ],
   "directDependents": [
@@ -125,12 +69,6 @@
       "testPaths": [
         "src/server/mutation-receipt.test.ts"
       ]
-    },
-    {
-      "sourcePath": "src/change-intelligence/goal-normalizer.ts",
-      "testPaths": [
-        "src/change-intelligence/goal-normalizer.test.ts"
-      ]
     }
   ],
   "suggestedNextSteps": [
@@ -141,13 +79,13 @@
           "src/server/mutation-receipt.ts"
         ]
       },
-      "reason": "Read the most confident primary candidates to understand implementation details."
+      "reason": "Read the strongest implementation candidates."
     }
   ],
   "limitations": [],
   "budget": {
     "maxTokens": 6000,
-    "estimatedTokens": 731,
+    "estimatedTokens": 431,
     "truncated": false,
     "omittedCandidates": 0
   }
