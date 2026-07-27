@@ -11,6 +11,7 @@ describe("TOOL_CONTRACTS", () => {
       "readMany",
       "grep",
       "semanticPack",
+      "taskContext",
       "codingContext",
       "suggestChecks"
     ];
@@ -60,5 +61,13 @@ describe("TOOL_CONTRACTS", () => {
     const desc = TOOL_CONTRACTS.suggestChecks.description;
     assert.ok(desc.includes("recommends checks but does not execute them"), "Must state it doesn't execute");
     assert.ok(desc.includes("Use after material code or configuration changes"), "Must clarify when to use");
+  });
+
+  it("taskContext contract defines minimal, stateless, goal-directed map", () => {
+    const desc = TOOL_CONTRACTS.taskContext.description;
+    assert.ok(desc.includes("minimal"), "Must mention 'minimal'");
+    assert.ok(desc.includes("stateless"), "Must mention 'stateless'");
+    assert.ok(desc.includes("goal-directed"), "Must mention 'goal-directed'");
+    assert.ok(desc.includes("token budget"), "Must mention token budget");
   });
 });

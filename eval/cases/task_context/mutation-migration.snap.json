@@ -1,0 +1,176 @@
+{
+  "version": 1,
+  "goal": "migrar mutation-receipt.ts para usar dependencias limitadas",
+  "taskType": "migration",
+  "taskTypeSource": "inferred",
+  "primaryFiles": [
+    {
+      "path": "src/server/mutation-receipt.ts",
+      "role": "primary",
+      "confidence": "high",
+      "evidence": [
+        {
+          "type": "extracted_path",
+          "detail": "Extracted from goal text"
+        },
+        {
+          "type": "test_proximity",
+          "detail": "Has nearby tests: src/server/mutation-receipt.test.ts"
+        }
+      ],
+      "recommendedReadTool": "read"
+    }
+  ],
+  "supportingFiles": [
+    {
+      "path": "src/change-intelligence/goal-normalizer.test.ts",
+      "role": "test",
+      "confidence": "medium",
+      "evidence": [
+        {
+          "type": "content_match",
+          "detail": "Contains keyword: migrar"
+        },
+        {
+          "type": "test_proximity",
+          "detail": "Is test for: src/change-intelligence/goal-normalizer.ts"
+        }
+      ],
+      "recommendedReadTool": "read_adaptive"
+    },
+    {
+      "path": "src/change-intelligence/goal-normalizer.ts",
+      "role": "supporting",
+      "confidence": "medium",
+      "evidence": [
+        {
+          "type": "content_match",
+          "detail": "Contains keyword: migrar"
+        },
+        {
+          "type": "test_proximity",
+          "detail": "Has nearby tests: src/change-intelligence/goal-normalizer.test.ts"
+        }
+      ],
+      "recommendedReadTool": "read_adaptive"
+    },
+    {
+      "path": "src/server/mutation-receipt.test.ts",
+      "role": "test",
+      "confidence": "medium",
+      "evidence": [
+        {
+          "type": "test_proximity",
+          "detail": "Is test for: src/server/mutation-receipt.ts"
+        }
+      ],
+      "recommendedReadTool": "read_adaptive"
+    },
+    {
+      "path": "eval/cases/task_context/mutation-migration.input.json",
+      "role": "supporting",
+      "confidence": "low",
+      "evidence": [
+        {
+          "type": "content_match",
+          "detail": "Contains keyword: migrar"
+        },
+        {
+          "type": "content_match",
+          "detail": "Contains keyword: mutation-receipt.ts"
+        },
+        {
+          "type": "content_match",
+          "detail": "Contains keyword: dependencias"
+        },
+        {
+          "type": "content_match",
+          "detail": "Contains keyword: limitadas"
+        }
+      ],
+      "recommendedReadTool": "read_many"
+    },
+    {
+      "path": "eval/cases/task_context/mutation-migration.snap.json",
+      "role": "supporting",
+      "confidence": "low",
+      "evidence": [
+        {
+          "type": "content_match",
+          "detail": "Contains keyword: migrar"
+        },
+        {
+          "type": "content_match",
+          "detail": "Contains keyword: mutation-receipt.ts"
+        },
+        {
+          "type": "content_match",
+          "detail": "Contains keyword: dependencias"
+        },
+        {
+          "type": "content_match",
+          "detail": "Contains keyword: limitadas"
+        }
+      ],
+      "recommendedReadTool": "read_many"
+    }
+  ],
+  "directDependents": [
+    {
+      "source": "src/server/mutation-receipt.ts",
+      "dependents": [
+        "eval/cases/read/package-json.snap.json",
+        "eval/cases/read_many/two-files.snap.json",
+        "eval/cases/semantic_pack/workspace-lifecycle.snap.json",
+        "eval/cases/task_context/mutation-migration.input.json",
+        "eval/cases/task_context/mutation-migration.snap.json",
+        "package.json",
+        "src/server.ts",
+        "src/server/mutation-receipt.test.ts"
+      ],
+      "confidence": "medium",
+      "limitations": [
+        "Lexical search only (no AST); results may include false positives"
+      ]
+    }
+  ],
+  "applicableInstructions": [
+    {
+      "path": "AGENTS.md",
+      "scope": "global",
+      "reason": "Instruction file detected in workspace"
+    }
+  ],
+  "nearbyTestCandidates": [
+    {
+      "sourcePath": "src/server/mutation-receipt.ts",
+      "testPaths": [
+        "src/server/mutation-receipt.test.ts"
+      ]
+    },
+    {
+      "sourcePath": "src/change-intelligence/goal-normalizer.ts",
+      "testPaths": [
+        "src/change-intelligence/goal-normalizer.test.ts"
+      ]
+    }
+  ],
+  "suggestedNextSteps": [
+    {
+      "tool": "read_many",
+      "arguments": {
+        "paths": [
+          "src/server/mutation-receipt.ts"
+        ]
+      },
+      "reason": "Read the most confident primary candidates to understand implementation details."
+    }
+  ],
+  "limitations": [],
+  "budget": {
+    "maxTokens": 6000,
+    "estimatedTokens": 818,
+    "truncated": false,
+    "omittedCandidates": 0
+  }
+}

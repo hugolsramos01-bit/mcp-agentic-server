@@ -1,0 +1,427 @@
+{
+  "version": 1,
+  "goal": "corrigir bug de paginacao na view principal",
+  "taskType": "bug_fix",
+  "taskTypeSource": "inferred",
+  "primaryFiles": [
+    {
+      "path": "src/ui/card-types.ts",
+      "role": "primary",
+      "confidence": "high",
+      "evidence": [
+        {
+          "type": "focus_path",
+          "detail": "Provided directly in focusPaths"
+        },
+        {
+          "type": "test_proximity",
+          "detail": "Has nearby tests: src/ui/card-types.test.ts"
+        }
+      ],
+      "recommendedReadTool": "read"
+    }
+  ],
+  "supportingFiles": [
+    {
+      "path": "eval/cases/task_context/pagination-bug.input.json",
+      "role": "supporting",
+      "confidence": "medium",
+      "evidence": [
+        {
+          "type": "filename_partial",
+          "detail": "Basename segment matches keyword: bug"
+        },
+        {
+          "type": "content_match",
+          "detail": "Contains keyword: corrigir"
+        },
+        {
+          "type": "content_match",
+          "detail": "Contains keyword: paginacao"
+        },
+        {
+          "type": "content_match",
+          "detail": "Contains keyword: view"
+        },
+        {
+          "type": "content_match",
+          "detail": "Contains keyword: principal"
+        }
+      ],
+      "recommendedReadTool": "read_adaptive"
+    },
+    {
+      "path": "eval/cases/task_context/pagination-bug.snap.json",
+      "role": "supporting",
+      "confidence": "medium",
+      "evidence": [
+        {
+          "type": "filename_partial",
+          "detail": "Basename segment matches keyword: bug"
+        },
+        {
+          "type": "content_match",
+          "detail": "Contains keyword: corrigir"
+        },
+        {
+          "type": "content_match",
+          "detail": "Contains keyword: paginacao"
+        },
+        {
+          "type": "content_match",
+          "detail": "Contains keyword: view"
+        },
+        {
+          "type": "content_match",
+          "detail": "Contains keyword: principal"
+        }
+      ],
+      "recommendedReadTool": "read_adaptive"
+    },
+    {
+      "path": "src/change-intelligence/goal-normalizer.test.ts",
+      "role": "test",
+      "confidence": "medium",
+      "evidence": [
+        {
+          "type": "content_match",
+          "detail": "Contains keyword: corrigir"
+        },
+        {
+          "type": "test_proximity",
+          "detail": "Is test for: src/change-intelligence/goal-normalizer.ts"
+        }
+      ],
+      "recommendedReadTool": "read_adaptive"
+    },
+    {
+      "path": "src/change-intelligence/goal-normalizer.ts",
+      "role": "supporting",
+      "confidence": "medium",
+      "evidence": [
+        {
+          "type": "content_match",
+          "detail": "Contains keyword: corrigir"
+        },
+        {
+          "type": "test_proximity",
+          "detail": "Has nearby tests: src/change-intelligence/goal-normalizer.test.ts"
+        }
+      ],
+      "recommendedReadTool": "read_adaptive"
+    },
+    {
+      "path": ".github/ISSUE_TEMPLATE/bug_report.md",
+      "role": "supporting",
+      "confidence": "medium",
+      "evidence": [
+        {
+          "type": "filename_partial",
+          "detail": "Basename segment matches keyword: bug"
+        }
+      ],
+      "recommendedReadTool": "read_adaptive"
+    },
+    {
+      "path": "src/ui/card-types.test.ts",
+      "role": "test",
+      "confidence": "medium",
+      "evidence": [
+        {
+          "type": "test_proximity",
+          "detail": "Is test for: src/ui/card-types.ts"
+        }
+      ],
+      "recommendedReadTool": "read_adaptive"
+    },
+    {
+      "path": ".env.example",
+      "role": "supporting",
+      "confidence": "low",
+      "evidence": [
+        {
+          "type": "content_match",
+          "detail": "Contains keyword: view"
+        }
+      ],
+      "recommendedReadTool": "read_many"
+    },
+    {
+      "path": ".github/PULL_REQUEST_TEMPLATE.md",
+      "role": "supporting",
+      "confidence": "low",
+      "evidence": [
+        {
+          "type": "content_match",
+          "detail": "Contains keyword: view"
+        }
+      ],
+      "recommendedReadTool": "read_many"
+    },
+    {
+      "path": ".github/workflows/release.yml",
+      "role": "supporting",
+      "confidence": "low",
+      "evidence": [
+        {
+          "type": "content_match",
+          "detail": "Contains keyword: view"
+        }
+      ],
+      "recommendedReadTool": "read_many"
+    },
+    {
+      "path": "CHANGELOG.md",
+      "role": "supporting",
+      "confidence": "low",
+      "evidence": [
+        {
+          "type": "content_match",
+          "detail": "Contains keyword: view"
+        }
+      ],
+      "recommendedReadTool": "read_many"
+    },
+    {
+      "path": "CODE_OF_CONDUCT.md",
+      "role": "supporting",
+      "confidence": "low",
+      "evidence": [
+        {
+          "type": "content_match",
+          "detail": "Contains keyword: view"
+        }
+      ],
+      "recommendedReadTool": "read_many"
+    },
+    {
+      "path": "docs/agent-profile-schema.md",
+      "role": "supporting",
+      "confidence": "low",
+      "evidence": [
+        {
+          "type": "content_match",
+          "detail": "Contains keyword: view"
+        }
+      ],
+      "recommendedReadTool": "read_many"
+    },
+    {
+      "path": "docs/configuration.md",
+      "role": "supporting",
+      "confidence": "low",
+      "evidence": [
+        {
+          "type": "content_match",
+          "detail": "Contains keyword: view"
+        }
+      ],
+      "recommendedReadTool": "read_many"
+    },
+    {
+      "path": "docs/gotchas.md",
+      "role": "supporting",
+      "confidence": "low",
+      "evidence": [
+        {
+          "type": "content_match",
+          "detail": "Contains keyword: view"
+        }
+      ],
+      "recommendedReadTool": "read_many"
+    },
+    {
+      "path": "docs/security.md",
+      "role": "supporting",
+      "confidence": "low",
+      "evidence": [
+        {
+          "type": "content_match",
+          "detail": "Contains keyword: view"
+        }
+      ],
+      "recommendedReadTool": "read_many"
+    },
+    {
+      "path": "eval/cases/read_many/two-files.snap.json",
+      "role": "supporting",
+      "confidence": "low",
+      "evidence": [
+        {
+          "type": "content_match",
+          "detail": "Contains keyword: view"
+        }
+      ],
+      "recommendedReadTool": "read_many"
+    },
+    {
+      "path": "eval/cases/read/package-json.snap.json",
+      "role": "supporting",
+      "confidence": "low",
+      "evidence": [
+        {
+          "type": "content_match",
+          "detail": "Contains keyword: view"
+        }
+      ],
+      "recommendedReadTool": "read_many"
+    },
+    {
+      "path": "eval/cases/semantic_pack/workspace-lifecycle.snap.json",
+      "role": "supporting",
+      "confidence": "low",
+      "evidence": [
+        {
+          "type": "content_match",
+          "detail": "Contains keyword: view"
+        }
+      ],
+      "recommendedReadTool": "read_many"
+    },
+    {
+      "path": "examples/agents/codex-qa-tester.md",
+      "role": "supporting",
+      "confidence": "low",
+      "evidence": [
+        {
+          "type": "content_match",
+          "detail": "Contains keyword: view"
+        }
+      ],
+      "recommendedReadTool": "read_many"
+    },
+    {
+      "path": "examples/agents/copilot-reviewer.md",
+      "role": "supporting",
+      "confidence": "low",
+      "evidence": [
+        {
+          "type": "content_match",
+          "detail": "Contains keyword: view"
+        }
+      ],
+      "recommendedReadTool": "read_many"
+    },
+    {
+      "path": "examples/agents/pi-reviewer.md",
+      "role": "supporting",
+      "confidence": "low",
+      "evidence": [
+        {
+          "type": "content_match",
+          "detail": "Contains keyword: view"
+        }
+      ],
+      "recommendedReadTool": "read_many"
+    },
+    {
+      "path": "package.json",
+      "role": "supporting",
+      "confidence": "low",
+      "evidence": [
+        {
+          "type": "content_match",
+          "detail": "Contains keyword: view"
+        }
+      ],
+      "recommendedReadTool": "read_many"
+    },
+    {
+      "path": "README.md",
+      "role": "supporting",
+      "confidence": "low",
+      "evidence": [
+        {
+          "type": "content_match",
+          "detail": "Contains keyword: view"
+        }
+      ],
+      "recommendedReadTool": "read_many"
+    },
+    {
+      "path": "SECURITY.md",
+      "role": "supporting",
+      "confidence": "low",
+      "evidence": [
+        {
+          "type": "content_match",
+          "detail": "Contains keyword: view"
+        }
+      ],
+      "recommendedReadTool": "read_many"
+    },
+    {
+      "path": "src/change-intelligence/task-context.test.ts",
+      "role": "test",
+      "confidence": "low",
+      "evidence": [
+        {
+          "type": "content_match",
+          "detail": "Contains keyword: corrigir"
+        }
+      ],
+      "recommendedReadTool": "read_many"
+    }
+  ],
+  "directDependents": [
+    {
+      "source": "src/ui/card-types.ts",
+      "dependents": [
+        "eval/cases/read/package-json.snap.json",
+        "eval/cases/read_many/two-files.snap.json",
+        "eval/cases/semantic_pack/workspace-lifecycle.snap.json",
+        "eval/cases/task_context/pagination-bug.input.json",
+        "eval/cases/task_context/pagination-bug.snap.json",
+        "package.json",
+        "src/ui/card-types.test.ts",
+        "src/ui/heavy-payload.tsx",
+        "src/ui/patch-display.ts",
+        "src/ui/review-payload.tsx"
+      ],
+      "confidence": "medium",
+      "limitations": [
+        "Lexical search only (no AST); results may include false positives",
+        "Truncated to 10 files (found 11)"
+      ]
+    }
+  ],
+  "applicableInstructions": [
+    {
+      "path": "AGENTS.md",
+      "scope": "global",
+      "reason": "Instruction file detected in workspace"
+    }
+  ],
+  "nearbyTestCandidates": [
+    {
+      "sourcePath": "src/ui/card-types.ts",
+      "testPaths": [
+        "src/ui/card-types.test.ts"
+      ]
+    },
+    {
+      "sourcePath": "src/change-intelligence/goal-normalizer.ts",
+      "testPaths": [
+        "src/change-intelligence/goal-normalizer.test.ts"
+      ]
+    }
+  ],
+  "suggestedNextSteps": [
+    {
+      "tool": "read_many",
+      "arguments": {
+        "paths": [
+          "src/ui/card-types.ts"
+        ]
+      },
+      "reason": "Read the most confident primary candidates to understand implementation details."
+    }
+  ],
+  "limitations": [],
+  "budget": {
+    "maxTokens": 6000,
+    "estimatedTokens": 1770,
+    "truncated": false,
+    "omittedCandidates": 0
+  }
+}

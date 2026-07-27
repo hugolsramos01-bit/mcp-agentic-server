@@ -66,6 +66,12 @@ const SUITES = {
     return parseToolResponse(result);
   },
 
+  task_context: async (input, cwd) => {
+    const { taskContextTool } = await import(pathToFileURL(join(DIST, "change-intelligence", "task-context.js")).href);
+    const result = await taskContextTool(cwd, [cwd], input);
+    return parseToolResponse(result);
+  },
+
   grep: async (input, cwd) => {
     const { grepFilesTool } = await import(pathToFileURL(join(DIST, "pi-tools.js")).href);
     // grepFilesTool takes (input: GrepToolInput, context: ToolContext)
