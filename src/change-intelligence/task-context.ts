@@ -613,16 +613,17 @@ function enforceFinalContextBudget(
     result.limitations.push(
       "Minimum task context structure exceeds the requested token budget.",
     );
-
-    exactTokens = measureTokens();
   }
+
+  const actualTokens = measureTokens();
 
   result.budget = {
     maxTokens,
-    estimatedTokens: exactTokens,
+    estimatedTokens: actualTokens,
     truncated:
+      result.budget.omittedCandidates > 0 ||
       omittedCandidates > 0 ||
-      exactTokens > maxTokens,
+      actualTokens > maxTokens,
     omittedCandidates,
   };
 
