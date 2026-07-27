@@ -8,6 +8,7 @@ import { getWorkspaceFileCacheKey, getWorkspaceFileSnapshot, setWorkspaceFileSna
 import { IndexedPath, isPrimaryEligibleKind, isDependencySkippedKind, candidateKindPriority } from "./indexed-path.js";
 import { getLimitedSharedDependencies } from "./file-dependencies-internal.js";
 import { TaskContextInput, TaskContextResult, TaskFileCandidate, EvidenceEntry, TaskFileRole, TaskType, TaskContextDepth, CandidateKind } from "./types.js";
+import { loadAndExtractCodeRegions, CodeRegionSkippedError } from "./code-region-cache.js";
 import type { ToolResponse } from "../pi-tools.js";
 import { NOOP_PERFORMANCE_RECORDER } from "../performance/performance-recorder.js";
 
@@ -399,6 +400,44 @@ export async function buildTaskContext(input: TaskContextInput): Promise<TaskCon
     } else {
       supportingFiles.push(c); // test, supporting, or configuration
     }
+  }
+
+  // 11.5 Extract code regions for primary files adaptively
+  const depthConfig = {
+    fast: { maxFiles: 1, maxRegions: 4 },
+    balanced: { maxFiles: 2, maxRegions: 6 },
+    deep: { maxFiles: 3, maxRegions: 8 }
+  };
+  const config = depthConfig[effectiveDepth];
+  const regionTargets = primaryFiles
+    .filter(c => c.confidence === "high" && isPrimaryEligibleKind(getKind(c.path)))
+    .slice(0, config.maxFiles);
+
+  if (regionTargets.length > 0) {
+    const pCodeRegions = perf.startPhase("codeRegions");
+    const regionResults = await Promise.all(
+      regionTargets.map(candidate => 
+        loadAndExtractCodeRegions({
+          workspaceRoot: cwd,
+          path: candidate.path,
+          anchorKeywords,
+          maxRegions: config.maxRegions
+        }).catch(err => {
+          if (!(err instanceof CodeRegionSkippedError)) {
+            limitations.push(`Failed to extract code regions for ${candidate.path}: ${err instanceof Error ? err.message : String(err)}`);
+          }
+          return null;
+        })
+      )
+    );
+    for (const result of regionResults) {
+      if (!result) continue;
+      const candidate = primaryFiles.find(f => f.path === result.path);
+      if (candidate && result.codeRegions.length > 0) {
+        candidate.codeRegions = result.codeRegions;
+      }
+    }
+    pCodeRegions.end();
   }
 
   // 12. Direct dependents — limited to top 3 primary files (skip eval/snapshot/generated/docs)
