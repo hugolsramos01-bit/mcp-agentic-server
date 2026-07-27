@@ -48,8 +48,15 @@ export async function workspaceSummaryTool(cwd: string): Promise<ToolResponse> {
   };
 }
 
+export interface ReadManyItem {
+  path: string;
+  startLine?: number;
+  endLine?: number;
+}
+
 export interface ReadManyInput {
-  paths: string[];
+  paths?: string[];
+  items?: ReadManyItem[];
   compressionLevel?: "none" | "light" | "balanced" | "aggressive" | "skeletal";
   maxTokens?: number;
 }
@@ -59,10 +66,17 @@ export async function readManyTool(input: ReadManyInput, cwd: string, allowedRoo
   let totalTokens = 0;
   const maxTokens = input.maxTokens ?? 64000;
 
+  if ((input.paths && input.items) || (!input.paths && !input.items)) {
+    throw new Error("read_many requires exactly one of 'paths' or 'items'.");
+  }
+
+  const items: ReadManyItem[] = input.items || (input.paths || []).map(p => ({ path: p }));
+  const itemCount = items.length;
+
   // Proactive bloat warning: 5+ files without compression is a context risk
   const bloatWarning =
-    input.paths.length >= 5 && (!input.compressionLevel || input.compressionLevel === "none")
-      ? `⚠️  CONTEXT BLOAT WARNING: ${input.paths.length} files requested without compression. ` +
+    itemCount >= 5 && (!input.compressionLevel || input.compressionLevel === "none")
+      ? `⚠️  CONTEXT BLOAT WARNING: ${itemCount} files requested without compression. ` +
         `Consider setting compressionLevel to 'light' or 'balanced', or using semantic_pack for a goal-focused overview. ` +
         `Proceeding with maxTokens=${maxTokens} budget guard.\n\n`
       : "";
@@ -71,25 +85,32 @@ export async function readManyTool(input: ReadManyInput, cwd: string, allowedRoo
   const { createHash } = await import("node:crypto");
 
   // Sort files by size (smallest first) to maximize what fits in budget
-  type FileEntry = { path: string; fullPath: string; stat: import("node:fs").Stats };
+  type FileEntry = { item: ReadManyItem; fullPath: string; stat: import("node:fs").Stats };
   const files: FileEntry[] = [];
-  for (const p of input.paths) {
+  for (const item of items) {
     try {
-      const fullPath = enforceSecurePath(p, cwd, [cwd], false);
-      files.push({ path: p, fullPath, stat: statSync(fullPath) });
+      const fullPath = enforceSecurePath(item.path, cwd, [cwd], false);
+      files.push({ item, fullPath, stat: statSync(fullPath) });
     } catch {}
   }
-  files.sort((a, b) => a.stat.size - b.stat.size);
+  
+  if (!input.items) {
+    files.sort((a, b) => a.stat.size - b.stat.size);
+  }
 
   const skipped: { path: string; reason: string }[] = [];
   for (const file of files) {
-    const p = file.path;
+    const p = file.item.path;
     try {
       const rawBytes = readFileSync(file.fullPath);
       let content = rawBytes.toString("utf8");
+      
+      const isRanged = file.item.startLine !== undefined && file.item.endLine !== undefined;
 
-      // Apply compression if requested — pass filePath+mtime to benefit from AST cache
-      if (input.compressionLevel && input.compressionLevel !== "none") {
+      if (isRanged) {
+        const lines = content.split(/\r?\n/);
+        content = lines.slice((file.item.startLine as number) - 1, file.item.endLine as number).join('\n');
+      } else if (input.compressionLevel && input.compressionLevel !== "none") {
         const { compressAST } = await import("./context-engine/compressors.js");
         const compressed = compressAST(content, input.compressionLevel, undefined, file.fullPath, file.stat.mtimeMs);
         content = compressed.output;
@@ -110,6 +131,8 @@ export async function readManyTool(input: ReadManyInput, cwd: string, allowedRoo
         contentHash,
         sizeBytes: file.stat.size,
         mtimeNs: Number(file.stat.mtimeMs) * 1000000,
+        startLine: file.item.startLine,
+        endLine: file.item.endLine,
         content,
       });
     } catch (e: any) {

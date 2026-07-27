@@ -2417,7 +2417,12 @@ function createMcpServer(
         description: "Read the contents of multiple files in a single call. Use this instead of reading files one by one. Supports optional compressionLevel to reduce token usage: 'light' (removes large objects), 'balanced' (removes function bodies), 'aggressive', 'skeletal'. Use maxTokens to set a budget — files exceeding the budget are skipped.",
         inputSchema: {
           workspaceId: z.string(),
-          paths: z.array(z.string()),
+          paths: z.array(z.string()).optional(),
+          items: z.array(z.object({
+            path: z.string(),
+            startLine: z.number().optional(),
+            endLine: z.number().optional()
+          })).optional(),
           compressionLevel: z.enum(["none", "light", "balanced", "aggressive", "skeletal"]).optional().describe("Optional compression level to reduce token usage"),
           maxTokens: z.number().optional().describe("Optional token budget (default 64000) — files are skipped once budget is exceeded"),
         },
