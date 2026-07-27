@@ -35,4 +35,20 @@ describe("goal-normalizer", () => {
     assert.equal(res.taskTypeSuggestion, "feature");
     assert.equal(res.taskTypeSource, "explicit");
   });
+
+  it("P1.2: anchorKeywords exclude ACTION_WORDS (suporte, bug, feature, issue)", () => {
+    // 'suporte' (noun) should be filtered from anchors; only domain words remain
+    const res1 = normalizeGoal("adicionar suporte para JWT middleware em auth");
+    assert.ok(!res1.anchorKeywords.includes("suporte"), "suporte must be excluded from anchors");
+    assert.ok(!res1.anchorKeywords.includes("adicionar"), "adicionar must be excluded from anchors");
+    assert.ok(res1.anchorKeywords.includes("jwt"), "jwt must be in anchors");
+    assert.ok(res1.anchorKeywords.includes("middleware"), "middleware must be in anchors");
+    assert.ok(res1.anchorKeywords.includes("auth"), "auth must be in anchors");
+
+    // Generic nouns bug/feature/issue
+    const res2 = normalizeGoal("fix bug in login feature");
+    assert.ok(!res2.anchorKeywords.includes("bug"), "bug must be excluded from anchors");
+    assert.ok(!res2.anchorKeywords.includes("feature"), "feature must be excluded from anchors");
+    assert.ok(res2.anchorKeywords.includes("fix") || res2.anchorKeywords.includes("login"), "login may remain if not stopword");
+  });
 });

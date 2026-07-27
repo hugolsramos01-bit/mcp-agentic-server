@@ -529,4 +529,219 @@ describe("task-context", () => {
       }
     }
   });
+
+  // ─── P1.2 commit 8: Strengthened gate tests ─────────────────────
+
+  it("P1.2: eval root with content_match still never primary (CandidateKind gate)", async () => {
+    const root = await makeWorkspace();
+    await mkdir(join(root, "eval", "cases"), { recursive: true });
+    // Content must contain anchor keywords so it gets both filename + content_match
+    await writeFile(
+      join(root, "eval", "cases", "jwt-auth.input.json"),
+      JSON.stringify({ goal: "add jwt auth middleware" }),
+    );
+    await writeFile(join(root, "src", "auth.ts"), "export const authMiddleware = () => {};");
+    await gitAddAll(root);
+
+    const res = await buildTaskContext({ workspaceId: "test",
+      cwd: root,
+      allowedRoots: [root],
+      goal: "adicionar suporte para JWT middleware em auth",
+      depth: "balanced",
+    });
+
+    // eval file must NOT be primary — CandidateKind gate is the barrier, not lack of evidence
+    const evalInPrimary = res.primaryFiles.find(p => p.path.includes("jwt-auth.input.json"));
+    assert.equal(evalInPrimary, undefined, "eval root file with content+filename evidence must NOT be primary (CandidateKind gate)");
+
+    // src/auth.ts SHOULD be primary
+    const srcAuth = res.primaryFiles.find(p => p.path.includes("src/auth.ts"));
+    assert.ok(srcAuth, "src/auth.ts should be a primary candidate");
+  });
+
+  it("P1.2: real snapshot (.snap.json) never primary", async () => {
+    const root = await makeWorkspace();
+    await mkdir(join(root, "src"), { recursive: true });
+    await writeFile(join(root, "src", "oauth-store.ts"), "export const store = {};");
+    await writeFile(join(root, "src", "oauth-store.snap.json"), JSON.stringify({ output: "snapshot" }));
+    await gitAddAll(root);
+
+    const res = await buildTaskContext({ workspaceId: "test",
+      cwd: root,
+      allowedRoots: [root],
+      goal: "fix oauth store in src/oauth-store.ts",
+      focusPaths: ["src/oauth-store.ts"],
+    });
+
+    const snapInPrimary = res.primaryFiles.find(p => p.path.includes(".snap."));
+    assert.equal(snapInPrimary, undefined, ".snap.json files must not appear in primaryFiles");
+  });
+
+  it("P1.2: README and SECURITY never appear in primaryFiles", async () => {
+    const root = await makeWorkspace();
+    await writeFile(join(root, "README.md"), "# Agentic MCP Server\nDocs about auth");
+    await writeFile(join(root, "SECURITY.md"), "# Security Policy\nAuth security notes");
+    await writeFile(join(root, "src", "auth.ts"), "export const auth = () => {};");
+    await gitAddAll(root);
+
+    const res = await buildTaskContext({ workspaceId: "test",
+      cwd: root,
+      allowedRoots: [root],
+      goal: "fix auth security",
+      depth: "balanced",
+    });
+
+    const docsInPrimary = res.primaryFiles.filter(p =>
+      p.path === "README.md" || p.path === "SECURITY.md"
+    );
+    assert.equal(docsInPrimary.length, 0, "README.md and SECURITY.md must not appear in primaryFiles");
+  });
+
+  it("P1.2: source file preserved in grep results despite 20 noisy docs", async () => {
+    const root = await makeWorkspace();
+    await mkdir(join(root, "src"), { recursive: true });
+    // Create 25 noisy doc/eval files with the anchor keyword
+    for (let i = 0; i < 25; i++) {
+      await mkdir(join(root, "docs", `section${i}`), { recursive: true });
+      await writeFile(join(root, "docs", `section${i}`, "readme.md"), `# Doc ${i}\nauth middleware info`);
+    }
+    // One real source file with the same keyword
+    await writeFile(join(root, "src", "auth-middleware.ts"), "export const authMiddleware = () => {};");
+    await gitAddAll(root);
+
+    const res = await buildTaskContext({ workspaceId: "test",
+      cwd: root,
+      allowedRoots: [root],
+      goal: "adicionar suporte para JWT middleware em auth",
+      depth: "balanced",
+    });
+
+    // source file must be in primaryFiles
+    const srcFile = res.primaryFiles.find(p => p.path.includes("src/auth-middleware.ts"));
+    assert.ok(srcFile, "source file must be in primaryFiles despite 25 noisy docs");
+
+    // All primary files must be source (not docs)
+    const docsInPrimary = res.primaryFiles.filter(p => p.path.startsWith("docs/"));
+    assert.equal(docsInPrimary.length, 0, "docs must not leak into primaryFiles");
+  });
+
+  it("P1.2: excluded test file does not appear in nearbyTestCandidates", async () => {
+    const root = await makeWorkspace();
+    await mkdir(join(root, "src"), { recursive: true });
+    await writeFile(join(root, "src", "payment.ts"), "export const charge = () => {};");
+    await writeFile(join(root, "src", "payment.test.ts"), "test('payment', () => {});");
+    await gitAddAll(root);
+
+    const res = await buildTaskContext({ workspaceId: "test",
+      cwd: root,
+      allowedRoots: [root],
+      goal: "fix payment logic in src/payment.ts",
+      excludePaths: ["src/payment.test.ts"],
+    });
+
+    // nearbyTestCandidates should not reference the excluded test
+    for (const nc of res.nearbyTestCandidates) {
+      for (const tp of nc.testPaths) {
+        assert.ok(!tp.includes("payment.test.ts"), "excluded test must not appear in nearbyTestCandidates");
+      }
+    }
+  });
+
+  it("P1.2: final JSON size (including suggestedNextSteps) is within maxTokens", async () => {
+    const root = await makeWorkspace();
+    for (let i = 0; i < 10; i++) {
+      await writeFile(join(root, `src/page${i}.tsx`), "export default function Page() {}");
+    }
+    await gitAddAll(root);
+
+    const focusPaths = Array.from({ length: 10 }, (_, i) => `src/page${i}.tsx`);
+    const res = await buildTaskContext({ workspaceId: "test",
+      cwd: root,
+      allowedRoots: [root],
+      goal: "update pages",
+      focusPaths,
+      maxTokens: 1200,
+    });
+
+    const exactTokens = Math.ceil(JSON.stringify(res).length / 4);
+    assert.ok(exactTokens <= res.budget.maxTokens,
+      `final JSON (${exactTokens} tokens) must be within budget (${res.budget.maxTokens})`);
+    assert.equal(res.budget.estimatedTokens, exactTokens,
+      "estimatedTokens must match exact final JSON measurement");
+  });
+
+  it("P1.2: warm cache produces exactly 1 subprocess (grep) with no direct context", async () => {
+    const root = await makeWorkspace();
+    await mkdir(join(root, "src"), { recursive: true });
+    await writeFile(join(root, "src", "payment.ts"), "export const charge = () => {};");
+    await writeFile(join(root, "stripe.ts"), "// stripe with auth support");
+    await gitAddAll(root);
+
+    // First call warms the cache
+    await buildTaskContext({ workspaceId: "warm-cache-test",
+      cwd: root,
+      allowedRoots: [root],
+      goal: "adicionar suporte para JWT middleware em auth",
+    });
+
+    // Second call — should hit cache
+    let subprocessCount = 0;
+    const perfRecorder = {
+      enabled: true,
+      increment: (name: string) => { if (name === "subprocessCount") subprocessCount++; },
+      startPhase: () => ({ end: () => {} }),
+      finish: () => undefined,
+    } as any;
+
+    const res = await buildTaskContext({ workspaceId: "warm-cache-test",
+      cwd: root,
+      allowedRoots: [root],
+      goal: "adicionar suporte para JWT middleware em auth",
+      perf: perfRecorder,
+    });
+
+    // With warm cache: 0 for ls-files + 1 for grep = 1 subprocess
+    assert.equal(subprocessCount, 1,
+      `warm cache should produce exactly 1 subprocess (grep); got ${subprocessCount}`);
+
+    // Content match evidence exists (grep found 'auth' in stripe.ts)
+    const hasContentMatch = [...res.primaryFiles, ...res.supportingFiles].some(p =>
+      p.evidence.some(e => e.type === "content_match")
+    );
+    assert.ok(hasContentMatch, "grep evidence (content_match) must exist in result");
+  });
+
+  it("P1.2: warm cache + action-only goal produces 0 subprocesses", async () => {
+    const root = await makeWorkspace();
+    await mkdir(join(root, "src"), { recursive: true });
+    await writeFile(join(root, "src", "generic.ts"), "export const x = 1;");
+    await gitAddAll(root);
+
+    // First call warms the cache
+    await buildTaskContext({ workspaceId: "warm-action-test",
+      cwd: root,
+      allowedRoots: [root],
+      goal: "fix implement update",
+    });
+
+    // Second call
+    let subprocessCount = 0;
+    const perfRecorder = {
+      enabled: true,
+      increment: (name: string) => { if (name === "subprocessCount") subprocessCount++; },
+      startPhase: () => ({ end: () => {} }),
+      finish: () => undefined,
+    } as any;
+
+    await buildTaskContext({ workspaceId: "warm-action-test",
+      cwd: root,
+      allowedRoots: [root],
+      goal: "fix implement update",
+      perf: perfRecorder,
+    });
+
+    // With warm cache + no anchor keywords: 0 subprocesses
+    assert.equal(subprocessCount, 0,
+      `warm cache + action-only goal should produce 0 subprocesses; got ${subprocessCount}`);
+  });
 });
