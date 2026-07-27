@@ -494,24 +494,49 @@ export async function buildTaskContext(input: TaskContextInput): Promise<TaskCon
 
 // ─── Suggested next steps builder (runs after budget enforcement) ─────
 
+// ─── Non-overlapping region selection ────────────────────────────────
+
+function selectNonOverlappingRegions(
+  regions: import("./types.js").CodeRegion[],
+  maxRegions: number,
+): import("./types.js").CodeRegion[] {
+  const selected: import("./types.js").CodeRegion[] = [];
+  for (const region of regions) {
+    const overlaps = selected.some(
+      cur => region.startLine <= cur.endLine && region.endLine >= cur.startLine,
+    );
+    if (!overlaps) {
+      selected.push(region);
+    }
+    if (selected.length >= maxRegions) break;
+  }
+  return selected;
+}
+
 function buildSuggestedNextSteps(result: TaskContextResult, anchorKeywords: string[]): TaskContextResult["suggestedNextSteps"] {
   const steps: TaskContextResult["suggestedNextSteps"] = [];
 
   if (result.primaryFiles.length > 0) {
-    const items = result.primaryFiles.slice(0, 5).flatMap(c => {
+    const MAX_TOTAL_ITEMS = 5;
+    const MAX_REGIONS_PER_FILE = 2;
+    const allItems: Array<{ path: string; startLine?: number; endLine?: number }> = [];
+
+    for (const c of result.primaryFiles.slice(0, MAX_TOTAL_ITEMS)) {
+      if (allItems.length >= MAX_TOTAL_ITEMS) break;
       if (c.codeRegions && c.codeRegions.length > 0) {
-        return c.codeRegions.map(r => ({
-          path: c.path,
-          startLine: r.startLine,
-          endLine: r.endLine
-        }));
+        const nonOverlapping = selectNonOverlappingRegions(c.codeRegions, MAX_REGIONS_PER_FILE);
+        for (const r of nonOverlapping) {
+          if (allItems.length >= MAX_TOTAL_ITEMS) break;
+          allItems.push({ path: c.path, startLine: r.startLine, endLine: r.endLine });
+        }
+      } else {
+        allItems.push({ path: c.path });
       }
-      return [{ path: c.path }];
-    });
+    }
 
     steps.push({
       tool: "read_many",
-      arguments: { items },
+      arguments: { items: allItems },
       reason: "Read the strongest implementation candidates and their relevant regions."
     });
   } else if (result.supportingFiles.length > 0) {
@@ -651,9 +676,29 @@ function enforceFinalContextBudget(
   let exactTokens = measureTokens();
   let finalLimitationAdded = false;
 
+  // Helper: true if any primary file still has codeRegions that can be trimmed
+  const hasCodeRegions = () =>
+    result.primaryFiles.some(f => (f.codeRegions?.length ?? 0) > 0);
+
+  // Helper: remove the lowest-priority region across all primary files
+  const removeLowestPriorityRegion = (): boolean => {
+    for (let i = result.primaryFiles.length - 1; i >= 0; i--) {
+      const file = result.primaryFiles[i];
+      if (file.codeRegions && file.codeRegions.length > 0) {
+        file.codeRegions.pop();
+        if (result.budget.omittedRegions === undefined) result.budget.omittedRegions = 0;
+        result.budget.omittedRegions++;
+        if (file.codeRegions.length === 0) delete file.codeRegions;
+        return true;
+      }
+    }
+    return false;
+  };
+
   while (
     exactTokens > maxTokens &&
     (
+      hasCodeRegions() ||
       result.supportingFiles.length > 0 ||
       result.primaryFiles.length > 1
     )
@@ -669,39 +714,17 @@ function enforceFinalContextBudget(
 
     if (result.supportingFiles.length > 0) {
       result.supportingFiles.pop();
-      poppedSomething = true;
       omittedCandidates++;
-    } else {
-      // Try to pop a codeRegion from the last primary file that has regions
-      let regionPopped = false;
-      for (let i = result.primaryFiles.length - 1; i >= 0; i--) {
-        const file = result.primaryFiles[i];
-        if (file.codeRegions && file.codeRegions.length > 0) {
-          file.codeRegions.pop();
-          if (result.budget.omittedRegions === undefined) {
-            result.budget.omittedRegions = 0;
-          }
-          result.budget.omittedRegions++;
-          regionPopped = true;
-          poppedSomething = true;
-          
-          if (file.codeRegions.length === 0) {
-            delete file.codeRegions;
-          }
-          break;
-        }
-      }
-
-      if (!regionPopped) {
-        result.primaryFiles.pop();
-        poppedSomething = true;
-        omittedCandidates++;
-      }
+      poppedSomething = true;
+    } else if (removeLowestPriorityRegion()) {
+      poppedSomething = true;
+    } else if (result.primaryFiles.length > 1) {
+      result.primaryFiles.pop();
+      omittedCandidates++;
+      poppedSomething = true;
     }
 
-    if (!poppedSomething) {
-      break; // Safe-guard
-    }
+    if (!poppedSomething) break; // Safe-guard: nothing left to trim
 
     cleanDerivedStructures(result);
 
