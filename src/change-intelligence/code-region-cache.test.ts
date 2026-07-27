@@ -1,78 +1,175 @@
-import { test, describe, afterEach } from "node:test";
-import * as assert from "node:assert";
-import { resolveWorkspacePath } from "../security/path-resolution.js";
-import { loadAndExtractCodeRegions, clearCodeRegionCache, CodeRegionSkippedError } from "./code-region-cache.js";
-import { writeFile, rm } from "node:fs/promises";
-import { join } from "node:path";
+import { test } from "node:test";
+import assert from "node:assert/strict";
 import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { writeFileSync, mkdirSync } from "node:fs";
+import { writeFile, rm } from "node:fs/promises";
+import {
+  loadAndExtractCodeRegions,
+  clearCodeRegionCache,
+  CodeRegionSkippedError,
+  getCodeRegionCacheSize,
+} from "./code-region-cache.js";
 
-// Mock para workspaceRoot usando o temp dir
-const workspaceRoot = tmpdir();
+// ─── Helpers ──────────────────────────────────────────────────────────
 
-test("loadAndExtractCodeRegions cache and limits", async (t) => {
-  afterEach(() => {
-    clearCodeRegionCache();
-  });
+const TMP_DIR = join(tmpdir(), `code-region-cache-test-${process.pid}`);
+mkdirSync(TMP_DIR, { recursive: true });
+
+function makeTempFile(name: string, content: string): string {
+  const filePath = join(TMP_DIR, name);
+  writeFileSync(filePath, content, "utf8");
+  return filePath;
+}
+
+const SAMPLE_TS = `
+export function authenticateUser(token: string) {
+  return token.startsWith("Bearer");
+}
+
+export function paginateResults(cursor: number, limit: number) {
+  return { cursor, limit };
+}
+
+export class SessionManager {
+  createSession(userId: string) { return userId; }
+  destroySession(sessionId: string) { return sessionId; }
+}
+`.trim();
+
+// ─── Tests ────────────────────────────────────────────────────────────
+
+test("code-region-cache", async (t) => {
 
   await t.test("throws file_too_large if over 512KB", async () => {
-    const dummyPath = "test-too-large.ts";
-    const absolutePath = join(workspaceRoot, dummyPath);
-    // criar arquivo muito grande
-    const buffer = Buffer.alloc(512 * 1024 + 1, "a");
-    await writeFile(absolutePath, buffer);
-
+    clearCodeRegionCache();
+    const absolutePath = join(TMP_DIR, "too-large.ts");
+    await writeFile(absolutePath, Buffer.alloc(512 * 1024 + 1, "a"));
     try {
-      await loadAndExtractCodeRegions({
-        workspaceRoot,
-        path: dummyPath
-      });
-      assert.fail("Should have thrown");
-    } catch (e: any) {
-      assert.strictEqual(e instanceof CodeRegionSkippedError, true);
-      assert.strictEqual(e.reason, "file_too_large");
+      await assert.rejects(
+        () => loadAndExtractCodeRegions({ workspaceRoot: TMP_DIR, path: "too-large.ts" }),
+        (err: any) => {
+          assert.ok(err instanceof CodeRegionSkippedError);
+          assert.equal(err.reason, "file_too_large");
+          return true;
+        },
+      );
     } finally {
       await rm(absolutePath).catch(() => {});
     }
   });
 
-  await t.test("caches AST extraction on subsequent calls", async () => {
-    const dummyPath = "test-cache.ts";
-    const absolutePath = join(workspaceRoot, dummyPath);
-    await writeFile(absolutePath, "export function abc() {}");
+  await t.test("different goals receive independent rankings", async () => {
+    clearCodeRegionCache();
+    makeTempFile("auth.ts", SAMPLE_TS);
 
-    try {
-      const res1 = await loadAndExtractCodeRegions({
-        workspaceRoot,
-        path: dummyPath
-      });
-      assert.strictEqual(res1.codeRegions.length, 1);
+    const res1 = await loadAndExtractCodeRegions({
+      workspaceRoot: TMP_DIR,
+      path: "auth.ts",
+      anchorKeywords: ["authenticate", "session"],
+      maxRegions: 2,
+    });
 
-      // rewrite file should invalidate cache if size or mtime differs
-      // but if we call immediately it will hit the cache. We can't mock stat easily without mocking node:fs, 
-      // but we can just test if calling it twice works.
-      const res2 = await loadAndExtractCodeRegions({
-        workspaceRoot,
-        path: dummyPath
-      });
-      
-      // Should return exact same array reference if from cache
-      assert.strictEqual(res1.codeRegions, res2.codeRegions);
-      
-      // se re-escrever com mtime diferente, deve re-extrair
-      // Espera um tico para o mtime mudar
-      await new Promise(r => setTimeout(r, 100));
-      await writeFile(absolutePath, "export function abc() {} export function def() {}");
-      
-      const res3 = await loadAndExtractCodeRegions({
-        workspaceRoot,
-        path: dummyPath
-      });
-      
-      assert.strictEqual(res3.codeRegions.length, 2);
-      assert.notStrictEqual(res1.codeRegions, res3.codeRegions);
-      
-    } finally {
-      await rm(absolutePath).catch(() => {});
-    }
+    const res2 = await loadAndExtractCodeRegions({
+      workspaceRoot: TMP_DIR,
+      path: "auth.ts",
+      anchorKeywords: ["paginate", "cursor"],
+      maxRegions: 2,
+    });
+
+    assert.ok(res1.codeRegions.length > 0, "res1 must have regions");
+    assert.ok(res2.codeRegions.length > 0, "res2 must have regions");
+
+    // The top-ranked region should differ because the goals differ
+    assert.notEqual(res1.codeRegions[0].name, res2.codeRegions[0].name,
+      "top-ranked region should differ per goal");
+
+    // Raw index is cached only once
+    assert.equal(getCodeRegionCacheSize(), 1, "one raw entry in cache");
+  });
+
+  await t.test("budget pop does not mutate the cache (clone invariant)", async () => {
+    clearCodeRegionCache();
+    makeTempFile("auth-budget.ts", SAMPLE_TS);
+
+    const res1 = await loadAndExtractCodeRegions({
+      workspaceRoot: TMP_DIR,
+      path: "auth-budget.ts",
+      anchorKeywords: ["authenticate"],
+      maxRegions: 5,
+    });
+
+    const originalLength = res1.codeRegions.length;
+
+    // Simulate budget enforcement
+    res1.codeRegions.pop();
+    res1.codeRegions.pop();
+
+    // Second call must return the full set again
+    const res2 = await loadAndExtractCodeRegions({
+      workspaceRoot: TMP_DIR,
+      path: "auth-budget.ts",
+      anchorKeywords: ["authenticate"],
+      maxRegions: 5,
+    });
+
+    assert.equal(res2.codeRegions.length, originalLength,
+      "cache must not have been mutated by budget pop()");
+  });
+
+  await t.test("returned arrays are different references on every call", async () => {
+    clearCodeRegionCache();
+    makeTempFile("auth-clone.ts", SAMPLE_TS);
+
+    const res1 = await loadAndExtractCodeRegions({
+      workspaceRoot: TMP_DIR,
+      path: "auth-clone.ts",
+      anchorKeywords: [],
+    });
+
+    const res2 = await loadAndExtractCodeRegions({
+      workspaceRoot: TMP_DIR,
+      path: "auth-clone.ts",
+      anchorKeywords: [],
+    });
+
+    // Same content, different references
+    assert.deepEqual(res1.codeRegions, res2.codeRegions);
+    assert.notStrictEqual(res1.codeRegions, res2.codeRegions,
+      "each call must return a fresh array (defensive clone)");
+  });
+
+  await t.test("no regions for unsupported file extension", async () => {
+    clearCodeRegionCache();
+    makeTempFile("style.css", "body { color: red; }");
+
+    const res = await loadAndExtractCodeRegions({
+      workspaceRoot: TMP_DIR,
+      path: "style.css",
+    });
+
+    assert.deepEqual(res.codeRegions, []);
+  });
+
+  await t.test("caches correctly — invalidates on file change", async () => {
+    clearCodeRegionCache();
+    const filePath = join(TMP_DIR, "changing.ts");
+    await writeFile(filePath, "export function abc() {}");
+
+    const res1 = await loadAndExtractCodeRegions({
+      workspaceRoot: TMP_DIR,
+      path: "changing.ts",
+    });
+    assert.equal(res1.codeRegions.length, 1);
+
+    // Wait a bit so mtime changes, then rewrite with extra function
+    await new Promise(r => setTimeout(r, 100));
+    await writeFile(filePath, "export function abc() {} export function def() {}");
+
+    const res2 = await loadAndExtractCodeRegions({
+      workspaceRoot: TMP_DIR,
+      path: "changing.ts",
+    });
+    assert.equal(res2.codeRegions.length, 2, "should re-extract after file change");
   });
 });
