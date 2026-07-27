@@ -22,6 +22,15 @@ export interface FinalizerInstrumentation {
 /**
  * P2.1+ Otimizado: sem imports dinâmicos e recebendo config no startup.
  */
+function isEnvelope(value: any): boolean {
+  return Boolean(
+    value &&
+    typeof value === "object" &&
+    "status" in value &&
+    "data" in value
+  );
+}
+
 export function finalizeToolResponse(
   response: any,
   options: ToolResponseFinalizerOptions,
@@ -31,22 +40,44 @@ export function finalizeToolResponse(
 
   if (toolName === "open_workspace") return response;
 
-  let existing = response.structuredContent?.envelope;
+  const structured = response.structuredContent;
+
+  const existingEnvelope =
+    isEnvelope(structured?.envelope)
+      ? structured.envelope
+      : isEnvelope(structured)
+        ? structured
+        : undefined;
+
+  const status = existingEnvelope?.status ?? (response.isError ? "error" : "success");
+
+  let parsedFromText: any;
+  let rawData: any;
   let text: string | undefined;
-  let parsed: any;
 
-  if (!existing) {
+  if (existingEnvelope) {
+    rawData = existingEnvelope.data;
+  } else if (structured !== undefined) {
+    // Structured data nativo da ferramenta.
+    rawData = structured;
+  } else {
     if (instrumentation) instrumentation.increment("fallbackTextReads");
-    text = contentText(response.content ?? []);
-    parsed = text;
-    try { 
-      if (instrumentation) instrumentation.increment("jsonParses");
-      parsed = JSON.parse(text); 
-    } catch {}
-    existing = parsed && typeof parsed === "object" && "status" in parsed && "data" in parsed ? parsed : undefined;
-  }
 
-  const status = existing?.status ?? (response.isError ? "error" : "success");
+    text = contentText(response.content ?? []);
+    parsedFromText = text;
+
+    try {
+      if (instrumentation) instrumentation.increment("jsonParses");
+      parsedFromText = JSON.parse(text);
+    } catch {
+      // Texto simples é um fallback válido.
+    }
+
+    rawData =
+      status === "error" && typeof parsedFromText === "string"
+        ? {}
+        : parsedFromText;
+  }
 
   const basePolicy = {
     defaultStringLimit: inlineOutputCharacters,
@@ -60,20 +91,20 @@ export function finalizeToolResponse(
     policy.fieldLimits = { "preview": 32000 };
   }
 
-  const rawData = existing?.data ?? (status === "error" && typeof parsed === "string" ? {} : parsed);
-  
   if (instrumentation) instrumentation.increment("truncationWalks");
   const { payload: data, metrics: truncMetrics } = truncatePayloadWithMetrics(rawData, policy);
 
   const wasTruncated = truncMetrics.totalTruncatedFields > 0 || Boolean(response._meta?.truncated || (text && (text.includes("[truncated]") || text.includes("... [truncated"))));
 
+  const envelopeError = existingEnvelope?.error ?? (status === "error" ? (typeof parsedFromText === "string" ? parsedFromText : parsedFromText?.error ?? parsedFromText?.message ?? JSON.stringify(parsedFromText)) : null);
+
   const envelope = {
     status,
     data,
-    error: existing?.error ?? (status === "error" ? (typeof parsed === "string" ? parsed : parsed?.error ?? parsed?.message ?? JSON.stringify(parsed)) : null),
-    diagnostics: existing?.diagnostics ?? [],
+    error: envelopeError,
+    diagnostics: existingEnvelope?.diagnostics ?? [],
     metrics: {
-      durationMs: existing?.metrics?.durationMs ?? Math.round(performance.now() - startedAt),
+      durationMs: existingEnvelope?.metrics?.durationMs ?? Math.round(performance.now() - startedAt),
       truncated: wasTruncated,
       omittedCharacters: truncMetrics.omittedCharacters,
     },
@@ -99,6 +130,6 @@ export function finalizeToolResponse(
     ...(sanitizedMeta && Object.keys(sanitizedMeta).length > 0 ? { _meta: sanitizedMeta } : {}),
     content: [{ type: "text" as const, text: finalSummaryText }],
     isError: status === "error",
-    structuredContent: { envelope }
+    structuredContent: envelope
   };
 }
