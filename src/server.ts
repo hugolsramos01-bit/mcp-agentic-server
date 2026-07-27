@@ -133,73 +133,17 @@ function registerAppTool(server: McpServer, name: string, definition: any, handl
 
     if (name === "open_workspace") return response;
 
-    const text = contentText(response.content ?? []);
-    let parsed: any = text;
-    try { parsed = JSON.parse(text); } catch {}
-
-    const existing = response.structuredContent?.envelope
-      ?? (parsed && typeof parsed === "object" && "status" in parsed && "data" in parsed ? parsed : undefined);
-    const status = existing?.status ?? (response.isError ? "error" : "success");
-
-    // ── Output size guard ────────────────────────────────────
-    // Truncate responses larger than the configured inline cap.
-    // The cap is read lazily from loadConfig so env changes apply
-    // without a restart (in practice it's set at startup).
+    const { finalizeToolResponse } = await import("./server/tool-response-finalizer.js");
     const { loadConfig: _lc } = await import("./config.js");
-    const inlineCap = _lc().inlineOutputCharacters;
-    let returnText = text;
-
-    const { truncatePayloadWithMetrics, truncateOutput } = await import("./server/tool-utils.js");
-
-    const basePolicy = {
-      defaultStringLimit: inlineCap,
-      hardStringLimit: 64000,
-    };
-    
-    let policy: any = { ...basePolicy };
-    if (name === "git_diff" || name === "show_changes") {
-      policy.fieldLimits = { "diff": 32000, "patch": 32000 };
-    } else if (name === "apply_patch") {
-      policy.fieldLimits = { "preview": 32000 };
-    }
-
-    const rawData = existing?.data ?? (status === "error" && typeof parsed === "string" ? {} : parsed);
-    const { payload: data, metrics: truncMetrics } = truncatePayloadWithMetrics(rawData, policy);
-
-    const wasTruncated = truncMetrics.totalTruncatedFields > 0 || Boolean(response._meta?.truncated || text.includes("[truncated]") || text.includes("... [truncated"));
-
-    const envelope = {
-      status,
-      data,
-      error: existing?.error ?? (status === "error" ? (typeof parsed === "string" ? parsed : parsed?.error ?? parsed?.message ?? JSON.stringify(parsed)) : null),
-      diagnostics: existing?.diagnostics ?? [],
-      metrics: {
-        durationMs: existing?.metrics?.durationMs ?? Math.round(performance.now() - startedAt),
-        truncated: wasTruncated,
-        omittedCharacters: truncMetrics.omittedCharacters,
-      },
-    };
-
-    const errorPreview = status === "error" && envelope.error
-      ? (() => { const t = String(envelope.error).replace(/\s+/g, " ").trim(); return t.length > 240 ? t.slice(0, 237) + "..." : t; })()
-      : undefined;
-    const errorSuffix = errorPreview ? ` — ${errorPreview}` : "";
-
     const definitionMeta = (definition as any)?._meta;
     const hasWidget = Boolean(definitionMeta?.ui?.resourceUri || definitionMeta?.["ui/resourceUri"]);
-    const { _meta: _origMeta, ...responseBody } = response as any;
-    const responseMeta = _origMeta as any;
-    const sanitizedMeta =
-      !hasWidget && responseMeta?.card
-        ? Object.fromEntries(Object.entries(responseMeta).filter(([k]) => k !== "card"))
-        : responseMeta;
 
-    return {
-      ...responseBody,
-      ...(sanitizedMeta && Object.keys(sanitizedMeta).length > 0 ? { _meta: sanitizedMeta } : {}),
-      content: [{ type: "text" as const, text: `${name}: ${status}${errorSuffix} (${JSON.stringify(envelope).length} chars, ${envelope.metrics.durationMs}ms)` }],
-      structuredContent: envelope,
-    };
+    return finalizeToolResponse(response, {
+      toolName: name,
+      startedAt,
+      inlineOutputCharacters: _lc().inlineOutputCharacters,
+      hasWidget,
+    });
   });
 }
 
