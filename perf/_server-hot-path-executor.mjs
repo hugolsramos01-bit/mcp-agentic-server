@@ -11,6 +11,12 @@ const scenarios = {
     _meta: {},
     hasWidget: false
   },
+  'native-structured-small': {
+    toolName: 'read_file',
+    content: [{ type: "text", text: JSON.stringify({ result: "small text" }) }],
+    structuredContent: { result: "small text" },
+    hasWidget: false
+  },
   'text-json-small': {
     toolName: 'read_file',
     content: [{ type: "text", text: JSON.stringify({ status: "success", data: { content: "small text" } }) }],
@@ -89,27 +95,50 @@ async function run() {
     isError: data.isError
   };
 
-  // Warmup run
-  await finalizeToolResponse(response, options, new Instrumentation());
+  try {
+    // Cold measurement
+    const coldStart = performance.now();
+    await finalizeToolResponse(response, options, new Instrumentation());
+    const coldDuration = performance.now() - coldStart;
 
-  const iterations = 100;
-  const start = performance.now();
-  
-  let result;
-  for (let i = 0; i < iterations; i++) {
-    result = await finalizeToolResponse(response, options, instrumentation);
-  }
-  
-  const end = performance.now();
-  const avgDuration = (end - start) / iterations;
+    // Warmup
+    for (let i = 0; i < 50; i++) {
+      await finalizeToolResponse(response, options, new Instrumentation());
+    }
 
-  // Print normalized metrics per call
-  console.log(`Results for ${scenario}:`);
-  console.log(`  Average Latency: ${avgDuration.toFixed(3)}ms`);
-  console.log(`  Metrics (per call):`);
-  for (const [key, value] of Object.entries(instrumentation.metrics)) {
-    console.log(`    - ${key}: ${value / iterations}`);
+    const iterations = 500;
+    const runDurations = [];
+    
+    for (let i = 0; i < iterations; i++) {
+      const s = performance.now();
+      await finalizeToolResponse(response, options, instrumentation);
+      const e = performance.now();
+      runDurations.push(e - s);
+    }
+    
+    runDurations.sort((a, b) => a - b);
+    const avgDuration = runDurations.reduce((a, b) => a + b, 0) / iterations;
+    const medianDuration = runDurations[Math.floor(iterations / 2)];
+    const p95Duration = runDurations[Math.floor(iterations * 0.95)];
+
+    const stats = {
+      scenario,
+      coldDurationMs: coldDuration,
+      avgDurationMs: avgDuration,
+      medianDurationMs: medianDuration,
+      p95DurationMs: p95Duration,
+      metricsPerCall: {}
+    };
+
+    for (const [key, value] of Object.entries(instrumentation.metrics)) {
+      stats.metricsPerCall[key] = value / iterations;
+    }
+
+    console.log(JSON.stringify(stats));
+  } catch (err) {
+    console.error(err);
+    process.exit(1);
   }
 }
 
-run().catch(console.error);
+run();

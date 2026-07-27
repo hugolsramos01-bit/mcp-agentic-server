@@ -37,7 +37,8 @@
     "eval": "node eval/run.mjs",
     "eval:update": "node eval/run.mjs --update",
     "bench:tools": "npm run build && node perf/tool-latency.mjs",
-    "bench:agent": "npm run build && node perf/agent-loop.mjs"
+    "bench:agent": "npm run build && node perf/agent-loop.mjs",
+    "bench:server": "npm run build && node perf/server-hot-path.mjs"
   },
   "keywords": [
     "chatgpt",

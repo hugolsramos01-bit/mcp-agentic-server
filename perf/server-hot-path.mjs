@@ -6,6 +6,7 @@ const __dirname = dirname(fileURLToPath(import.meta.url));
 
 const scenarios = [
   'structured-small',
+  'native-structured-small',
   'text-json-small',
   'structured-large',
   'text-error',
@@ -17,13 +18,19 @@ const scenarios = [
 async function run() {
   console.log("Starting Server Hot Path Benchmarks");
   for (const scenario of scenarios) {
-    console.log(`\n--- Scenario: ${scenario} ---`);
     const proc = spawn(process.execPath, [join(__dirname, '_server-hot-path-executor.mjs'), scenario], {
       stdio: 'inherit'
     });
     
-    await new Promise((resolve) => {
-      proc.on('close', resolve);
+    await new Promise((resolve, reject) => {
+      proc.on('error', reject);
+      proc.on('close', code => {
+        if (code === 0) {
+          resolve();
+        } else {
+          reject(new Error(`${scenario} exited with code ${code}`));
+        }
+      });
     });
   }
 }
