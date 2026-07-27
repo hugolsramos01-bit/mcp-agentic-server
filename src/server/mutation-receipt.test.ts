@@ -4,6 +4,10 @@ import { generateMutationReceipt, MutationReceiptInput } from "./mutation-receip
 import { join } from "node:path";
 import { mkdtemp, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
+import { execFile } from "node:child_process";
+import { promisify } from "node:util";
+
+const execFileAsync = promisify(execFile);
 
 // 1. Basic formatting tests
 describe("Mutation Receipt Logic", () => {
@@ -14,6 +18,9 @@ describe("Mutation Receipt Logic", () => {
     
     // Create a mock nearby test
     await writeFile(join(root, "index.test.ts"), "test()");
+    
+    await execFileAsync("git", ["init"], { cwd: root });
+    await execFileAsync("git", ["add", "."], { cwd: root });
     
     const files: MutationReceiptInput[] = [
       { path: "index.ts", operation: "update", additions: 5, removals: 2, afterHash: "a1b2c3d4" }

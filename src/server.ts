@@ -2219,6 +2219,7 @@ function createMcpServer(
           workspace.root,
           config.allowedRoots,
           {
+            workspaceId: req.workspaceId,
             goal: req.goal,
             type: req.type,
             maxTokens: req.maxTokens,
@@ -2342,7 +2343,7 @@ function createMcpServer(
           recordChange(req.workspaceId, "multiple files", "apply_patch", `Applied patch to ${result.files.length} files (+${result.additions} -${result.removals})`);
           
           // Invalidate cache if topology changes (adds/deletes)
-          if (result.files.some(f => f.operation === "add" || f.operation === "delete" || f.operation === "rename")) {
+          if (result.files.some(f => f.operation === "add" || f.operation === "delete" || f.operation === "move")) {
             invalidateWorkspaceFileSnapshot(req.workspaceId, workspace.root);
           }
           

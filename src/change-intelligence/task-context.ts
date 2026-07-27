@@ -124,7 +124,7 @@ export async function buildTaskContext(input: TaskContextInput): Promise<TaskCon
     const isMajor =
       normalized.taskTypeSuggestion === "migration" ||
       normalized.taskTypeSuggestion === "refactor" ||
-      normalized.taskTypeSuggestion === "security";
+      normalized.taskTypeSuggestion === "security_review";
     if (isMajor) {
       effectiveDepth = "balanced";
       depthSource = "inferred";
@@ -284,10 +284,10 @@ export async function buildTaskContext(input: TaskContextInput): Promise<TaskCon
   pContentSearch.end();
 
   // 10. Test proximity — discover and add as supporting evidence
-  const pTestDiscovery = perf.startPhase("testDiscovery");
+  const pTestDiscovery = perf.startPhase("testProximity");
   const nearbyTestCandidates: TaskContextResult["nearbyTestCandidates"] = [];
   for (const [path] of candidatesMap.entries()) {
-    const tests = await findNearbyTests(join(cwd, path), cwd);
+    const tests = findNearbyTests(path, allFiles);
     if (tests.length > 0) {
       addEvidence(path, { type: "test_proximity", detail: `Has nearby tests: ${tests.join(", ")}` });
       nearbyTestCandidates.push({ sourcePath: path, testPaths: tests });
@@ -457,23 +457,27 @@ export async function taskContextTool(
   cwd: string,
   allowedRoots: string[],
   input: {
+    workspaceId?: string;
     goal: string;
     type?: TaskType;
     maxTokens?: number;
     focusPaths?: string[];
     excludePaths?: string[];
+    depth?: TaskContextDepth;
   },
   perf?: PerformanceRecorder
 ): Promise<ToolResponse> {
   const resolvedMaxTokens = input.maxTokens ?? TASK_CONTEXT_BUDGET.defaultTokens;
 
   const result = await buildTaskContext({
+    workspaceId: input.workspaceId ?? cwd,
     cwd,
     allowedRoots,
     goal: input.goal,
     type: input.type,
     focusPaths: input.focusPaths,
     excludePaths: input.excludePaths,
+    depth: input.depth,
     maxTokens: resolvedMaxTokens,
     perf
   });
