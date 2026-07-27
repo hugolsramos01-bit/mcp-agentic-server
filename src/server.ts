@@ -37,6 +37,7 @@ import {
   projectBootstrapTool, codingContextTool, suggestChecksTool, monorepoMapTool, changedFilesSummaryTool,
 } from "./bootstrap-tools.js";
 import { taskContextTool, TASK_CONTEXT_BUDGET } from "./change-intelligence/task-context.js";
+import { startToolPerformance } from "./performance/performance-recorder.js";
 import { nextRouteMapTool, payloadSchemaMapTool, fileDependenciesTool } from "./ast-tools.js";
 import {
   checkpointSaveTool, checkpointListTool, checkpointRestoreTool, checkpointDeleteTool,
@@ -2201,8 +2202,15 @@ function createMcpServer(
         annotations: READ_TOOL_ANNOTATIONS,
       } as any,
       async (req: any) => {
+        const perf = startToolPerformance("task_context_outer", req.workspaceId);
+        const overallPhase = perf.startPhase("overall_handler");
+
+        const workspaceLookup = perf.startPhase("workspace_lookup");
         const workspace = workspaces.getWorkspace(req.workspaceId);
-        return wrap("task_context", req, await taskContextTool(
+        workspaceLookup.end();
+
+        const toolExecution = perf.startPhase("tool_execution");
+        const toolResult = await taskContextTool(
           workspace.root,
           config.allowedRoots,
           {
@@ -2211,8 +2219,26 @@ function createMcpServer(
             maxTokens: req.maxTokens,
             focusPaths: req.focusPaths,
             excludePaths: req.excludePaths,
+          },
+          perf
+        );
+        toolExecution.end();
+
+        const wrapPhase = perf.startPhase("wrap");
+        const wrapped = wrap("task_context", req, toolResult);
+        wrapPhase.end();
+
+        overallPhase.end();
+        const metrics = perf.finish({ outputCharacters: JSON.stringify(wrapped).length });
+        if (metrics) {
+          const collector = (globalThis as any).__AGENTIC_PERF_COLLECTOR;
+          if (collector && Array.isArray(collector)) {
+            collector.push(metrics);
+          } else {
+            console.error(`[PERF_METRICS] ${JSON.stringify(metrics)}`);
           }
-        ));
+        }
+        return wrapped;
       }
     );
     registerAppTool(

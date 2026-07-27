@@ -7,6 +7,7 @@ import { findNearbyTests } from "./test-proximity.js";
 import { getLimitedSharedDependencies } from "./file-dependencies-internal.js";
 import { TaskContextInput, TaskContextResult, TaskFileCandidate, EvidenceEntry, TaskFileRole, TaskType } from "./types.js";
 import type { ToolResponse } from "../pi-tools.js";
+import { NOOP_PERFORMANCE_RECORDER } from "../performance/performance-recorder.js";
 
 const execFileAsync = promisify(execFile);
 
@@ -100,14 +101,18 @@ export async function buildTaskContext(input: TaskContextInput): Promise<TaskCon
     focusPaths = [],
     excludePaths = [],
     maxTokens = TASK_CONTEXT_BUDGET.defaultTokens,
+    perf = NOOP_PERFORMANCE_RECORDER,
   } = input;
 
   const limitations: string[] = [];
 
   // 1. Normalize goal
+  const pNormalize = perf.startPhase("normalizeGoal");
   const normalized = normalizeGoal(goal, type);
+  pNormalize.end();
 
   // 2. Validate focusPaths and excludePaths
+  const pResolve = perf.startPhase("resolvePaths");
   const safeFocusPaths = focusPaths
     .map(fp => resolveAndValidatePath(fp, cwd, allowedRoots, limitations))
     .filter((fp): fp is string => fp !== null);
@@ -117,10 +122,13 @@ export async function buildTaskContext(input: TaskContextInput): Promise<TaskCon
       .map(ep => resolveAndValidatePath(ep, cwd, allowedRoots, limitations))
       .filter((ep): ep is string => ep !== null)
   );
+  pResolve.end();
 
   // 3. Gather all tracked files (excluding excluded paths)
+  const pLoadFileList = perf.startPhase("loadFileList");
   let allFiles: string[] = [];
   try {
+    perf.increment("subprocessCount");
     const { stdout } = await execFileAsync(
       "git", ["ls-files", "--cached", "--others", "--exclude-standard"],
       { cwd, timeout: 8000, maxBuffer: 10 * 1024 * 1024 }
@@ -131,8 +139,10 @@ export async function buildTaskContext(input: TaskContextInput): Promise<TaskCon
   } catch {
     limitations.push("git ls-files unavailable; filename and content matching disabled");
   }
+  pLoadFileList.end();
 
   // 4. Detect workspace instruction files
+  const pPathMatching = perf.startPhase("pathMatching");
   const applicableInstructions: TaskContextResult["applicableInstructions"] = allFiles
     .filter(f =>
       f.endsWith("AGENTS.md") ||
@@ -216,11 +226,14 @@ export async function buildTaskContext(input: TaskContextInput): Promise<TaskCon
       }
     }
   }
+  pPathMatching.end();
 
   // 9. Content grep — per-keyword, individual try/catch
+  const pContentSearch = perf.startPhase("contentSearch");
   for (const kw of expandedKeywords.slice(0, 5)) {
     if (kw.length < 4) continue;
     try {
+      perf.increment("subprocessCount");
       const { stdout } = await execFileAsync(
         "git", ["grep", "-i", "-l", "--", kw],
         { cwd, timeout: 5000, maxBuffer: 10 * 1024 * 1024 }
@@ -234,8 +247,10 @@ export async function buildTaskContext(input: TaskContextInput): Promise<TaskCon
       limitations.push(`git grep failed for keyword "${kw}": ${err?.message ?? "unknown error"}`);
     }
   }
+  pContentSearch.end();
 
   // 10. Test proximity — discover and add as supporting evidence
+  const pTestDiscovery = perf.startPhase("testDiscovery");
   const nearbyTestCandidates: TaskContextResult["nearbyTestCandidates"] = [];
   for (const [path] of candidatesMap.entries()) {
     const tests = await findNearbyTests(join(cwd, path), cwd);
@@ -247,8 +262,9 @@ export async function buildTaskContext(input: TaskContextInput): Promise<TaskCon
       }
     }
   }
+  pTestDiscovery.end();
 
-  // 11. Classify all candidates, sort deterministically
+  // 11. Initial assignment of confidence & sorting deterministically
   const confidenceScore: Record<string, number> = { high: 3, medium: 2, low: 1 };
 
   const allCandidates: TaskFileCandidate[] = Array.from(candidatesMap.entries()).map(([path, evidences]) => {
@@ -289,10 +305,12 @@ export async function buildTaskContext(input: TaskContextInput): Promise<TaskCon
   }
 
   // 12. Direct dependents — limited to top 3 primary files
+  const pDependencySearch = perf.startPhase("dependencySearch");
   const directDependents = await getLimitedSharedDependencies(
     cwd,
     primaryFiles.slice(0, 3).map(c => c.path)
   );
+  pDependencySearch.end();
 
   // 13. Suggested next steps
   const suggestedNextSteps: TaskContextResult["suggestedNextSteps"] = [];
@@ -305,7 +323,8 @@ export async function buildTaskContext(input: TaskContextInput): Promise<TaskCon
   }
 
   // 14. Build result and enforce real budget
-  const result: TaskContextResult = {
+  const pBudget = perf.startPhase("budgetEnforcement");
+  const finalResult: TaskContextResult = {
     version: 1,
     goal: input.goal,
     taskType: normalized.taskTypeSuggestion,
@@ -325,7 +344,9 @@ export async function buildTaskContext(input: TaskContextInput): Promise<TaskCon
     },
   };
 
-  return enforceTaskContextBudget(result, maxTokens);
+  const result = enforceTaskContextBudget(finalResult, maxTokens);
+  pBudget.end();
+  return result;
 }
 
 // ─── Budget enforcement by real JSON size ─────────────────────────────
@@ -402,7 +423,8 @@ export async function taskContextTool(
     maxTokens?: number;
     focusPaths?: string[];
     excludePaths?: string[];
-  }
+  },
+  perf?: any // Passing performance recorder
 ): Promise<ToolResponse> {
   const resolvedMaxTokens = input.maxTokens ?? TASK_CONTEXT_BUDGET.defaultTokens;
 
@@ -414,6 +436,7 @@ export async function taskContextTool(
     focusPaths: input.focusPaths,
     excludePaths: input.excludePaths,
     maxTokens: resolvedMaxTokens,
+    perf
   });
 
   return {
