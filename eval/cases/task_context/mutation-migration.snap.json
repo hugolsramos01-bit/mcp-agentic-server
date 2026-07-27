@@ -20,7 +20,33 @@
           "detail": "Has nearby tests: src/server/mutation-receipt.test.ts"
         }
       ],
-      "recommendedReadTool": "read"
+      "recommendedReadTool": "read",
+      "codeRegions": [
+        {
+          "name": "MutationReceiptInput",
+          "kind": "interface",
+          "startLine": 7,
+          "endLine": 14
+        },
+        {
+          "name": "MutationReceipt",
+          "kind": "interface",
+          "startLine": 16,
+          "endLine": 28
+        },
+        {
+          "name": "computeHash",
+          "kind": "function",
+          "startLine": 30,
+          "endLine": 37
+        },
+        {
+          "name": "generateMutationReceipt",
+          "kind": "function",
+          "startLine": 43,
+          "endLine": 93
+        }
+      ]
     }
   ],
   "supportingFiles": [
@@ -70,18 +96,38 @@
     {
       "tool": "read_many",
       "arguments": {
-        "paths": [
-          "src/server/mutation-receipt.ts"
+        "items": [
+          {
+            "path": "src/server/mutation-receipt.ts",
+            "startLine": 7,
+            "endLine": 14
+          },
+          {
+            "path": "src/server/mutation-receipt.ts",
+            "startLine": 16,
+            "endLine": 28
+          },
+          {
+            "path": "src/server/mutation-receipt.ts",
+            "startLine": 30,
+            "endLine": 37
+          },
+          {
+            "path": "src/server/mutation-receipt.ts",
+            "startLine": 43,
+            "endLine": 93
+          }
         ]
       },
-      "reason": "Read the strongest implementation candidates."
+      "reason": "Read the strongest implementation candidates and their relevant regions."
     }
   ],
   "limitations": [],
   "budget": {
     "maxTokens": 6000,
-    "estimatedTokens": 367,
+    "estimatedTokens": 519,
     "truncated": false,
-    "omittedCandidates": 0
+    "omittedCandidates": 0,
+    "omittedRegions": 0
   }
 }

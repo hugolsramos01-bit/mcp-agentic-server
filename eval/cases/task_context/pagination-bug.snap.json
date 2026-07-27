@@ -20,7 +20,39 @@
           "detail": "Has nearby tests: src/ui/card-types.test.ts"
         }
       ],
-      "recommendedReadTool": "read"
+      "recommendedReadTool": "read",
+      "codeRegions": [
+        {
+          "name": "isReviewTool",
+          "kind": "function",
+          "startLine": 108,
+          "endLine": 110,
+          "matchedKeywords": [
+            "view"
+          ]
+        },
+        {
+          "name": "isExpandableCard",
+          "kind": "function",
+          "startLine": 136,
+          "endLine": 153,
+          "matchedKeywords": [
+            "view"
+          ]
+        },
+        {
+          "name": "ToolName",
+          "kind": "type",
+          "startLine": 4,
+          "endLine": 16
+        },
+        {
+          "name": "HostContext",
+          "kind": "type",
+          "startLine": 18,
+          "endLine": 18
+        }
+      ]
     }
   ],
   "supportingFiles": [
@@ -93,18 +125,38 @@
     {
       "tool": "read_many",
       "arguments": {
-        "paths": [
-          "src/ui/card-types.ts"
+        "items": [
+          {
+            "path": "src/ui/card-types.ts",
+            "startLine": 108,
+            "endLine": 110
+          },
+          {
+            "path": "src/ui/card-types.ts",
+            "startLine": 136,
+            "endLine": 153
+          },
+          {
+            "path": "src/ui/card-types.ts",
+            "startLine": 4,
+            "endLine": 16
+          },
+          {
+            "path": "src/ui/card-types.ts",
+            "startLine": 18,
+            "endLine": 18
+          }
         ]
       },
-      "reason": "Read the strongest implementation candidates."
+      "reason": "Read the strongest implementation candidates and their relevant regions."
     }
   ],
   "limitations": [],
   "budget": {
     "maxTokens": 6000,
-    "estimatedTokens": 456,
+    "estimatedTokens": 608,
     "truncated": false,
-    "omittedCandidates": 0
+    "omittedCandidates": 0,
+    "omittedRegions": 0
   }
 }
