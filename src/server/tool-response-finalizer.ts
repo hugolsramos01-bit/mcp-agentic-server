@@ -31,17 +31,21 @@ export function finalizeToolResponse(
 
   if (toolName === "open_workspace") return response;
 
-  if (instrumentation) instrumentation.increment("fallbackTextReads");
-  const text = contentText(response.content ?? []);
-  
-  let parsed: any = text;
-  try { 
-    if (instrumentation) instrumentation.increment("jsonParses");
-    parsed = JSON.parse(text); 
-  } catch {}
+  let existing = response.structuredContent?.envelope;
+  let text: string | undefined;
+  let parsed: any;
 
-  const existing = response.structuredContent?.envelope
-    ?? (parsed && typeof parsed === "object" && "status" in parsed && "data" in parsed ? parsed : undefined);
+  if (!existing) {
+    if (instrumentation) instrumentation.increment("fallbackTextReads");
+    text = contentText(response.content ?? []);
+    parsed = text;
+    try { 
+      if (instrumentation) instrumentation.increment("jsonParses");
+      parsed = JSON.parse(text); 
+    } catch {}
+    existing = parsed && typeof parsed === "object" && "status" in parsed && "data" in parsed ? parsed : undefined;
+  }
+
   const status = existing?.status ?? (response.isError ? "error" : "success");
 
   const basePolicy = {
@@ -61,7 +65,7 @@ export function finalizeToolResponse(
   if (instrumentation) instrumentation.increment("truncationWalks");
   const { payload: data, metrics: truncMetrics } = truncatePayloadWithMetrics(rawData, policy);
 
-  const wasTruncated = truncMetrics.totalTruncatedFields > 0 || Boolean(response._meta?.truncated || text.includes("[truncated]") || text.includes("... [truncated"));
+  const wasTruncated = truncMetrics.totalTruncatedFields > 0 || Boolean(response._meta?.truncated || (text && (text.includes("[truncated]") || text.includes("... [truncated"))));
 
   const envelope = {
     status,
