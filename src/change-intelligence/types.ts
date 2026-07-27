@@ -27,6 +27,17 @@ export interface EvidenceEntry {
 
 export type Confidence = "low" | "medium" | "high";
 
+/** CandidateKind classifies a path's nature for quality filtering. */
+export type CandidateKind =
+  | "source"         // Regular source code file
+  | "test"           // Test/spec files
+  | "evaluation"     // Eval test cases, eval inputs/outputs
+  | "snapshot"       // Snapshot files (.snap.ts, .snap.json)
+  | "generated"      // Lockfiles, build artifacts, generated output
+  | "documentation"  // Docs, markdown, readme
+  | "configuration"  // Config files (tsconfig, eslint, etc.)
+  | "unknown";       // Unrecognized
+
 export type TaskFileRole = 
   | "primary"
   | "dependency"

@@ -2,6 +2,7 @@ import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import { basename } from "node:path";
 import { Confidence } from "./types.js";
+import { classifyCandidateKind } from "./indexed-path.js";
 
 const execFileAsync = promisify(execFile);
 
@@ -49,7 +50,9 @@ export async function getLimitedSharedDependencies(
       const lines = stdout
         .split("\n")
         .map(l => l.trim().replace(/\\/g, "/"))
-        .filter(l => l && l !== target.replace(/\\/g, "/"));
+        .filter(l => l && l !== target.replace(/\\/g, "/"))
+        // Exclude eval/snapshot/generated/docs from dependents
+        .filter(l => classifyCandidateKind(l) === "source" || classifyCandidateKind(l) === "test");
 
       const dependents = lines.slice(0, 10);
       const isTruncated = lines.length > 10;

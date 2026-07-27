@@ -5,9 +5,9 @@ import { normalizeGoal } from "./goal-normalizer.js";
 import { scoreConfidence } from "./evidence.js";
 import { findNearbyTests } from "./test-proximity.js";
 import { getWorkspaceFileCacheKey, getWorkspaceFileSnapshot, setWorkspaceFileSnapshot } from "../workspace/workspace-file-cache.js";
-import { IndexedPath } from "./indexed-path.js";
+import { IndexedPath, isPrimaryEligibleKind, isDependencySkippedKind } from "./indexed-path.js";
 import { getLimitedSharedDependencies } from "./file-dependencies-internal.js";
-import { TaskContextInput, TaskContextResult, TaskFileCandidate, EvidenceEntry, TaskFileRole, TaskType, TaskContextDepth } from "./types.js";
+import { TaskContextInput, TaskContextResult, TaskFileCandidate, EvidenceEntry, TaskFileRole, TaskType, TaskContextDepth, CandidateKind } from "./types.js";
 import type { ToolResponse } from "../pi-tools.js";
 import { NOOP_PERFORMANCE_RECORDER } from "../performance/performance-recorder.js";
 
@@ -207,6 +207,16 @@ export async function buildTaskContext(input: TaskContextInput): Promise<TaskCon
   // 5. Candidates map: path → evidence[]
   const candidatesMap = new Map<string, EvidenceEntry[]>();
 
+  // Build kind lookup from indexed paths
+  const kindMap = new Map<string, CandidateKind>();
+  for (const ip of indexedPaths) {
+    kindMap.set(ip.path, ip.kind);
+  }
+
+  function getKind(path: string): CandidateKind {
+    return kindMap.get(path) ?? "source";
+  }
+
   function addEvidence(path: string, ev: EvidenceEntry) {
     if (safeExcludeSet.has(path)) return; // respect excludePaths for all additions
     if (!candidatesMap.has(path)) candidatesMap.set(path, []);
@@ -271,7 +281,7 @@ export async function buildTaskContext(input: TaskContextInput): Promise<TaskCon
     const types = new Set(evidences.map(e => e.type));
     if (types.has("focus_path")) hasExactFocusPath = true;
     if (types.has("extracted_path")) hasExactExtractedPath = true;
-    if (scoreConfidence(evidences) === "high") {
+    if (scoreConfidence(evidences) === "high" && isPrimaryEligibleKind(getKind(path))) {
       currentHighCandidates.push({ path, evidences });
     }
   }
@@ -338,13 +348,16 @@ export async function buildTaskContext(input: TaskContextInput): Promise<TaskCon
 
   const allCandidates: TaskFileCandidate[] = Array.from(candidatesMap.entries()).map(([path, evidences]) => {
     const confidence = scoreConfidence(evidences);
+    const kind = getKind(path);
 
     let role: TaskFileRole = "supporting";
-    if (path.includes(".test.") || path.includes(".spec.") || path.includes("__tests__")) {
-      role = "test"; // always supporting
-    } else if (confidence === "high") {
+    if (kind === "test") {
+      role = "test"; // always supporting, no matter the confidence
+    } else if (confidence === "high" && isPrimaryEligibleKind(kind)) {
       role = "primary";
     }
+    // Everything else (evaluation, snapshot, generated, documentation)
+    // stays as "supporting" even with high confidence
 
     const recommendedReadTool: "read" | "read_adaptive" | "read_many" =
       confidence === "high" ? "read" :
@@ -373,13 +386,17 @@ export async function buildTaskContext(input: TaskContextInput): Promise<TaskCon
     }
   }
 
-  // 12. Direct dependents — limited to top 3 primary files
+  // 12. Direct dependents — limited to top 3 primary files (skip eval/snapshot/generated/docs)
   let directDependents: TaskContextResult["directDependents"] = [];
   if (effectiveDepth !== "fast") {
     const pDependencySearch = perf.startPhase("dependencySearch");
+    const primaryEligible = primaryFiles
+      .slice(0, 3)
+      .map(c => c.path)
+      .filter(p => isPrimaryEligibleKind(getKind(p)));
     directDependents = await getLimitedSharedDependencies(
     cwd,
-    primaryFiles.slice(0, 3).map(c => c.path)
+    primaryEligible
     );
     pDependencySearch.end();
   }
