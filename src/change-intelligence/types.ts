@@ -52,6 +52,7 @@ export interface TaskContextInput {
   excludePaths?: string[];
   maxTokens?: number;
   instructionFiles?: string[];
+  perf?: any; // PerformanceRecorder
 }
 
 export interface TaskContextResult {
