@@ -109,11 +109,13 @@ export class SqliteWorkspaceStore implements WorkspaceStore {
   }
 
   deleteSession(id: string): boolean {
+    this.#pendingTouches.delete(id);
     const result = this.#db.db.delete(workspaceSessions).where(eq(workspaceSessions.id, id)).run();
     return result.changes > 0;
   }
 
   updateAlias(id: string, alias: string | null, normalizedAlias: string | null): boolean {
+    this.#pendingTouches.delete(id);
     const result = this.#db.db.update(workspaceSessions)
       .set({ alias, normalizedAlias, lastUsedAt: new Date().toISOString() })
       .where(eq(workspaceSessions.id, id))
@@ -122,6 +124,7 @@ export class SqliteWorkspaceStore implements WorkspaceStore {
   }
 
   updateStatus(id: string, status: string): boolean {
+    this.#pendingTouches.delete(id);
     const result = this.#db.db.update(workspaceSessions)
       .set({ status, lastUsedAt: new Date().toISOString() })
       .where(eq(workspaceSessions.id, id))
@@ -129,34 +132,43 @@ export class SqliteWorkspaceStore implements WorkspaceStore {
     return result.changes > 0;
   }
 
-  #touchBuffer = new Map<string, NodeJS.Timeout>();
+  #pendingTouches = new Map<string, string>();
+  #touchTimer?: NodeJS.Timeout;
 
   touchSession(id: string): void {
-    if (this.#touchBuffer.has(id)) {
-      clearTimeout(this.#touchBuffer.get(id));
+    this.#pendingTouches.set(id, new Date().toISOString());
+    if (!this.#touchTimer) {
+      this.#touchTimer = setTimeout(() => this.#flushTouches(), 5000);
+      this.#touchTimer.unref();
     }
-    const timer = setTimeout(() => {
-      this.#touchBuffer.delete(id);
-      this.#flushTouch(id);
-    }, 5000);
-    timer.unref();
-    this.#touchBuffer.set(id, timer);
   }
 
-  #flushTouch(id: string): void {
+  #flushTouches(): void {
+    if (this.#pendingTouches.size === 0) return;
+    const pending = new Map(this.#pendingTouches);
+    this.#pendingTouches.clear();
+    this.#touchTimer = undefined;
+
     try {
-      this.#db.db.update(workspaceSessions).set({ lastUsedAt: new Date().toISOString() }).where(eq(workspaceSessions.id, id)).run();
+      this.#db.db.transaction((tx) => {
+        for (const [id, lastUsedAt] of pending) {
+          tx.update(workspaceSessions)
+            .set({ lastUsedAt })
+            .where(eq(workspaceSessions.id, id))
+            .run();
+        }
+      });
     } catch (err) {
       // Ignore background flush errors
     }
   }
 
   close(): void {
-    for (const [id, timer] of this.#touchBuffer.entries()) {
-      clearTimeout(timer);
-      this.#flushTouch(id);
+    if (this.#touchTimer) {
+      clearTimeout(this.#touchTimer);
+      this.#touchTimer = undefined;
     }
-    this.#touchBuffer.clear();
+    this.#flushTouches();
     this.#db.close();
   }
 }
