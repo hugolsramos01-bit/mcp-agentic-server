@@ -240,7 +240,7 @@ export async function buildTaskContext(input: TaskContextInput): Promise<TaskCon
   }
 
   // 8. Filename / Route / Schema matching (segment-based)
-  const { expandedKeywords } = normalized;
+  const { expandedKeywords, anchorKeywords } = normalized;
   if (indexedPaths.length > 0 && expandedKeywords.length > 0) {
     for (const file of indexedPaths) {
       for (const kw of expandedKeywords) {
@@ -297,11 +297,11 @@ export async function buildTaskContext(input: TaskContextInput): Promise<TaskCon
 
   const shouldRunContentSearch =
     !directContextSufficient &&
-    expandedKeywords.some(kw => kw.length >= 4);
+    anchorKeywords.some(kw => kw.length >= 4);
 
   if (shouldRunContentSearch) {
     const pContentSearch = perf.startPhase("contentSearch");
-    const grepKeywords = expandedKeywords.slice(0, 5).filter(kw => kw.length >= 4);
+    const grepKeywords = anchorKeywords.slice(0, 5).filter(kw => kw.length >= 4);
     
     if (grepKeywords.length > 0) {
       const grepArgs = ["grep", "-i", "-l", "-F"];
@@ -418,7 +418,7 @@ export async function buildTaskContext(input: TaskContextInput): Promise<TaskCon
   } else {
     suggestedNextSteps.push({
       tool: "grep",
-      arguments: { pattern: expandedKeywords.slice(0, 3).join("|") },
+      arguments: { pattern: anchorKeywords.slice(0, 3).join("|") },
       reason: "No reliable file candidate was found; search for the normalized goal terms."
     });
   }
