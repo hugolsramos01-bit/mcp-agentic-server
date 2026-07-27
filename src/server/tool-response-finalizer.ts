@@ -1,4 +1,4 @@
-import { contentText } from "./tool-utils.js";
+import { contentText, truncatePayloadWithMetrics } from "./tool-utils.js";
 
 export interface ToolResponseFinalizerOptions {
   toolName: string;
@@ -20,14 +20,13 @@ export interface FinalizerInstrumentation {
 }
 
 /**
- * P2.0 Baseline: exact same logic as before, preserving dynamic imports
- * and repetitive parsing. We will optimize this in subsequent commits.
+ * P2.1+ Otimizado: sem imports dinâmicos e recebendo config no startup.
  */
-export async function finalizeToolResponse(
+export function finalizeToolResponse(
   response: any,
   options: ToolResponseFinalizerOptions,
   instrumentation?: FinalizerInstrumentation,
-): Promise<any> {
+): any {
   const { toolName, startedAt, inlineOutputCharacters, hasWidget } = options;
 
   if (toolName === "open_workspace") return response;
@@ -45,17 +44,8 @@ export async function finalizeToolResponse(
     ?? (parsed && typeof parsed === "object" && "status" in parsed && "data" in parsed ? parsed : undefined);
   const status = existing?.status ?? (response.isError ? "error" : "success");
 
-  if (instrumentation) instrumentation.increment("dynamicImports");
-  const { loadConfig: _lc } = await import("../config.js");
-  if (instrumentation) instrumentation.increment("configLoads");
-  // Still reading from disk for the baseline to match current behavior accurately
-  const inlineCap = _lc().inlineOutputCharacters;
-
-  if (instrumentation) instrumentation.increment("dynamicImports");
-  const { truncatePayloadWithMetrics } = await import("./tool-utils.js");
-
   const basePolicy = {
-    defaultStringLimit: inlineCap,
+    defaultStringLimit: inlineOutputCharacters,
     hardStringLimit: 64000,
   };
   

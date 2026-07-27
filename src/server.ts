@@ -78,6 +78,7 @@ import { generateMutationReceipt } from "./server/mutation-receipt.js";
 import { stat } from "node:fs/promises";
 import { join } from "node:path";
 import { agenticDoctor } from "./diagnostics.js";
+import { finalizeToolResponse } from "./server/tool-response-finalizer.js";
 
 type Transport = StreamableHTTPServerTransport;
 
@@ -101,50 +102,50 @@ interface RunningServer {
 //   • Returns a compact summary in content for text-only clients
 // ═══════════════════════════════════════════════════════════════
 
-function registerAppTool(server: McpServer, name: string, definition: any, handler: (request: any) => any): void {
-  registerExtAppTool(server, name, definition, async (request: any) => {
-    const startedAt = performance.now();
-    request.__startedAt = startedAt;
-    let response: any;
-    try {
-      response = await handler(request);
-    } catch (err: any) {
-      if (err.code === "workspace_unavailable" || err.code === "recovery_required" || err.code === "file_version_conflict") {
-        const envelope = {
-          status: "error",
-          data: {
-             code: err.code,
-             workspaceRoot: err.workspaceRoot,
-             sourceRoot: err.sourceRoot,
-          },
-          error: err.message,
-          diagnostics: [],
-          metrics: { durationMs: Math.round(performance.now() - startedAt), truncated: false }
-        };
-        response = {
-          content: [{ type: "text", text: JSON.stringify(envelope, null, 2) }],
-          isError: true,
-          structuredContent: envelope.data
-        };
-      } else {
-        throw err;
+function createAppToolRegistrar(server: McpServer, config: ServerConfig) {
+  return function registerAppTool(name: string, definition: any, handler: (request: any) => any): void {
+    registerExtAppTool(server, name, definition, async (request: any) => {
+      const startedAt = performance.now();
+      request.__startedAt = startedAt;
+      let response: any;
+      try {
+        response = await handler(request);
+      } catch (err: any) {
+        if (err.code === "workspace_unavailable" || err.code === "recovery_required" || err.code === "file_version_conflict") {
+          const envelope = {
+            status: "error",
+            data: {
+               code: err.code,
+               workspaceRoot: err.workspaceRoot,
+               sourceRoot: err.sourceRoot,
+            },
+            error: err.message,
+            diagnostics: [],
+            metrics: { durationMs: Math.round(performance.now() - startedAt), truncated: false }
+          };
+          response = {
+            content: [{ type: "text", text: JSON.stringify(envelope, null, 2) }],
+            isError: true,
+            structuredContent: envelope.data
+          };
+        } else {
+          throw err;
+        }
       }
-    }
 
-    if (name === "open_workspace") return response;
+      if (name === "open_workspace") return response;
 
-    const { finalizeToolResponse } = await import("./server/tool-response-finalizer.js");
-    const { loadConfig: _lc } = await import("./config.js");
-    const definitionMeta = (definition as any)?._meta;
-    const hasWidget = Boolean(definitionMeta?.ui?.resourceUri || definitionMeta?.["ui/resourceUri"]);
+      const definitionMeta = (definition as any)?._meta;
+      const hasWidget = Boolean(definitionMeta?.ui?.resourceUri || definitionMeta?.["ui/resourceUri"]);
 
-    return finalizeToolResponse(response, {
-      toolName: name,
-      startedAt,
-      inlineOutputCharacters: _lc().inlineOutputCharacters,
-      hasWidget,
+      return finalizeToolResponse(response, {
+        toolName: name,
+        startedAt,
+        inlineOutputCharacters: config.inlineOutputCharacters,
+        hasWidget,
+      });
     });
-  });
+  };
 }
 
 
@@ -168,6 +169,8 @@ function createMcpServer(
       instructions: serverInstructions(config),
     },
   );
+
+  const registerAppTool = createAppToolRegistrar(server, config);
 
   registerAppResource(
     server,
@@ -200,9 +203,7 @@ function createMcpServer(
     },
   );
 
-  registerAppTool(
-    server,
-    "agentic_doctor",
+  registerAppTool("agentic_doctor",
     {
       title: "Agentic Doctor",
       description: "Report the running Agentic MCP version, process-runner health, and local package-manager availability without changing a workspace.",
@@ -220,9 +221,7 @@ function createMcpServer(
     },
   );
 
-    registerAppTool(
-      server,
-      "worktree_teardown",
+    registerAppTool("worktree_teardown",
       {
         title: "Worktree Teardown",
         description: "[General] Removes a managed git worktree that was created via open_workspace(mode: 'worktree'). If the worktree has uncommitted changes, pass force=true to discard them.",
@@ -252,9 +251,7 @@ function createMcpServer(
       }
     );
 
-    registerAppTool(
-      server,
-      "worktree_sync_changes",
+    registerAppTool("worktree_sync_changes",
       {
         title: "Worktree Sync Changes",
         description: "[General] Copies uncommitted changes from the main workspace to this managed worktree sandbox.",
@@ -299,9 +296,7 @@ function createMcpServer(
       }
     );
 
-    registerAppTool(
-      server,
-      "worktree_install_deps",
+    registerAppTool("worktree_install_deps",
       {
         title: "Worktree Install Dependencies",
         description: "[General] Hydrates dependencies (e.g., npm install or pnpm install) inside a managed git worktree sandbox.",
@@ -448,9 +443,7 @@ function createMcpServer(
       }
     );
 
-    registerAppTool(
-      server,
-      "worktree_list",
+    registerAppTool("worktree_list",
       {
         title: "Worktree List",
         description: "Lists all currently active managed git worktrees created via open_workspace.",
@@ -469,9 +462,7 @@ function createMcpServer(
       }
     );
 
-    registerAppTool(
-    server,
-    "open_workspace",
+    registerAppTool("open_workspace",
     {
       title: "[CORE] Open workspace",
       description:
@@ -678,9 +669,7 @@ function createMcpServer(
     },
   );
 
-  registerAppTool(
-    server,
-    "resume_workspace",
+  registerAppTool("resume_workspace",
     {
       title: "[CORE] Resume workspace",
       description: "Reopen a previously opened workspace using its alias. Returns the workspace context.",
@@ -701,9 +690,7 @@ function createMcpServer(
     },
   );
 
-  registerAppTool(
-    server,
-    "list_workspaces",
+  registerAppTool("list_workspaces",
     {
       title: "List workspaces",
       description: "List all known workspaces and their aliases.",
@@ -723,9 +710,7 @@ function createMcpServer(
     },
   );
 
-  registerAppTool(
-    server,
-    "rename_workspace",
+  registerAppTool("rename_workspace",
     {
       title: "Rename workspace",
       description: "Rename an existing workspace alias.",
@@ -746,9 +731,7 @@ function createMcpServer(
     },
   );
 
-  registerAppTool(
-    server,
-    "close_workspace",
+  registerAppTool("close_workspace",
     {
       title: "Close workspace",
       description: "Close a workspace, releasing its resources from memory. The workspace remains in history and can be resumed later with its alias.",
@@ -772,9 +755,7 @@ function createMcpServer(
     },
   );
 
-  registerAppTool(
-    server,
-    "forget_workspace",
+  registerAppTool("forget_workspace",
     {
       title: "Forget workspace",
       description: "Permanently delete a workspace session from history and free its alias.",
@@ -800,9 +781,7 @@ function createMcpServer(
     },
   );
 
-  registerAppTool(
-    server,
-    toolNames.read,
+  registerAppTool(toolNames.read,
     {
       title: "Read file",
       description:
@@ -962,9 +941,7 @@ function createMcpServer(
     },
   );
 
-  registerAppTool(
-    server,
-    "read_compressed",
+  registerAppTool("read_compressed",
     {
       title: "Read compressed file",
       description: "[General] Read a file using AST-aware semantic compression. Use this to save tokens when exploring large files. Compression levels: 'light' (removes large objects), 'balanced' (removes function bodies but keeps signatures), 'aggressive' (removes all bodies and objects), 'skeletal' (keeps only top-level declarations).",
@@ -1007,9 +984,7 @@ function createMcpServer(
   // Automatic read mode selection based on file characteristics.
   // The model doesn't need to decide compression level — we pick
   // the best mode for the file size and context.
-  registerAppTool(
-    server,
-    "read_adaptive",
+  registerAppTool("read_adaptive",
     {
       title: "[CORE] Read Adaptive",
       description: "[CORE] Read a file with automatic compression. Small files (<300 lines) are returned in full; medium files (300-900) use balanced compression; large files (>900) use skeletal compression. Always use this instead of read or read_compressed unless you need explicit control over line ranges or compression level.",
@@ -1088,9 +1063,7 @@ function createMcpServer(
   );
 
   if (true) {
-  registerAppTool(
-    server,
-    toolNames.write,
+  registerAppTool(toolNames.write,
     {
       title: "Write file",
       description:
@@ -1183,9 +1156,7 @@ function createMcpServer(
     },
   );
 
-  registerAppTool(
-    server,
-    toolNames.edit,
+  registerAppTool(toolNames.edit,
     {
       title: "Edit file",
       description:
@@ -1308,9 +1279,7 @@ function createMcpServer(
       };
     },
   );
-    if (config.legacyAliases) registerAppTool(
-      server,
-      "preview_edit",
+    if (config.legacyAliases) registerAppTool("preview_edit",
       {
         title: "⚠️ DEPRECATED — Preview Edit (use edit_dry_run)",
         description:
@@ -1386,9 +1355,7 @@ function createMcpServer(
         };
       }
     );
-    registerAppTool(
-      server,
-      "edit_dry_run",
+    registerAppTool("edit_dry_run",
       {
         title: "[CORE] Edit Dry Run",
         description:
@@ -1480,9 +1447,7 @@ function createMcpServer(
   
 
   if (config.widgets === "changes") {
-    registerAppTool(
-      server,
-      "show_changes",
+    registerAppTool("show_changes",
       {
         title: "Show changes",
         description:
@@ -1543,9 +1508,7 @@ function createMcpServer(
   }
 
   if (config.toolMode === "full" || config.toolMode === "assistant") {
-    registerAppTool(
-      server,
-      toolNames.grep,
+    registerAppTool(toolNames.grep,
       {
         title: "[CORE] Grep",
         description:
@@ -1684,9 +1647,7 @@ function createMcpServer(
       },
     );
 
-    registerAppTool(
-      server,
-      toolNames.glob,
+    registerAppTool(toolNames.glob,
       {
         title: "[CORE] Glob",
         description:
@@ -1770,9 +1731,7 @@ function createMcpServer(
       },
     );
 
-    registerAppTool(
-      server,
-      toolNames.ls,
+    registerAppTool(toolNames.ls,
       {
         title: "Ls",
         description:
@@ -1936,9 +1895,7 @@ function createMcpServer(
       };
     };
 
-    registerAppTool(
-      server,
-      "next_route_map",
+    registerAppTool("next_route_map",
       {
         title: "[ADVANCED] Next.js Route Map",
         description: "[Architecture] Read-only bounded summary of Next.js route files (app/ and pages/) inside the opened workspace. Does not execute code, does not write files, returns a compact limited result.",
@@ -1952,9 +1909,7 @@ function createMcpServer(
         return wrap("next_route_map", req, await nextRouteMapTool(workspace.root, req.appPath));
       }
     );
-    if (config.legacyAliases) registerAppTool(
-      server,
-      "next_routes_summary",
+    if (config.legacyAliases) registerAppTool("next_routes_summary",
       {
         title: "⚠️ DEPRECATED — Next Routes Summary (use next_route_map)",
         description: "⚠️ DEPRECATED — use next_route_map instead. This alias is kept for backward compatibility but will be removed in a future version.",
@@ -1968,9 +1923,7 @@ function createMcpServer(
         return wrap("next_routes_summary", req, await nextRouteMapTool(workspace.root, req.appPath));
       }
     );
-    registerAppTool(
-      server,
-      "payload_schema_map",
+    registerAppTool("payload_schema_map",
       {
         title: "[ADVANCED] Payload Schema Map",
         description: "Read-only bounded summary of Payload CMS collection schemas extracted via AST. Does not execute code, does not write files, and returns a compact limited result. For monorepos, pass appPath (e.g. 'apps/web') to scan a specific app subdirectory.",
@@ -1984,9 +1937,7 @@ function createMcpServer(
         return wrap("payload_schema_map", req, await payloadSchemaMapTool(workspace.root, req.appPath, { detailLevel: req.detailLevel }));
       }
     );
-    if (config.legacyAliases) registerAppTool(
-      server,
-      "payload_collections_summary",
+    if (config.legacyAliases) registerAppTool("payload_collections_summary",
       {
         title: "⚠️ DEPRECATED — Payload Collections Summary (use payload_schema_map)",
         description: "⚠️ DEPRECATED — use payload_schema_map instead. This alias is kept for backward compatibility but will be removed in a future version.",
@@ -2000,9 +1951,7 @@ function createMcpServer(
         return wrap("payload_collections_summary", req, await payloadSchemaMapTool(workspace.root, req.appPath, { detailLevel: req.detailLevel }));
       }
     );
-    registerAppTool(
-      server,
-      "file_dependencies",
+    registerAppTool("file_dependencies",
       {
         title: "[ADVANCED] File Dependencies",
         description: "[Architecture] Read-only analysis of file imports (outward) and dependents (inward) in the project. Does not execute code or modify files.",
@@ -2031,9 +1980,7 @@ function createMcpServer(
       }
     );
 
-    registerAppTool(
-      server,
-      "checkpoint_save",
+    registerAppTool("checkpoint_save",
       {
         title: "Save Checkpoint",
         description: "[Checkpoints] Saves a snapshot of current working tree changes (unstaged, staged, and untracked files) as a checkpoint in .agentic-checkpoints/. Use this before risky edits so you can restore later.",
@@ -2054,9 +2001,7 @@ function createMcpServer(
         return wrap("checkpoint_save", req, result);
       }
     );
-    registerAppTool(
-      server,
-      "checkpoint_list",
+    registerAppTool("checkpoint_list",
       {
         title: "List Checkpoints",
         description: "[Checkpoints] Lists all saved checkpoints for the current workspace.",
@@ -2070,9 +2015,7 @@ function createMcpServer(
         return wrap("checkpoint_list", req, await checkpointListTool(workspace.root));
       }
     );
-    registerAppTool(
-      server,
-      "checkpoint_restore",
+    registerAppTool("checkpoint_restore",
       {
         title: "Restore Checkpoint",
         description: "[Checkpoints] Restores working tree to a previously saved checkpoint state by reverting the diff.",
@@ -2091,9 +2034,7 @@ function createMcpServer(
         return wrap("checkpoint_restore", req, result);
       }
     );
-    registerAppTool(
-      server,
-      "checkpoint_delete",
+    registerAppTool("checkpoint_delete",
       {
         title: "Delete Checkpoint",
         description: "[General] Deletes a saved checkpoint by ID.",
@@ -2108,9 +2049,7 @@ function createMcpServer(
       }
     );
 
-    registerAppTool(
-      server,
-      "coding_context",
+    registerAppTool("coding_context",
       {
         title: TOOL_CONTRACTS.codingContext.title,
         description: TOOL_CONTRACTS.codingContext.description,
@@ -2127,9 +2066,7 @@ function createMcpServer(
       }
     );
     
-    registerAppTool(
-      server,
-      "task_context",
+    registerAppTool("task_context",
       {
         title: TOOL_CONTRACTS.taskContext.title,
         description: TOOL_CONTRACTS.taskContext.description,
@@ -2205,9 +2142,7 @@ function createMcpServer(
         return wrapped;
       }
     );
-    registerAppTool(
-      server,
-      "suggest_checks",
+    registerAppTool("suggest_checks",
       {
         title: TOOL_CONTRACTS.suggestChecks.title,
         description: TOOL_CONTRACTS.suggestChecks.description,
@@ -2226,9 +2161,7 @@ function createMcpServer(
         return wrap("suggest_checks", req, await suggestChecksTool(workspace.root, req));
       }
     );
-    registerAppTool(
-      server,
-      "risk_assess_command",
+    registerAppTool("risk_assess_command",
       {
         title: "Risk Assess Command",
         description: "[Security] Preview the active command-policy verdict without executing a command.",
@@ -2242,9 +2175,7 @@ function createMcpServer(
         return wrap("risk_assess_command", req, { content: [{ type: "text", text: JSON.stringify(assessment, null, 2) }] });
       },
     );
-    if (config.legacyAliases) registerAppTool(
-      server,
-      "check_recommendations",
+    if (config.legacyAliases) registerAppTool("check_recommendations",
       {
         title: "⚠️ DEPRECATED — Check Recommendations (use suggest_checks)",
         description: "⚠️ DEPRECATED — use suggest_checks instead. This alias is kept for backward compatibility but will be removed in a future version.",
@@ -2259,9 +2190,7 @@ function createMcpServer(
       }
     );
 
-    registerAppTool(
-      server,
-      "apply_patch",
+    registerAppTool("apply_patch",
       {
         title: "Apply Patch",
         description: "Apply a unified diff (patch) to the workspace. Use this to make complex changes across multiple files or when edit/write are insufficient.",
@@ -2344,7 +2273,7 @@ function createMcpServer(
         }
       }
     );
-    registerAppTool(server, "project_bootstrap",
+    registerAppTool("project_bootstrap",
       {
         title: "[CORE] Project Bootstrap",
         description: "[Context] Returns high-level workspace context: package manager, git status, tree, capabilities (nextjs, payload, monorepo, etc.), and project instructions. Start here when you need to understand what kind of project this is and which tools are relevant.",
@@ -2365,9 +2294,7 @@ function createMcpServer(
         });
       }
     );
-    registerAppTool(
-      server,
-      "monorepo_map",
+    registerAppTool("monorepo_map",
       {
         title: "[ADVANCED] Monorepo Map",
         description: "[Architecture] Read-only listing of monorepo apps and packages with their dependencies from apps/ and packages/ directories.",
@@ -2381,9 +2308,7 @@ function createMcpServer(
         return wrap("monorepo_map", req, await monorepoMapTool(workspace.root));
       }
     );
-    registerAppTool(
-      server,
-      "changed_files_summary",
+    registerAppTool("changed_files_summary",
       {
         title: "Changed Files Summary",
         description: "[Git] Read-only structured JSON summary of locally modified files based on git diff.",
@@ -2397,9 +2322,7 @@ function createMcpServer(
         return wrap("changed_files_summary", req, await changedFilesSummaryTool(workspace.root));
       }
     );
-    if (config.legacyAliases) registerAppTool(
-      server,
-      "git_changes_summary",
+    if (config.legacyAliases) registerAppTool("git_changes_summary",
       {
         title: "⚠️ DEPRECATED — Git Changes Summary (use changed_files_summary)",
         description: "⚠️ DEPRECATED — use changed_files_summary instead. This alias is kept for backward compatibility but will be removed in a future version.",
@@ -2414,9 +2337,7 @@ function createMcpServer(
       }
     );
 
-    registerAppTool(
-      server,
-      "propose_plan",
+    registerAppTool("propose_plan",
       {
         title: "[CORE] Propose Plan",
         description: "[PVDL] Log a structured plan before making changes. Follow PVDL flow: Plan first, then Verify with edit_dry_run, then Do with checkpoint_save + edit, then Log with suggested checks. When AGENTIC_STRICT_PVDL is enabled, this tool must be called before edit/write — the server will enforce the flow.",
@@ -2437,9 +2358,7 @@ function createMcpServer(
       }
     );
 
-    registerAppTool(
-      server,
-      "knowledge_capture",
+    registerAppTool("knowledge_capture",
       {
         title: "Knowledge Capture",
         description: "[Knowledge] Save a decision, invariant, or lesson learned to the workspace knowledge base (.agentic/knowledge/decisions/). Call this after completing a task to persist hard-won insights for future sessions. ScopedTo limits when this knowledge is injected back into context.",
@@ -2460,9 +2379,7 @@ function createMcpServer(
         return wrap("knowledge_capture", req, await knowledgeCaptureTool(workspace.root, req));
       }
     );
-    registerAppTool(
-      server,
-      "knowledge_search",
+    registerAppTool("knowledge_search",
       {
         title: "Knowledge Search",
         description: "[Knowledge] Read-only search of past decisions and insights from the workspace knowledge base (.agentic/knowledge/). Optionally filter by scope.",
@@ -2480,9 +2397,7 @@ function createMcpServer(
       }
     );
 
-    registerAppTool(
-      server,
-      "workspace_summary",
+    registerAppTool("workspace_summary",
       {
         title: "Workspace Summary",
         description: "[CORE] Get a high-level, extremely compact overview of the workspace (name, version, scripts, dependencies, and top-level directories). Use this for a quick pulse-check before diving into detailed file discovery with project_bootstrap or read_many.",
@@ -2496,9 +2411,7 @@ function createMcpServer(
         return wrap("workspace_summary", req, await workspaceSummaryTool(workspace.root));
       }
     );
-    registerAppTool(
-      server,
-      "read_many",
+    registerAppTool("read_many",
       {
         title: "Read Many Files",
         description: "Read the contents of multiple files in a single call. Use this instead of reading files one by one. Supports optional compressionLevel to reduce token usage: 'light' (removes large objects), 'balanced' (removes function bodies), 'aggressive', 'skeletal'. Use maxTokens to set a budget — files exceeding the budget are skipped.",
@@ -2517,9 +2430,7 @@ function createMcpServer(
         return wrap("read_many", req, await readManyTool(req, workspace.root, config.allowedRoots));
       }
     );
-    registerAppTool(
-      server,
-      "tree",
+    registerAppTool("tree",
       {
         title: "Directory Tree",
         description: "[File System] Recursively list directory structure.",
@@ -2533,9 +2444,7 @@ function createMcpServer(
         return wrap("tree", req, await treeTool(req, workspace.root, config.allowedRoots));
       }
     );
-    registerAppTool(
-      server,
-      "safe_file_preview",
+    registerAppTool("safe_file_preview",
       {
         title: "File Preview",
         description: "[File System] Extracts imports and exports from large files to provide a quick summary.",
@@ -2549,9 +2458,7 @@ function createMcpServer(
         return wrap("safe_file_preview", req, await safeFilePreviewTool(req, workspace.root, config.allowedRoots));
       }
     );
-    registerAppTool(
-      server,
-      "git_status",
+    registerAppTool("git_status",
       {
         title: "[CORE] Git Status",
         description: "[Git] Read-only git status showing branch, staged, unstaged, and untracked files. Does not modify the repository.",
@@ -2565,9 +2472,7 @@ function createMcpServer(
         return wrap("git_status", req, await gitTool("status", req, workspace.root));
       }
     );
-    registerAppTool(
-      server,
-      "git_diff",
+    registerAppTool("git_diff",
       {
         title: "[CORE] Git Diff",
         description: "[Git] Read-only git diff showing uncommitted changes. Does not modify the repository.",
@@ -2581,9 +2486,7 @@ function createMcpServer(
         return wrap("git_diff", req, await gitTool("diff", req, workspace.root));
       }
     );
-    registerAppTool(
-      server,
-      "git_log",
+    registerAppTool("git_log",
       {
         title: "[CORE] Git Log",
         description: "[Git] Read-only git log showing recent commit history. Does not modify the repository.",
@@ -2597,9 +2500,7 @@ function createMcpServer(
         return wrap("git_log", req, await gitTool("log", req, workspace.root));
       }
     );
-    registerAppTool(
-      server,
-      "run_package_script",
+    registerAppTool("run_package_script",
       {
         title: "[CORE] Run Package Script",
         description: "[Execution] Runs an npm run script from the workspace's package.json. Use outputMode: 'diagnostic-summary' (or 'summary') to get a compact error/warning report instead of full build logs.",
@@ -2618,9 +2519,7 @@ function createMcpServer(
       }
     );
 
-    registerAppTool(
-      server,
-      "tournament_spawn",
+    registerAppTool("tournament_spawn",
       {
         title: "[ADVANCED] Spawn Tournament",
         description: "[Tournament] Spawn multiple managed git worktrees (one per strategy) from the same base ref for parallel experimentation. Each worktree is isolated; implement different strategies in each. After implementing, call tournament_judge to compare results.",
@@ -2647,9 +2546,7 @@ function createMcpServer(
         }));
       }
     );
-    registerAppTool(
-      server,
-      "tournament_judge",
+    registerAppTool("tournament_judge",
       {
         title: "[ADVANCED] Tournament Judge",
         description: "[Tournament] Run verification scripts on all tournament worktrees and compare results. Default: runs typecheck + build on each.",
@@ -2671,9 +2568,7 @@ function createMcpServer(
         return wrap("tournament_judge", req, await tournamentJudgeTool(req));
       }
     );
-    registerAppTool(
-      server,
-      "tournament_cleanup",
+    registerAppTool("tournament_cleanup",
       {
         title: "[ADVANCED] Tournament Cleanup",
         description: "[Tournament] Tear down tournament worktrees. Optionally keep a winner. Set force=true only to discard uncommitted worktree changes.",
@@ -2695,9 +2590,7 @@ function createMcpServer(
     
     
 
-    registerAppTool(
-      server,
-      "semantic_pack",
+    registerAppTool("semantic_pack",
       {
         title: "[ADVANCED] Semantic Pack",
         description: "[Context] Returns a compact, goal-relevant semantic pack of the workspace. Combines project context, architecture, routes, collections, recommendedFiles (with relevanceTier), and key file contents — all within a configurable token budget. Pass excludePaths to skip already-read files. Use this instead of multiple separate read calls for a focused overview. Optionally pass a goal to filter to relevant files.",
@@ -2718,9 +2611,7 @@ function createMcpServer(
       }
     );
 
-    registerAppTool(
-      server,
-      "context_budget",
+    registerAppTool("context_budget",
       {
         title: "[ADVANCED] Context Budget",
         description: "[Context] Estimates token count for one or more files. Use this to decide which files to include or skip when context window is limited. Returns lines, characters, and estimated tokens per file.",
@@ -2738,9 +2629,7 @@ function createMcpServer(
       }
     );
 
-    registerAppTool(
-      server,
-      "expand_compressed_block",
+    registerAppTool("expand_compressed_block",
       {
         title: "[ADVANCED] Expand Compressed Block",
         description: "[File System] Expand a previously compressed (omitted) block from a read_compressed result. When read_compressed returns omissions with 'mustExpandBeforeEdit: true', call this tool to fetch the full content for that block before making edits. Pass the file path and the omission's description (from the 'lines' field) to expand it.",
@@ -2772,9 +2661,7 @@ function createMcpServer(
       }
     );
 
-    registerAppTool(
-      server,
-      "token_audit",
+    registerAppTool("token_audit",
       {
         title: "[ADVANCED] Token Audit",
         description: "[Context] Analyze token usage across all files read in the current turn. Returns which files consumed the most tokens, how much budget remains, and suggestions for reducing context bloat (use compression, skip non-essential files, etc).",
@@ -2862,9 +2749,7 @@ function createMcpServer(
   }
 
   if (true) {
-  registerAppTool(
-    server,
-    toolNames.shell,
+  registerAppTool(toolNames.shell,
     {
       title: "Bash",
       description: config.toolMode === "minimal"
