@@ -70,26 +70,6 @@
       "recommendedReadTool": "read_adaptive"
     },
     {
-      "path": "src/change-intelligence/goal-normalizer.test.ts",
-      "role": "test",
-      "confidence": "medium",
-      "evidence": [
-        {
-          "type": "content_match",
-          "detail": "Contains keyword: adicionar"
-        },
-        {
-          "type": "content_match",
-          "detail": "Contains keyword: auth"
-        },
-        {
-          "type": "test_proximity",
-          "detail": "Is test for: src/change-intelligence/goal-normalizer.ts"
-        }
-      ],
-      "recommendedReadTool": "read_adaptive"
-    },
-    {
       "path": "src/change-intelligence/goal-normalizer.ts",
       "role": "supporting",
       "confidence": "medium",
@@ -105,6 +85,22 @@
         {
           "type": "test_proximity",
           "detail": "Has nearby tests: src/change-intelligence/goal-normalizer.test.ts"
+        }
+      ],
+      "recommendedReadTool": "read_adaptive"
+    },
+    {
+      "path": "src/change-intelligence/goal-normalizer.test.ts",
+      "role": "test",
+      "confidence": "medium",
+      "evidence": [
+        {
+          "type": "content_match",
+          "detail": "Contains keyword: adicionar"
+        },
+        {
+          "type": "test_proximity",
+          "detail": "Is test for: src/change-intelligence/goal-normalizer.ts"
         }
       ],
       "recommendedReadTool": "read_adaptive"
@@ -350,6 +346,30 @@
       "recommendedReadTool": "read_many"
     },
     {
+      "path": "perf/_executor-warm.mjs",
+      "role": "supporting",
+      "confidence": "low",
+      "evidence": [
+        {
+          "type": "content_match",
+          "detail": "Contains keyword: auth"
+        }
+      ],
+      "recommendedReadTool": "read_many"
+    },
+    {
+      "path": "perf/_executor.mjs",
+      "role": "supporting",
+      "confidence": "low",
+      "evidence": [
+        {
+          "type": "content_match",
+          "detail": "Contains keyword: auth"
+        }
+      ],
+      "recommendedReadTool": "read_many"
+    },
+    {
       "path": "README.md",
       "role": "supporting",
       "confidence": "low",
@@ -363,18 +383,6 @@
     },
     {
       "path": "scripts/smoke-package.mjs",
-      "role": "supporting",
-      "confidence": "low",
-      "evidence": [
-        {
-          "type": "content_match",
-          "detail": "Contains keyword: auth"
-        }
-      ],
-      "recommendedReadTool": "read_many"
-    },
-    {
-      "path": "scripts/test-http.mjs",
       "role": "supporting",
       "confidence": "low",
       "evidence": [
@@ -472,7 +480,7 @@
   "limitations": [],
   "budget": {
     "maxTokens": 6000,
-    "estimatedTokens": 1929,
+    "estimatedTokens": 1958,
     "truncated": false,
     "omittedCandidates": 0
   }

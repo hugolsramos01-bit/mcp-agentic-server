@@ -5,7 +5,7 @@ import { normalizeGoal } from "./goal-normalizer.js";
 import { scoreConfidence } from "./evidence.js";
 import { findNearbyTests } from "./test-proximity.js";
 import { getLimitedSharedDependencies } from "./file-dependencies-internal.js";
-import { TaskContextInput, TaskContextResult, TaskFileCandidate, EvidenceEntry, TaskFileRole, TaskType } from "./types.js";
+import { TaskContextInput, TaskContextResult, TaskFileCandidate, EvidenceEntry, TaskFileRole, TaskType, TaskContextDepth } from "./types.js";
 import type { ToolResponse } from "../pi-tools.js";
 import { NOOP_PERFORMANCE_RECORDER } from "../performance/performance-recorder.js";
 
@@ -101,15 +101,36 @@ export async function buildTaskContext(input: TaskContextInput): Promise<TaskCon
     focusPaths = [],
     excludePaths = [],
     maxTokens = TASK_CONTEXT_BUDGET.defaultTokens,
-    perf = NOOP_PERFORMANCE_RECORDER,
+    depth,
   } = input;
-
+  const perf = input.perf ?? NOOP_PERFORMANCE_RECORDER;
   const limitations: string[] = [];
 
-  // 1. Normalize goal
+  // 1. Goal Normalization
   const pNormalize = perf.startPhase("normalizeGoal");
   const normalized = normalizeGoal(goal, type);
   pNormalize.end();
+
+  // Depth Resolution
+  let effectiveDepth: TaskContextDepth = "balanced";
+  let depthSource: "explicit" | "inferred" | "default" = "default";
+
+  if (depth) {
+    effectiveDepth = depth;
+    depthSource = "explicit";
+  } else {
+    const isMajor =
+      normalized.taskTypeSuggestion === "migration" ||
+      normalized.taskTypeSuggestion === "refactor" ||
+      normalized.taskTypeSuggestion === "security";
+    if (isMajor) {
+      effectiveDepth = "balanced";
+      depthSource = "inferred";
+    } else {
+      effectiveDepth = "fast";
+      depthSource = "default";
+    }
+  }
 
   // 2. Validate focusPaths and excludePaths
   const pResolve = perf.startPhase("resolvePaths");
@@ -329,6 +350,9 @@ export async function buildTaskContext(input: TaskContextInput): Promise<TaskCon
     goal: input.goal,
     taskType: normalized.taskTypeSuggestion,
     taskTypeSource: normalized.taskTypeSource,
+    requestedDepth: depth,
+    effectiveDepth,
+    depthSource,
     primaryFiles,
     supportingFiles,
     directDependents,

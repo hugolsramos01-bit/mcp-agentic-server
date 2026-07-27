@@ -327,6 +327,18 @@
       "recommendedReadTool": "read_many"
     },
     {
+      "path": "perf/tool-latency.mjs",
+      "role": "supporting",
+      "confidence": "low",
+      "evidence": [
+        {
+          "type": "content_match",
+          "detail": "Contains keyword: corrigir"
+        }
+      ],
+      "recommendedReadTool": "read_many"
+    },
+    {
       "path": "README.md",
       "role": "supporting",
       "confidence": "low",
@@ -420,7 +432,7 @@
   "limitations": [],
   "budget": {
     "maxTokens": 6000,
-    "estimatedTokens": 1770,
+    "estimatedTokens": 1816,
     "truncated": false,
     "omittedCandidates": 0
   }

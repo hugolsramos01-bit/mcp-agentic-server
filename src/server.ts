@@ -2196,6 +2196,7 @@ function createMcpServer(
             .optional().describe(`Token budget for the response (default: ${TASK_CONTEXT_BUDGET.defaultTokens})`),
           focusPaths: z.array(z.string().max(500)).max(10).optional().describe("Paths to prioritize explicitly"),
           excludePaths: z.array(z.string().max(500)).max(20).optional().describe("Paths to exclude from candidates"),
+          depth: z.enum(["fast", "balanced", "deep"]).optional().describe("Analysis depth. Implicitly 'balanced' for major refactors/security, 'fast' otherwise."),
         },
         outputSchema: resultOutputSchema(),
         ...toolWidgetDescriptorMeta(config, "read"),
@@ -2219,6 +2220,7 @@ function createMcpServer(
             maxTokens: req.maxTokens,
             focusPaths: req.focusPaths,
             excludePaths: req.excludePaths,
+            depth: req.depth,
           },
           perf
         );

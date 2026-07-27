@@ -43,6 +43,8 @@ export interface TaskFileCandidate {
   recommendedReadTool: "read" | "read_adaptive" | "read_many";
 }
 
+export type TaskContextDepth = "fast" | "balanced" | "deep";
+
 import type { PerformanceRecorder } from "../performance/performance-recorder.js";
 
 export interface TaskContextInput {
@@ -54,6 +56,7 @@ export interface TaskContextInput {
   excludePaths?: string[];
   maxTokens?: number;
   instructionFiles?: string[];
+  depth?: TaskContextDepth;
   perf?: PerformanceRecorder;
 }
 
@@ -62,6 +65,10 @@ export interface TaskContextResult {
   goal: string;
   taskType: TaskType;
   taskTypeSource: "explicit" | "inferred" | "default";
+  
+  requestedDepth?: TaskContextDepth;
+  effectiveDepth: TaskContextDepth;
+  depthSource: "explicit" | "inferred" | "default";
   
   primaryFiles: TaskFileCandidate[];
   supportingFiles: TaskFileCandidate[];
