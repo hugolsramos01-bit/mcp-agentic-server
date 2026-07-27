@@ -542,6 +542,8 @@ function enforceTaskContextBudget(result: TaskContextResult, maxTokens: number):
 
   const estimateCandidateTokens = (c: any) => Math.ceil(JSON.stringify(c).length / 4);
 
+  let omittedRegions = 0;
+
   // Trim supporting files first (lowest priority), from the end (lowest confidence)
   while (currentTokens > maxTokens && result.supportingFiles.length > 0) {
     const popped = result.supportingFiles.pop();
@@ -550,7 +552,29 @@ function enforceTaskContextBudget(result: TaskContextResult, maxTokens: number):
     truncated = true;
   }
 
-  // Trim primary files only after all supporting is gone, always keep at least 1
+  // Trim regions from primary files from back to front before dropping files entirely
+  if (currentTokens > maxTokens) {
+    for (let i = result.primaryFiles.length - 1; i >= 0; i--) {
+      if (currentTokens <= maxTokens) break;
+      const file = result.primaryFiles[i];
+      if (file.codeRegions && file.codeRegions.length > 0) {
+        while (currentTokens > maxTokens && file.codeRegions.length > 0) {
+          const regions = file.codeRegions;
+          const oldFileTokens = estimateCandidateTokens(file);
+          regions.pop();
+          const newFileTokens = estimateCandidateTokens(file);
+          currentTokens -= (oldFileTokens - newFileTokens);
+          omittedRegions++;
+          truncated = true;
+        }
+        if (file.codeRegions.length === 0) {
+          delete file.codeRegions;
+        }
+      }
+    }
+  }
+
+  // Trim primary files only after all supporting and regions are gone, always keep at least 1
   while (currentTokens > maxTokens && result.primaryFiles.length > 1) {
     const popped = result.primaryFiles.pop();
     currentTokens -= estimateCandidateTokens(popped);
@@ -586,6 +610,7 @@ function enforceTaskContextBudget(result: TaskContextResult, maxTokens: number):
     estimatedTokens: measureTokens(),
     truncated,
     omittedCandidates,
+    omittedRegions,
   };
 
   return result;
@@ -640,13 +665,43 @@ function enforceFinalContextBudget(
       finalLimitationAdded = true;
     }
 
+    let poppedSomething = false;
+
     if (result.supportingFiles.length > 0) {
       result.supportingFiles.pop();
+      poppedSomething = true;
+      omittedCandidates++;
     } else {
-      result.primaryFiles.pop();
+      // Try to pop a codeRegion from the last primary file that has regions
+      let regionPopped = false;
+      for (let i = result.primaryFiles.length - 1; i >= 0; i--) {
+        const file = result.primaryFiles[i];
+        if (file.codeRegions && file.codeRegions.length > 0) {
+          file.codeRegions.pop();
+          if (result.budget.omittedRegions === undefined) {
+            result.budget.omittedRegions = 0;
+          }
+          result.budget.omittedRegions++;
+          regionPopped = true;
+          poppedSomething = true;
+          
+          if (file.codeRegions.length === 0) {
+            delete file.codeRegions;
+          }
+          break;
+        }
+      }
+
+      if (!regionPopped) {
+        result.primaryFiles.pop();
+        poppedSomething = true;
+        omittedCandidates++;
+      }
     }
 
-    omittedCandidates++;
+    if (!poppedSomething) {
+      break; // Safe-guard
+    }
 
     cleanDerivedStructures(result);
 
@@ -673,8 +728,10 @@ function enforceFinalContextBudget(
     truncated:
       result.budget.omittedCandidates > 0 ||
       omittedCandidates > 0 ||
+      (result.budget.omittedRegions ?? 0) > 0 ||
       actualTokens > maxTokens,
     omittedCandidates,
+    omittedRegions: result.budget.omittedRegions,
   };
 
   return result;

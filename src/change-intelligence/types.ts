@@ -135,5 +135,6 @@ export interface TaskContextResult {
     estimatedTokens: number;
     truncated: boolean;
     omittedCandidates: number;
+    omittedRegions?: number;
   };
 }
