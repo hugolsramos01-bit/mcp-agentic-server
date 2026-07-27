@@ -43,6 +43,8 @@ export interface TaskFileCandidate {
   recommendedReadTool: "read" | "read_adaptive" | "read_many";
 }
 
+import type { PerformanceRecorder } from "../performance/performance-recorder.js";
+
 export interface TaskContextInput {
   cwd: string;
   allowedRoots: string[];
@@ -52,7 +54,7 @@ export interface TaskContextInput {
   excludePaths?: string[];
   maxTokens?: number;
   instructionFiles?: string[];
-  perf?: any; // PerformanceRecorder
+  perf?: PerformanceRecorder;
 }
 
 export interface TaskContextResult {

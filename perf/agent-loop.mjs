@@ -10,15 +10,14 @@ const targetPath = process.argv[2] || process.cwd();
 
 console.log(`Synthetic Agent Workflow Benchmark`);
 console.log(`Target: ${targetPath}`);
-console.log(`(This measures local tool latency chaining, not model inference)`);
+console.log(`(This measures deterministic local tool chaining: task_context -> read_many -> suggest_checks)\n`);
 
-// The executor will run multiple tools in a single process
 const executorPath = join(__dirname, "_executor-synthetic-workflow.mjs");
 
 const ITERATIONS = 10;
 const results = [];
 
-console.log(`\nRunning ${ITERATIONS} iterations of full synthetic workflow...`);
+console.log(`Running ${ITERATIONS} iterations of full synthetic workflow...`);
 for (let i = 0; i < ITERATIONS; i++) {
   const res = spawnSync("node", [executorPath, targetPath], {
     env: { ...process.env, AGENTIC_PERF: "1" },

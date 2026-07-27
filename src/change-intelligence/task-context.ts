@@ -414,6 +414,8 @@ function enforceTaskContextBudget(result: TaskContextResult, maxTokens: number):
 
 // ─── MCP adapter ──────────────────────────────────────────────────────
 
+import type { PerformanceRecorder } from "../performance/performance-recorder.js";
+
 export async function taskContextTool(
   cwd: string,
   allowedRoots: string[],
@@ -424,7 +426,7 @@ export async function taskContextTool(
     focusPaths?: string[];
     excludePaths?: string[];
   },
-  perf?: any // Passing performance recorder
+  perf?: PerformanceRecorder
 ): Promise<ToolResponse> {
   const resolvedMaxTokens = input.maxTokens ?? TASK_CONTEXT_BUDGET.defaultTokens;
 

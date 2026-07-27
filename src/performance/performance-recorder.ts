@@ -2,6 +2,7 @@ import { ToolPerformanceMetrics } from "./performance-types.js";
 import { PhaseTimer, NOOP_PHASE_TIMER, ActivePhaseTimer } from "./phase-timer.js";
 
 export interface PerformanceRecorder {
+  readonly enabled: boolean;
   increment(
     metric: "subprocessCount" | "filesystemReads" | "filesystemStats" | "sqliteReads" | "sqliteWrites" | "cacheHits" | "cacheMisses",
     amount?: number
@@ -13,6 +14,7 @@ export interface PerformanceRecorder {
 const PERF_ENABLED = process.env.AGENTIC_PERF === "1";
 
 export const NOOP_PERFORMANCE_RECORDER: PerformanceRecorder = {
+  enabled: false,
   increment() {},
   startPhase() {
     return NOOP_PHASE_TIMER;
@@ -23,6 +25,7 @@ export const NOOP_PERFORMANCE_RECORDER: PerformanceRecorder = {
 };
 
 export class ActivePerformanceRecorder implements PerformanceRecorder {
+  readonly enabled = true;
   private readonly metrics: ToolPerformanceMetrics;
   private readonly startTime: number;
   private isFinished = false;

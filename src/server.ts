@@ -2229,7 +2229,20 @@ function createMcpServer(
         wrapPhase.end();
 
         overallPhase.end();
-        const metrics = perf.finish({ outputCharacters: JSON.stringify(wrapped).length });
+
+        let outputCharacters: number | undefined;
+        if (perf.enabled) {
+          outputCharacters = JSON.stringify(wrapped).length;
+        }
+
+        const metrics = perf.finish(
+          outputCharacters === undefined
+            ? undefined
+            : {
+                outputCharacters,
+                estimatedOutputTokens: Math.ceil(outputCharacters / 4),
+              }
+        );
         if (metrics) {
           const collector = (globalThis as any).__AGENTIC_PERF_COLLECTOR;
           if (collector && Array.isArray(collector)) {
