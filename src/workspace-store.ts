@@ -129,11 +129,34 @@ export class SqliteWorkspaceStore implements WorkspaceStore {
     return result.changes > 0;
   }
 
+  #touchBuffer = new Map<string, NodeJS.Timeout>();
+
   touchSession(id: string): void {
-    this.#db.db.update(workspaceSessions).set({ lastUsedAt: new Date().toISOString() }).where(eq(workspaceSessions.id, id)).run();
+    if (this.#touchBuffer.has(id)) {
+      clearTimeout(this.#touchBuffer.get(id));
+    }
+    const timer = setTimeout(() => {
+      this.#touchBuffer.delete(id);
+      this.#flushTouch(id);
+    }, 5000);
+    timer.unref();
+    this.#touchBuffer.set(id, timer);
+  }
+
+  #flushTouch(id: string): void {
+    try {
+      this.#db.db.update(workspaceSessions).set({ lastUsedAt: new Date().toISOString() }).where(eq(workspaceSessions.id, id)).run();
+    } catch (err) {
+      // Ignore background flush errors
+    }
   }
 
   close(): void {
+    for (const [id, timer] of this.#touchBuffer.entries()) {
+      clearTimeout(timer);
+      this.#flushTouch(id);
+    }
+    this.#touchBuffer.clear();
     this.#db.close();
   }
 }
