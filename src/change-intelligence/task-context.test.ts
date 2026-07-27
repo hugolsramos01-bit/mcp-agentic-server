@@ -372,4 +372,161 @@ describe("task-context", () => {
 
     assert.ok(res.suggestedNextSteps.length > 0, "must suggest next action if no candidates");
   });
+
+  // ─── P1.2: Candidate Quality Invariants ──────────────────────────
+
+  it("P1.2: eval/ artifacts never appear in primaryFiles", async () => {
+    const root = await makeWorkspace();
+    await mkdir(join(root, "eval", "cases"), { recursive: true });
+    await writeFile(join(root, "eval", "cases", "jwt-auth.input.json"), JSON.stringify({ input: "test" }));
+    await writeFile(join(root, "eval", "cases", "jwt-auth.snap.json"), JSON.stringify({ output: "ok" }));
+    await writeFile(join(root, "src", "auth.ts"), "export const auth = () => {};");
+    await gitAddAll(root);
+
+    const res = await buildTaskContext({ workspaceId: "test",
+      cwd: root,
+      allowedRoots: [root],
+      goal: "fix jwt auth middleware",
+      depth: "balanced",
+    });
+
+    // eval/ files must never be primary
+    const evalInPrimary = res.primaryFiles.filter(p => p.path.includes("eval/"));
+    assert.equal(evalInPrimary.length, 0, "eval artifacts must not appear in primaryFiles");
+
+    // eval/ files may appear in supporting (for context) but never as primary
+    const evalInSupporting = res.supportingFiles.filter(p => p.path.includes("eval/"));
+    for (const ef of evalInSupporting) {
+      assert.notEqual(ef.role, "primary", "eval artifacts must have role !== primary");
+    }
+  });
+
+  it("P1.2: snapshot files never appear in primaryFiles", async () => {
+    const root = await makeWorkspace();
+    await writeFile(join(root, "src", "oauth-store.test.ts"), "import { store } from './oauth-store';");
+    await writeFile(join(root, "src", "oauth-store.ts"), "export const store = {};");
+    await gitAddAll(root);
+
+    const res = await buildTaskContext({ workspaceId: "test",
+      cwd: root,
+      allowedRoots: [root],
+      goal: "fix oauth store in src/oauth-store.ts",
+      focusPaths: ["src/oauth-store.ts"],
+    });
+
+    // Test file must be in supporting, not primary
+    const testInPrimary = res.primaryFiles.find(p => p.path.includes(".test."));
+    assert.equal(testInPrimary, undefined, "test files must not appear in primaryFiles");
+
+    const testInSupporting = res.supportingFiles.find(p => p.path.includes(".test."));
+    assert.ok(testInSupporting, "test file should be in supportingFiles");
+  });
+
+  it("P1.2: content grep is executed when anchorKeywords exist and direct context is insufficient", async () => {
+    const root = await makeWorkspace();
+    await mkdir(join(root, "src"), { recursive: true });
+    await writeFile(join(root, "src", "payment.ts"), "export const charge = () => {};");
+    await writeFile(join(root, "stripe.ts"), "// stripe integration with charge logic");
+    await gitAddAll(root);
+
+    let subprocessCount = 0;
+    const perfRecorder = {
+      enabled: true,
+      increment: (name: string) => { if (name === "subprocessCount") subprocessCount++; },
+      startPhase: () => ({ end: () => {} }),
+      finish: () => undefined,
+    } as any;
+
+    await buildTaskContext({ workspaceId: "test",
+      cwd: root,
+      allowedRoots: [root],
+      goal: "adicionar suporte para JWT middleware em auth", // no extracted path, no focus path
+      perf: perfRecorder,
+    });
+
+    // Should have run ls-files (1) + git grep (1) = at least 2 subprocesses
+    // If grep was NOT executed (blocker 3), subprocessCount would be 1
+    assert.ok(subprocessCount >= 2,
+      `grep should execute when direct context is insufficient (subprocessCount=${subprocessCount})`);
+  });
+
+  it("P1.2: content grep is NOT executed when only ACTION_WORDS are present (no anchor keywords)", async () => {
+    const root = await makeWorkspace();
+    await mkdir(join(root, "src"), { recursive: true });
+    await writeFile(join(root, "src", "generic.ts"), "export const x = 1;");
+    await gitAddAll(root);
+
+    let subprocessCount = 0;
+    const perfRecorder = {
+      enabled: true,
+      increment: (name: string) => { if (name === "subprocessCount") subprocessCount++; },
+      startPhase: () => ({ end: () => {} }),
+      finish: () => undefined,
+    } as any;
+
+    await buildTaskContext({ workspaceId: "test",
+      cwd: root,
+      allowedRoots: [root],
+      goal: "fix implement update", // all ACTION_WORDS, no real anchor
+      perf: perfRecorder,
+    });
+
+    // Only 1 subprocess for ls-files; grep should NOT execute
+    assert.ok(subprocessCount <= 1,
+      `grep should NOT execute when only ACTION_WORDS are present (subprocessCount=${subprocessCount})`);
+  });
+
+  it("P1.2: documentation files never appear in primaryFiles", async () => {
+    const root = await makeWorkspace();
+    await mkdir(join(root, "docs"), { recursive: true });
+    await writeFile(join(root, "docs", "auth-flow.md"), "# Auth Flow\nDocs about auth middleware");
+    await writeFile(join(root, "src", "auth.ts"), "export const auth = () => {};");
+    await gitAddAll(root);
+
+    const res = await buildTaskContext({ workspaceId: "test",
+      cwd: root,
+      allowedRoots: [root],
+      goal: "fix auth middleware",
+      depth: "balanced",
+    });
+
+    const docsInPrimary = res.primaryFiles.filter(p => p.path.startsWith("docs/"));
+    assert.equal(docsInPrimary.length, 0, "documentation files must not appear in primaryFiles");
+  });
+
+  it("P1.2: suggestedNextSteps are rebuilt after budget truncation", async () => {
+    const root = await makeWorkspace();
+    for (let i = 0; i < 10; i++) {
+      await writeFile(join(root, `src/page${i}.tsx`), "export default function Page() {}");
+    }
+    await gitAddAll(root);
+
+    const focusPaths = Array.from({ length: 10 }, (_, i) => `src/page${i}.tsx`);
+    const res = await buildTaskContext({ workspaceId: "test",
+      cwd: root,
+      allowedRoots: [root],
+      goal: "update pages",
+      focusPaths,
+      maxTokens: 200,
+    });
+
+    // suggestedNextSteps must reference only files that survived truncation
+    const retainedPaths = new Set([
+      ...res.primaryFiles.map(f => f.path),
+      ...res.supportingFiles.map(f => f.path),
+    ]);
+
+    for (const step of res.suggestedNextSteps) {
+      if (Array.isArray(step.arguments.paths)) {
+        for (const p of step.arguments.paths) {
+          assert.ok(retainedPaths.has(String(p)),
+            `suggestedNextSteps path "${p}" must be in retained files after truncation`);
+        }
+      }
+      if (step.arguments.path) {
+        assert.ok(retainedPaths.has(String(step.arguments.path)),
+          `suggestedNextSteps path "${step.arguments.path}" must be in retained files after truncation`);
+      }
+    }
+  });
 });

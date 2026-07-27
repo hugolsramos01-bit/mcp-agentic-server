@@ -16,7 +16,7 @@ const GENERATED_FILES = new Set([
   ".terraform.lock.hcl", "Gemfile.lock",
 ]);
 const CONFIG_EXT_PATTERNS = /\.(?:config\.(?:ts|js|json|mjs|cjs)|d\.ts)$/i;
-const DOC_DIR_PATTERNS = /[/\\]docs?(?:[/\\]|$)/i;
+const DOC_DIR_PATTERNS = /(?:^|[/\\])docs?(?:[/\\]|$)/i;
 const BUILD_DIR_PATTERNS = /[/\\](?:dist|build|out|\.next|\.nuxt)[/\\]/i;
 
 export function classifyCandidateKind(path: string): CandidateKind {
