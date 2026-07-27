@@ -262,26 +262,33 @@ export async function buildTaskContext(input: TaskContextInput): Promise<TaskCon
   }
   pPathMatching.end();
 
-  // 9. Content grep — per-keyword, individual try/catch
+  // 9. Content grep — unified single subprocess
   if (effectiveDepth !== "fast") {
     const pContentSearch = perf.startPhase("contentSearch");
-  for (const kw of expandedKeywords.slice(0, 5)) {
-    if (kw.length < 4) continue;
-    try {
-      perf.increment("subprocessCount");
-      const { stdout } = await execFileAsync(
-        "git", ["grep", "-i", "-l", "--", kw],
-        { cwd, timeout: 5000, maxBuffer: 10 * 1024 * 1024 }
-      );
-      const grepFiles = stdout.split("\n").map(f => f.trim().replace(/\\/g, "/")).filter(Boolean);
-      for (const gf of grepFiles.slice(0, 20)) {
-        addEvidence(gf, { type: "content_match", detail: `Contains keyword: ${kw}` });
+    const grepKeywords = expandedKeywords.slice(0, 5).filter(kw => kw.length >= 4);
+    
+    if (grepKeywords.length > 0) {
+      const grepArgs = ["grep", "-i", "-l", "-F"];
+      for (const kw of grepKeywords) {
+        grepArgs.push("-e", kw);
       }
-    } catch (err: any) {
-      if (err?.code === 1) continue; // no-match: normal git grep exit
-      limitations.push(`git grep failed for keyword "${kw}": ${err?.message ?? "unknown error"}`);
+      
+      try {
+        perf.increment("subprocessCount");
+        const { stdout } = await execFileAsync(
+          "git", grepArgs,
+          { cwd, timeout: 5000, maxBuffer: 10 * 1024 * 1024 }
+        );
+        const grepFiles = stdout.split("\n").map(f => f.trim().replace(/\\/g, "/")).filter(Boolean);
+        for (const gf of grepFiles.slice(0, 20)) {
+          addEvidence(gf, { type: "content_match", detail: `Contains matching keywords` });
+        }
+      } catch (err: any) {
+        if (err?.code !== 1) { // 1 means no match, normal for grep
+          limitations.push(`unified git grep failed: ${err?.message ?? "unknown error"}`);
+        }
+      }
     }
-  }
     pContentSearch.end();
   }
 
