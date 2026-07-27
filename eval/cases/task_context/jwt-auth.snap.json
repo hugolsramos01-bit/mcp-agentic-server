@@ -5,12 +5,11 @@
   "taskTypeSource": "inferred",
   "effectiveDepth": "fast",
   "depthSource": "default",
-  "primaryFiles": [],
-  "supportingFiles": [
+  "primaryFiles": [
     {
       "path": "eval/cases/task_context/jwt-auth.input.json",
-      "role": "supporting",
-      "confidence": "medium",
+      "role": "primary",
+      "confidence": "high",
       "evidence": [
         {
           "type": "filename_partial",
@@ -19,22 +18,256 @@
         {
           "type": "filename_partial",
           "detail": "Basename segment matches keyword: auth"
+        },
+        {
+          "type": "content_match",
+          "detail": "Contains matching keywords"
+        }
+      ],
+      "recommendedReadTool": "read"
+    },
+    {
+      "path": "eval/cases/task_context/jwt-auth.snap.json",
+      "role": "primary",
+      "confidence": "high",
+      "evidence": [
+        {
+          "type": "filename_partial",
+          "detail": "Basename segment matches keyword: jwt"
+        },
+        {
+          "type": "filename_partial",
+          "detail": "Basename segment matches keyword: auth"
+        },
+        {
+          "type": "content_match",
+          "detail": "Contains matching keywords"
+        }
+      ],
+      "recommendedReadTool": "read"
+    },
+    {
+      "path": "src/oauth-store.ts",
+      "role": "primary",
+      "confidence": "high",
+      "evidence": [
+        {
+          "type": "filename_partial",
+          "detail": "Basename segment matches keyword: oauth"
+        },
+        {
+          "type": "test_proximity",
+          "detail": "Has nearby tests: src/oauth-store.test.ts"
+        }
+      ],
+      "recommendedReadTool": "read"
+    }
+  ],
+  "supportingFiles": [
+    {
+      "path": "src/oauth-store.test.ts",
+      "role": "test",
+      "confidence": "high",
+      "evidence": [
+        {
+          "type": "filename_partial",
+          "detail": "Basename segment matches keyword: oauth"
+        },
+        {
+          "type": "test_proximity",
+          "detail": "Is test for: src/oauth-store.ts"
+        }
+      ],
+      "recommendedReadTool": "read"
+    },
+    {
+      "path": ".env.example",
+      "role": "supporting",
+      "confidence": "medium",
+      "evidence": [
+        {
+          "type": "content_match",
+          "detail": "Contains matching keywords"
         }
       ],
       "recommendedReadTool": "read_adaptive"
     },
     {
-      "path": "eval/cases/task_context/jwt-auth.snap.json",
+      "path": ".github/workflows/ci.yml",
       "role": "supporting",
       "confidence": "medium",
       "evidence": [
         {
-          "type": "filename_partial",
-          "detail": "Basename segment matches keyword: jwt"
-        },
+          "type": "content_match",
+          "detail": "Contains matching keywords"
+        }
+      ],
+      "recommendedReadTool": "read_adaptive"
+    },
+    {
+      "path": ".github/workflows/release.yml",
+      "role": "supporting",
+      "confidence": "medium",
+      "evidence": [
         {
-          "type": "filename_partial",
-          "detail": "Basename segment matches keyword: auth"
+          "type": "content_match",
+          "detail": "Contains matching keywords"
+        }
+      ],
+      "recommendedReadTool": "read_adaptive"
+    },
+    {
+      "path": "docs/configuration.md",
+      "role": "supporting",
+      "confidence": "medium",
+      "evidence": [
+        {
+          "type": "content_match",
+          "detail": "Contains matching keywords"
+        }
+      ],
+      "recommendedReadTool": "read_adaptive"
+    },
+    {
+      "path": "docs/gotchas.md",
+      "role": "supporting",
+      "confidence": "medium",
+      "evidence": [
+        {
+          "type": "content_match",
+          "detail": "Contains matching keywords"
+        }
+      ],
+      "recommendedReadTool": "read_adaptive"
+    },
+    {
+      "path": "docs/security.md",
+      "role": "supporting",
+      "confidence": "medium",
+      "evidence": [
+        {
+          "type": "content_match",
+          "detail": "Contains matching keywords"
+        }
+      ],
+      "recommendedReadTool": "read_adaptive"
+    },
+    {
+      "path": "docs/setup.md",
+      "role": "supporting",
+      "confidence": "medium",
+      "evidence": [
+        {
+          "type": "content_match",
+          "detail": "Contains matching keywords"
+        }
+      ],
+      "recommendedReadTool": "read_adaptive"
+    },
+    {
+      "path": "eval/cases/read_many/two-files.snap.json",
+      "role": "supporting",
+      "confidence": "medium",
+      "evidence": [
+        {
+          "type": "content_match",
+          "detail": "Contains matching keywords"
+        }
+      ],
+      "recommendedReadTool": "read_adaptive"
+    },
+    {
+      "path": "eval/cases/read/package-json.snap.json",
+      "role": "supporting",
+      "confidence": "medium",
+      "evidence": [
+        {
+          "type": "content_match",
+          "detail": "Contains matching keywords"
+        }
+      ],
+      "recommendedReadTool": "read_adaptive"
+    },
+    {
+      "path": "eval/cases/semantic_pack/workspace-lifecycle.snap.json",
+      "role": "supporting",
+      "confidence": "medium",
+      "evidence": [
+        {
+          "type": "content_match",
+          "detail": "Contains matching keywords"
+        }
+      ],
+      "recommendedReadTool": "read_adaptive"
+    },
+    {
+      "path": "LICENSE",
+      "role": "supporting",
+      "confidence": "medium",
+      "evidence": [
+        {
+          "type": "content_match",
+          "detail": "Contains matching keywords"
+        }
+      ],
+      "recommendedReadTool": "read_adaptive"
+    },
+    {
+      "path": "package-lock.json",
+      "role": "supporting",
+      "confidence": "medium",
+      "evidence": [
+        {
+          "type": "content_match",
+          "detail": "Contains matching keywords"
+        }
+      ],
+      "recommendedReadTool": "read_adaptive"
+    },
+    {
+      "path": "package.json",
+      "role": "supporting",
+      "confidence": "medium",
+      "evidence": [
+        {
+          "type": "content_match",
+          "detail": "Contains matching keywords"
+        }
+      ],
+      "recommendedReadTool": "read_adaptive"
+    },
+    {
+      "path": "perf/_executor-warm.mjs",
+      "role": "supporting",
+      "confidence": "medium",
+      "evidence": [
+        {
+          "type": "content_match",
+          "detail": "Contains matching keywords"
+        }
+      ],
+      "recommendedReadTool": "read_adaptive"
+    },
+    {
+      "path": "perf/_executor.mjs",
+      "role": "supporting",
+      "confidence": "medium",
+      "evidence": [
+        {
+          "type": "content_match",
+          "detail": "Contains matching keywords"
+        }
+      ],
+      "recommendedReadTool": "read_adaptive"
+    },
+    {
+      "path": "README.md",
+      "role": "supporting",
+      "confidence": "medium",
+      "evidence": [
+        {
+          "type": "content_match",
+          "detail": "Contains matching keywords"
         }
       ],
       "recommendedReadTool": "read_adaptive"
@@ -52,6 +285,30 @@
       "recommendedReadTool": "read_adaptive"
     },
     {
+      "path": "scripts/smoke-package.mjs",
+      "role": "supporting",
+      "confidence": "medium",
+      "evidence": [
+        {
+          "type": "content_match",
+          "detail": "Contains matching keywords"
+        }
+      ],
+      "recommendedReadTool": "read_adaptive"
+    },
+    {
+      "path": "SECURITY.md",
+      "role": "supporting",
+      "confidence": "medium",
+      "evidence": [
+        {
+          "type": "content_match",
+          "detail": "Contains matching keywords"
+        }
+      ],
+      "recommendedReadTool": "read_adaptive"
+    },
+    {
       "path": "src/change-session.ts",
       "role": "supporting",
       "confidence": "medium",
@@ -59,18 +316,6 @@
         {
           "type": "filename_partial",
           "detail": "Basename segment matches keyword: session"
-        }
-      ],
-      "recommendedReadTool": "read_adaptive"
-    },
-    {
-      "path": "src/db/client.ts",
-      "role": "supporting",
-      "confidence": "medium",
-      "evidence": [
-        {
-          "type": "filename_exact",
-          "detail": "Basename segment matches keyword: client"
         }
       ],
       "recommendedReadTool": "read_adaptive"
@@ -88,28 +333,16 @@
       "recommendedReadTool": "read_adaptive"
     },
     {
-      "path": "src/oauth-store.test.ts",
-      "role": "test",
-      "confidence": "medium",
-      "evidence": [
-        {
-          "type": "filename_partial",
-          "detail": "Basename segment matches keyword: oauth"
-        }
-      ],
-      "recommendedReadTool": "read_adaptive"
-    },
-    {
-      "path": "src/oauth-store.ts",
+      "path": "src/db/client.ts",
       "role": "supporting",
-      "confidence": "medium",
+      "confidence": "low",
       "evidence": [
         {
-          "type": "filename_partial",
-          "detail": "Basename segment matches keyword: oauth"
+          "type": "filename_exact",
+          "detail": "Basename segment matches keyword: client"
         }
       ],
-      "recommendedReadTool": "read_adaptive"
+      "recommendedReadTool": "read_many"
     }
   ],
   "directDependents": [],
@@ -120,12 +353,31 @@
       "reason": "Instruction file detected in workspace"
     }
   ],
-  "nearbyTestCandidates": [],
-  "suggestedNextSteps": [],
+  "nearbyTestCandidates": [
+    {
+      "sourcePath": "src/oauth-store.ts",
+      "testPaths": [
+        "src/oauth-store.test.ts"
+      ]
+    }
+  ],
+  "suggestedNextSteps": [
+    {
+      "tool": "read_many",
+      "arguments": {
+        "paths": [
+          "eval/cases/task_context/jwt-auth.input.json",
+          "eval/cases/task_context/jwt-auth.snap.json",
+          "src/oauth-store.ts"
+        ]
+      },
+      "reason": "Read the strongest implementation candidates."
+    }
+  ],
   "limitations": [],
   "budget": {
     "maxTokens": 6000,
-    "estimatedTokens": 581,
+    "estimatedTokens": 1558,
     "truncated": false,
     "omittedCandidates": 0
   }

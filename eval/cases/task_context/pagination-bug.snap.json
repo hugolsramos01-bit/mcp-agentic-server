@@ -14,6 +14,10 @@
         {
           "type": "focus_path",
           "detail": "Provided directly in focusPaths"
+        },
+        {
+          "type": "test_proximity",
+          "detail": "Has nearby tests: src/ui/card-types.test.ts"
         }
       ],
       "recommendedReadTool": "read"
@@ -55,6 +59,18 @@
         }
       ],
       "recommendedReadTool": "read_adaptive"
+    },
+    {
+      "path": "src/ui/card-types.test.ts",
+      "role": "test",
+      "confidence": "medium",
+      "evidence": [
+        {
+          "type": "test_proximity",
+          "detail": "Is test for: src/ui/card-types.ts"
+        }
+      ],
+      "recommendedReadTool": "read_adaptive"
     }
   ],
   "directDependents": [],
@@ -65,12 +81,29 @@
       "reason": "Instruction file detected in workspace"
     }
   ],
-  "nearbyTestCandidates": [],
-  "suggestedNextSteps": [],
+  "nearbyTestCandidates": [
+    {
+      "sourcePath": "src/ui/card-types.ts",
+      "testPaths": [
+        "src/ui/card-types.test.ts"
+      ]
+    }
+  ],
+  "suggestedNextSteps": [
+    {
+      "tool": "read_many",
+      "arguments": {
+        "paths": [
+          "src/ui/card-types.ts"
+        ]
+      },
+      "reason": "Read the strongest implementation candidates."
+    }
+  ],
   "limitations": [],
   "budget": {
     "maxTokens": 6000,
-    "estimatedTokens": 337,
+    "estimatedTokens": 457,
     "truncated": false,
     "omittedCandidates": 0
   }
