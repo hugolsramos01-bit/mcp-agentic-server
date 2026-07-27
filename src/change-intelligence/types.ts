@@ -48,6 +48,7 @@ export type TaskContextDepth = "fast" | "balanced" | "deep";
 import type { PerformanceRecorder } from "../performance/performance-recorder.js";
 
 export interface TaskContextInput {
+  workspaceId: string;
   cwd: string;
   allowedRoots: string[];
   goal: string;

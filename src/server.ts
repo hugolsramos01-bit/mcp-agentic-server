@@ -42,6 +42,7 @@ import { nextRouteMapTool, payloadSchemaMapTool, fileDependenciesTool } from "./
 import {
   checkpointSaveTool, checkpointListTool, checkpointRestoreTool, checkpointDeleteTool,
 } from "./checkpoint-tools.js";
+import { getWorkspaceFileCacheKey, invalidateWorkspaceFileSnapshot } from "./workspace/workspace-file-cache.js";
 import { proposePlanTool } from "./contract-tools.js";
 import { TOOL_CONTRACTS } from "./tool-contracts.js";
 import { checkEditAllowed, recordPlan, recordDryRun, recordCheckpoint, recordCheckpointRestore, recordChange, markChangesShown, getChangeSummary, getSessionActivity, getSessionLedger, resetSession as resetPvdlState } from "./change-session.js";
@@ -2139,7 +2140,10 @@ function createMcpServer(
       async (req: any) => {
         const workspace = workspaces.getWorkspace(req.workspaceId);
         const result = await checkpointRestoreTool(workspace.root, req);
-        if (!result.isError) recordCheckpointRestore(req.workspaceId, req.id);
+        if (!result.isError) {
+          recordCheckpointRestore(req.workspaceId, req.id);
+          invalidateWorkspaceFileSnapshot(req.workspaceId, workspace.root);
+        }
         return wrap("checkpoint_restore", req, result);
       }
     );
@@ -2336,6 +2340,11 @@ function createMcpServer(
           const result = await applyPatch(workspace.root, req.patch, req.ifMatch, config.requireIfMatch);
           
           recordChange(req.workspaceId, "multiple files", "apply_patch", `Applied patch to ${result.files.length} files (+${result.additions} -${result.removals})`);
+          
+          // Invalidate cache if topology changes (adds/deletes)
+          if (result.files.some(f => f.operation === "add" || f.operation === "delete" || f.operation === "rename")) {
+            invalidateWorkspaceFileSnapshot(req.workspaceId, workspace.root);
+          }
           
           const summary = `Applied patch to ${result.files.length} files (+${result.additions} -${result.removals})`;
           const receipt = await generateMutationReceipt(workspace.root, result.files);

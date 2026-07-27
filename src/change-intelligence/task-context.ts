@@ -4,6 +4,8 @@ import { basename, dirname, isAbsolute, join, normalize, relative, resolve } fro
 import { normalizeGoal } from "./goal-normalizer.js";
 import { scoreConfidence } from "./evidence.js";
 import { findNearbyTests } from "./test-proximity.js";
+import { getWorkspaceFileCacheKey, getWorkspaceFileSnapshot, setWorkspaceFileSnapshot } from "../workspace/workspace-file-cache.js";
+import { IndexedPath } from "./indexed-path.js";
 import { getLimitedSharedDependencies } from "./file-dependencies-internal.js";
 import { TaskContextInput, TaskContextResult, TaskFileCandidate, EvidenceEntry, TaskFileRole, TaskType, TaskContextDepth } from "./types.js";
 import type { ToolResponse } from "../pi-tools.js";
@@ -148,17 +150,33 @@ export async function buildTaskContext(input: TaskContextInput): Promise<TaskCon
   // 3. Gather all tracked files (excluding excluded paths)
   const pLoadFileList = perf.startPhase("loadFileList");
   let allFiles: string[] = [];
-  try {
-    perf.increment("subprocessCount");
-    const { stdout } = await execFileAsync(
-      "git", ["ls-files", "--cached", "--others", "--exclude-standard"],
-      { cwd, timeout: 8000, maxBuffer: 10 * 1024 * 1024 }
-    );
-    allFiles = stdout.split("\n")
-      .map(f => f.trim().replace(/\\/g, "/"))
-      .filter(f => f.length > 0 && !safeExcludeSet.has(f));
-  } catch {
-    limitations.push("git ls-files unavailable; filename and content matching disabled");
+  let indexedPaths: readonly IndexedPath[] = [];
+  
+  const cacheKey = getWorkspaceFileCacheKey(input.workspaceId, cwd);
+  const snapshot = getWorkspaceFileSnapshot(cacheKey);
+
+  if (snapshot) {
+    perf.increment("cacheHits");
+    allFiles = snapshot.files.filter(f => !safeExcludeSet.has(f));
+    indexedPaths = snapshot.indexedPaths.filter(p => !safeExcludeSet.has(p.path));
+  } else {
+    perf.increment("cacheMisses");
+    try {
+      perf.increment("subprocessCount");
+      const { stdout } = await execFileAsync(
+        "git", ["ls-files", "--cached", "--others", "--exclude-standard"],
+        { cwd, timeout: 8000, maxBuffer: 10 * 1024 * 1024 }
+      );
+      const rawFiles = stdout.split("\n")
+        .map(f => f.trim().replace(/\\/g, "/"))
+        .filter(f => f.length > 0);
+        
+      const newSnapshot = setWorkspaceFileSnapshot(cacheKey, rawFiles);
+      allFiles = newSnapshot.files.filter(f => !safeExcludeSet.has(f));
+      indexedPaths = newSnapshot.indexedPaths.filter(p => !safeExcludeSet.has(p.path));
+    } catch {
+      limitations.push("git ls-files unavailable; filename and content matching disabled");
+    }
   }
   pLoadFileList.end();
 
@@ -213,36 +231,31 @@ export async function buildTaskContext(input: TaskContextInput): Promise<TaskCon
 
   // 8. Filename / Route / Schema matching (segment-based)
   const { expandedKeywords } = normalized;
-  if (allFiles.length > 0 && expandedKeywords.length > 0) {
-    for (const file of allFiles) {
-      const base = basename(file);
-      const dir = dirname(file);
-      const dotIndex = base.lastIndexOf(".");
-      const nameOnly = dotIndex !== -1 ? base.substring(0, dotIndex).toLowerCase() : base.toLowerCase();
-
+  if (indexedPaths.length > 0 && expandedKeywords.length > 0) {
+    for (const file of indexedPaths) {
       for (const kw of expandedKeywords) {
         if (kw.length < 3) continue;
 
         // Filename: exact segment match
-        if (matchesFilenameSegment(nameOnly, kw)) {
-          const type = nameOnly === kw ? "filename_exact" : "filename_partial";
-          addEvidence(file, { type, detail: `Basename segment matches keyword: ${kw}` });
+        if (matchesFilenameSegment(file.nameOnly, kw)) {
+          const type = file.nameOnly === kw ? "filename_exact" : "filename_partial";
+          addEvidence(file.path, { type, detail: `Basename segment matches keyword: ${kw}` });
         }
 
         // Route match: index/page/route files whose directory matches the keyword
-        const lowerBase = base.toLowerCase();
+        const lowerBase = file.base.toLowerCase();
         if (
           (lowerBase === "page.tsx" || lowerBase === "route.ts" ||
            lowerBase === "index.ts" || lowerBase === "index.js" ||
            lowerBase === "page.ts" || lowerBase === "route.tsx") &&
-          dirMatchesKeyword(dir, kw)
+          dirMatchesKeyword(file.dir, kw)
         ) {
-          addEvidence(file, { type: "route", detail: `Route file in directory matching keyword: ${kw}` });
+          addEvidence(file.path, { type: "route", detail: `Route file in directory matching keyword: ${kw}` });
         }
 
         // Schema match: basename contains "schema" and dir or name matches keyword
-        if (nameOnly.includes("schema") && (matchesFilenameSegment(nameOnly, kw) || dirMatchesKeyword(dir, kw))) {
-          addEvidence(file, { type: "schema", detail: `Schema file matching keyword: ${kw}` });
+        if (file.nameOnly.includes("schema") && (matchesFilenameSegment(file.nameOnly, kw) || dirMatchesKeyword(file.dir, kw))) {
+          addEvidence(file.path, { type: "schema", detail: `Schema file matching keyword: ${kw}` });
         }
       }
     }
