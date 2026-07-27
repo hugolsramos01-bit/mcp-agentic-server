@@ -406,20 +406,25 @@ export async function buildTaskContext(input: TaskContextInput): Promise<TaskCon
 
 function enforceTaskContextBudget(result: TaskContextResult, maxTokens: number): TaskContextResult {
   const measureTokens = () => Math.ceil(JSON.stringify(result).length / 4);
+  let currentTokens = measureTokens();
 
   let omittedCandidates = 0;
   let truncated = false;
 
+  const estimateCandidateTokens = (c: any) => Math.ceil(JSON.stringify(c).length / 4);
+
   // Trim supporting files first (lowest priority), from the end (lowest confidence)
-  while (measureTokens() > maxTokens && result.supportingFiles.length > 0) {
-    result.supportingFiles.pop();
+  while (currentTokens > maxTokens && result.supportingFiles.length > 0) {
+    const popped = result.supportingFiles.pop();
+    currentTokens -= estimateCandidateTokens(popped);
     omittedCandidates++;
     truncated = true;
   }
 
   // Trim primary files only after all supporting is gone, always keep at least 1
-  while (measureTokens() > maxTokens && result.primaryFiles.length > 1) {
-    result.primaryFiles.pop();
+  while (currentTokens > maxTokens && result.primaryFiles.length > 1) {
+    const popped = result.primaryFiles.pop();
+    currentTokens -= estimateCandidateTokens(popped);
     omittedCandidates++;
     truncated = true;
   }
