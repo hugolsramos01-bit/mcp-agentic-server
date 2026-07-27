@@ -63,14 +63,14 @@
     {
       "path": "src/ui/card-types.test.ts",
       "role": "test",
-      "confidence": "medium",
+      "confidence": "low",
       "evidence": [
         {
           "type": "test_proximity",
           "detail": "Is test for: src/ui/card-types.ts"
         }
       ],
-      "recommendedReadTool": "read_adaptive"
+      "recommendedReadTool": "read_many"
     }
   ],
   "directDependents": [],
@@ -103,7 +103,7 @@
   "limitations": [],
   "budget": {
     "maxTokens": 6000,
-    "estimatedTokens": 457,
+    "estimatedTokens": 456,
     "truncated": false,
     "omittedCandidates": 0
   }

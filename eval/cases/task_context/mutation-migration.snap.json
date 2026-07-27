@@ -27,25 +27,20 @@
     {
       "path": "src/server/mutation-receipt.test.ts",
       "role": "test",
-      "confidence": "medium",
+      "confidence": "low",
       "evidence": [
         {
           "type": "test_proximity",
           "detail": "Is test for: src/server/mutation-receipt.ts"
         }
       ],
-      "recommendedReadTool": "read_adaptive"
+      "recommendedReadTool": "read_many"
     }
   ],
   "directDependents": [
     {
       "source": "src/server/mutation-receipt.ts",
       "dependents": [
-        "eval/cases/read/package-json.snap.json",
-        "eval/cases/read_many/two-files.snap.json",
-        "eval/cases/semantic_pack/workspace-lifecycle.snap.json",
-        "eval/cases/task_context/mutation-migration.input.json",
-        "eval/cases/task_context/mutation-migration.snap.json",
         "package.json",
         "src/server.ts",
         "src/server/mutation-receipt.test.ts"
@@ -85,7 +80,7 @@
   "limitations": [],
   "budget": {
     "maxTokens": 6000,
-    "estimatedTokens": 431,
+    "estimatedTokens": 367,
     "truncated": false,
     "omittedCandidates": 0
   }

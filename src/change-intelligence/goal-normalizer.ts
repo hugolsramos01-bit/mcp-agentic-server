@@ -3,6 +3,8 @@ import { TaskType } from "./types.js";
 export interface NormalizedGoal {
   tokens: string[];
   expandedKeywords: string[];
+  /** Subset of expandedKeywords excluding ACTION_WORDS — suitable for content grep. */
+  anchorKeywords: string[];
   extractedPaths: string[];
   taskTypeSuggestion: TaskType;
   taskTypeSource: "explicit" | "inferred" | "default";
@@ -19,6 +21,81 @@ const STOPWORDS = new Set([
   "no", "nos", "o", "os", "para", "por", "pela", "pelas", "pelo", "pelos", "que", "se",
   "sem", "sua", "suas", "seu", "seus", "um", "uma", "umas", "uns", "como", "entre",
   "entender", "avaliar", "melhorar", "usar", "criar", "ver", "ter", "fazer", "sobre",
+]);
+
+/** Operational verbs and action words — excluded from content grep to reduce noise. */
+const ACTION_WORDS = new Set([
+  // English
+  "add", "added", "adding", "fix", "fixed", "fixing", "create", "created", "creating",
+  "implement", "implemented", "implementing", "remove", "removed", "removing",
+  "update", "updated", "updating", "change", "changed", "changing", "improve",
+  "improved", "improving", "refactor", "refactored", "refactoring", "migrate",
+  "migrated", "migrating", "delete", "deleted", "deleting", "support", "supported",
+  "supporting", "handle", "handled", "handling", "manage", "managed", "managing",
+  "allow", "allowed", "allowing", "enable", "enabled", "enabling", "disable",
+  "disabled", "disabling", "prevent", "prevented", "preventing", "ensure", "ensured",
+  "ensuring", "make", "made", "making", "use", "used", "using", "set", "setting",
+  "get", "getting", "run", "running", "ran", "test", "tested", "testing", "check",
+  "checked", "checking", "validate", "validated", "validating", "verify", "verified",
+  "verifying", "show", "showed", "showing", "display", "displayed", "displaying",
+  "render", "rendered", "rendering", "build", "built", "building", "deploy",
+  "deployed", "deploying", "release", "released", "releasing", "publish", "published",
+  "publishing", "start", "started", "starting", "stop", "stopped", "stopping",
+  "configure", "configured", "configuring", "setup", "install", "installed",
+  "installing", "export", "exported", "exporting", "import", "imported", "importing",
+  "require", "required", "requiring", "include", "included", "including", "extend",
+  "extended", "extending", "override", "overrode", "overriding", "wrap", "wrapped",
+  "wrapping", "convert", "converted", "converting", "transform", "transformed",
+  "transforming", "merge", "merged", "merging", "split", "splitting", "join",
+  "joined", "joining", "combine", "combined", "combining", "separate", "separated",
+  "separating", "extract", "extracted", "extracting", "inject", "injected",
+  "injecting", "process", "processed", "processing", "parse", "parsed", "parsing",
+  "generate", "generated", "generating", "produce", "produced", "producing",
+  "consume", "consumed", "consuming", "fetch", "fetched", "fetching", "send",
+  "sent", "sending", "receive", "received", "receiving", "return", "returned",
+  "returning", "pass", "passed", "passing", "throw", "threw", "throwing", "catch",
+  "caught", "catching", "log", "logged", "logging", "debug", "debugged", "debugging",
+  "monitor", "monitored", "monitoring", "track", "tracked", "tracking", "watch",
+  "watched", "watching", "listen", "listened", "listening", "connect", "connected",
+  "connecting", "disconnect", "disconnected", "disconnecting", "register",
+  "registered", "registering", "unregister", "unregistered", "subscribe",
+  "subscribed", "subscribing", "unsubscribe", "unsubscribed", "open", "opened",
+  "opening", "close", "closed", "closing", "begin", "began", "beginning", "end",
+  "ended", "ending", "finish", "finished", "finishing", "complete", "completed",
+  "completing", "cancel", "canceled", "canceling", "reject", "rejected", "rejecting",
+  "accept", "accepted", "accepting", "approve", "approved", "approving", "deny",
+  "denied", "denying", "grant", "granted", "granting", "revoke", "revoked",
+  "revoking", "look", "looking", "find", "finding", "found", "search", "searched",
+  "searching", "replace", "replaced", "replacing", "rename", "renamed", "renaming",
+  "move", "moved", "moving", "copy", "copied", "copying", "paste", "pasted",
+  "pasting", "write", "wrote", "writing", "read", "reading", "load", "loaded",
+  "loading", "save", "saved", "saving", "reset", "resetting", "retry", "retried",
+  "retrying", "skip", "skipped", "skipping", "sort", "sorted", "sorting",
+  "filter", "filtered", "filtering", "map", "mapped", "mapping", "reduce",
+  "reduced", "reducing", "aggregate", "aggregated", "aggregating", "collect",
+  "collected", "collecting", "accumulate", "accumulated", "accumulating",
+  // Portuguese
+  "adicionar", "adicionado", "corrigir", "corrigido", "criar", "criado",
+  "implementar", "implementado", "remover", "removido", "atualizar", "atualizado",
+  "alterar", "alterado", "melhorar", "melhorado", "refatorar", "refatorado",
+  "migrar", "migrado", "deletar", "deletado", "suporte", "suportar", "suportado",
+  "gerenciar", "gerenciado", "permitir", "permitido", "habilitar", "habilitado",
+  "desabilitar", "desabilitado", "prevenir", "prevenido", "garantir", "garantido",
+  "configurar", "configurado", "instalar", "instalado", "exportar", "exportado",
+  "importar", "importado", "gerar", "gerado", "processar", "processado",
+  "validar", "validado", "verificar", "verificado", "mostrar", "mostrado",
+  "exibir", "exibido", "renderizar", "renderizado", "construir", "construido",
+  "publicar", "publicado", "comecar", "comecado", "iniciar", "iniciado",
+  "finalizar", "finalizado", "completar", "completado", "cancelar", "cancelado",
+  "rejeitar", "rejeitado", "aceitar", "aceitado", "aprovar", "aprovado",
+  "negar", "negado", "conceder", "concedido", "revogar", "revogado",
+  "procurar", "procurado", "buscar", "buscado", "substituir", "substituido",
+  "renomear", "renomeado", "mover", "movido", "copiar", "copiado",
+  "escrever", "escrito", "carregar", "carregado", "salvar", "salvado",
+  "reiniciar", "reiniciado", "pular", "pulado", "filtrar", "filtrado",
+  "mapear", "mapeado", "reduzir", "reduzido", "coletar", "coletado",
+  // Generic issue/feature nouns (not domain anchors)
+  "bug", "bugs", "feature", "features", "issue", "issues", "tarefa", "task",
 ]);
 
 const SYNONYMS: Record<string, string[]> = {
@@ -73,6 +150,9 @@ export function normalizeGoal(goal: string, explicitType?: TaskType): Normalized
   
   const keywords = [...expandedKeywords].filter(k => k.length > 2);
   
+  // anchorKeywords = expandedKeywords minus ACTION_WORDS (noun/adjective terms suitable for grep)
+  const anchorKeywords = keywords.filter(k => !ACTION_WORDS.has(k));
+  
   let finalTaskType: TaskType = "auto";
   let taskTypeSource: "explicit" | "inferred" | "default" = "default";
   
@@ -90,6 +170,7 @@ export function normalizeGoal(goal: string, explicitType?: TaskType): Normalized
   return {
     tokens,
     expandedKeywords: keywords,
+    anchorKeywords,
     extractedPaths: [...new Set(extractedPaths)],
     taskTypeSuggestion: finalTaskType,
     taskTypeSource,

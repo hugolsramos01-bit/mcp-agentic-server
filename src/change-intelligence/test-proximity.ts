@@ -1,6 +1,6 @@
 import { join, dirname, basename } from "node:path";
 import { access } from "node:fs/promises";
-export function findNearbyTests(filePath: string, allTrackedFiles: readonly string[]): string[] {
+export function findNearbyTests(filePath: string, allTrackedFiles: readonly string[], fileSet?: ReadonlySet<string>): string[] {
   // Normalize filePath to forward slashes just in case
   const normPath = filePath.replace(/\\/g, "/");
   const dir = dirname(normPath).replace(/\\/g, "/");
@@ -22,9 +22,18 @@ export function findNearbyTests(filePath: string, allTrackedFiles: readonly stri
   ];
   
   const found: string[] = [];
-  for (const candidate of testCandidates) {
-    if (allTrackedFiles.includes(candidate)) {
-      found.push(candidate);
+  // Use Set for O(1) lookup when available, fall back to O(F) includes
+  if (fileSet) {
+    for (const candidate of testCandidates) {
+      if (fileSet.has(candidate)) {
+        found.push(candidate);
+      }
+    }
+  } else {
+    for (const candidate of testCandidates) {
+      if (allTrackedFiles.includes(candidate)) {
+        found.push(candidate);
+      }
     }
   }
   return found;

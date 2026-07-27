@@ -6,3 +6,5 @@ releases/
 .vscode/
 
 perf/results/
+.tmp-stdio-review-state/
+mcp-publisher.exe

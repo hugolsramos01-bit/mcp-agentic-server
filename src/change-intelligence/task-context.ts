@@ -5,9 +5,9 @@ import { normalizeGoal } from "./goal-normalizer.js";
 import { scoreConfidence } from "./evidence.js";
 import { findNearbyTests } from "./test-proximity.js";
 import { getWorkspaceFileCacheKey, getWorkspaceFileSnapshot, setWorkspaceFileSnapshot } from "../workspace/workspace-file-cache.js";
-import { IndexedPath } from "./indexed-path.js";
+import { IndexedPath, isPrimaryEligibleKind, isDependencySkippedKind, candidateKindPriority } from "./indexed-path.js";
 import { getLimitedSharedDependencies } from "./file-dependencies-internal.js";
-import { TaskContextInput, TaskContextResult, TaskFileCandidate, EvidenceEntry, TaskFileRole, TaskType, TaskContextDepth } from "./types.js";
+import { TaskContextInput, TaskContextResult, TaskFileCandidate, EvidenceEntry, TaskFileRole, TaskType, TaskContextDepth, CandidateKind } from "./types.js";
 import type { ToolResponse } from "../pi-tools.js";
 import { NOOP_PERFORMANCE_RECORDER } from "../performance/performance-recorder.js";
 
@@ -150,6 +150,7 @@ export async function buildTaskContext(input: TaskContextInput): Promise<TaskCon
   // 3. Gather all tracked files (excluding excluded paths)
   const pLoadFileList = perf.startPhase("loadFileList");
   let allFiles: string[] = [];
+  let allFileSet: ReadonlySet<string> | undefined;
   let indexedPaths: readonly IndexedPath[] = [];
   
   const cacheKey = getWorkspaceFileCacheKey(input.workspaceId, cwd);
@@ -158,6 +159,7 @@ export async function buildTaskContext(input: TaskContextInput): Promise<TaskCon
   if (snapshot) {
     perf.increment("cacheHits");
     allFiles = snapshot.files.filter(f => !safeExcludeSet.has(f));
+    allFileSet = safeExcludeSet.size === 0 ? snapshot.fileSet : new Set(allFiles);
     indexedPaths = snapshot.indexedPaths.filter(p => !safeExcludeSet.has(p.path));
   } else {
     perf.increment("cacheMisses");
@@ -173,6 +175,8 @@ export async function buildTaskContext(input: TaskContextInput): Promise<TaskCon
         
       const newSnapshot = setWorkspaceFileSnapshot(cacheKey, rawFiles);
       allFiles = newSnapshot.files.filter(f => !safeExcludeSet.has(f));
+      // Filter fileSet by excludePaths for accurate O(1) lookups
+      allFileSet = safeExcludeSet.size === 0 ? newSnapshot.fileSet : new Set(allFiles);
       indexedPaths = newSnapshot.indexedPaths.filter(p => !safeExcludeSet.has(p.path));
     } catch {
       limitations.push("git ls-files unavailable; filename and content matching disabled");
@@ -207,6 +211,16 @@ export async function buildTaskContext(input: TaskContextInput): Promise<TaskCon
   // 5. Candidates map: path → evidence[]
   const candidatesMap = new Map<string, EvidenceEntry[]>();
 
+  // Build kind lookup from indexed paths
+  const kindMap = new Map<string, CandidateKind>();
+  for (const ip of indexedPaths) {
+    kindMap.set(ip.path, ip.kind);
+  }
+
+  function getKind(path: string): CandidateKind {
+    return kindMap.get(path) ?? "source";
+  }
+
   function addEvidence(path: string, ev: EvidenceEntry) {
     if (safeExcludeSet.has(path)) return; // respect excludePaths for all additions
     if (!candidatesMap.has(path)) candidatesMap.set(path, []);
@@ -230,7 +244,7 @@ export async function buildTaskContext(input: TaskContextInput): Promise<TaskCon
   }
 
   // 8. Filename / Route / Schema matching (segment-based)
-  const { expandedKeywords } = normalized;
+  const { expandedKeywords, anchorKeywords } = normalized;
   if (indexedPaths.length > 0 && expandedKeywords.length > 0) {
     for (const file of indexedPaths) {
       for (const kw of expandedKeywords) {
@@ -271,7 +285,7 @@ export async function buildTaskContext(input: TaskContextInput): Promise<TaskCon
     const types = new Set(evidences.map(e => e.type));
     if (types.has("focus_path")) hasExactFocusPath = true;
     if (types.has("extracted_path")) hasExactExtractedPath = true;
-    if (scoreConfidence(evidences) === "high") {
+    if (scoreConfidence(evidences) === "high" && isPrimaryEligibleKind(getKind(path))) {
       currentHighCandidates.push({ path, evidences });
     }
   }
@@ -287,11 +301,11 @@ export async function buildTaskContext(input: TaskContextInput): Promise<TaskCon
 
   const shouldRunContentSearch =
     !directContextSufficient &&
-    expandedKeywords.some(kw => kw.length >= 4);
+    anchorKeywords.some(kw => kw.length >= 4);
 
   if (shouldRunContentSearch) {
     const pContentSearch = perf.startPhase("contentSearch");
-    const grepKeywords = expandedKeywords.slice(0, 5).filter(kw => kw.length >= 4);
+    const grepKeywords = anchorKeywords.slice(0, 5).filter(kw => kw.length >= 4);
     
     if (grepKeywords.length > 0) {
       const grepArgs = ["grep", "-i", "-l", "-F"];
@@ -306,8 +320,12 @@ export async function buildTaskContext(input: TaskContextInput): Promise<TaskCon
           { cwd, timeout: 5000, maxBuffer: 10 * 1024 * 1024 }
         );
         const grepFiles = stdout.split("\n").map(f => f.trim().replace(/\\/g, "/")).filter(Boolean);
-        for (const gf of grepFiles.slice(0, 20)) {
-          addEvidence(gf, { type: "content_match", detail: `Contains matching keywords` });
+        // Sort by CandidateKind priority before cap — prefer source/test over docs/eval
+        const orderedGrepFiles = grepFiles
+          .map(path => ({ path, kind: getKind(path) }))
+          .sort((a, b) => candidateKindPriority(a.kind) - candidateKindPriority(b.kind));
+        for (const { path } of orderedGrepFiles.slice(0, 20)) {
+          addEvidence(path, { type: "content_match", detail: `Contains matching keywords` });
         }
       } catch (err: any) {
         if (err?.code !== 1) { // 1 means no match, normal for grep
@@ -321,8 +339,10 @@ export async function buildTaskContext(input: TaskContextInput): Promise<TaskCon
   // 10. Test proximity — discover and add as supporting evidence
   const nearbyTestCandidates: TaskContextResult["nearbyTestCandidates"] = [];
   const pTestDiscovery = perf.startPhase("testProximity");
-    for (const [path] of candidatesMap.entries()) {
-      const tests = findNearbyTests(path, allFiles);
+    // Use a stable snapshot of candidatesMap keys (don't iterate over newly added test entries)
+    const testDiscoverySources = [...candidatesMap.keys()].filter(path => getKind(path) !== "test");
+    for (const path of testDiscoverySources) {
+      const tests = findNearbyTests(path, allFiles, allFileSet);
       if (tests.length > 0) {
         addEvidence(path, { type: "test_proximity", detail: `Has nearby tests: ${tests.join(", ")}` });
         nearbyTestCandidates.push({ sourcePath: path, testPaths: tests });
@@ -338,13 +358,21 @@ export async function buildTaskContext(input: TaskContextInput): Promise<TaskCon
 
   const allCandidates: TaskFileCandidate[] = Array.from(candidatesMap.entries()).map(([path, evidences]) => {
     const confidence = scoreConfidence(evidences);
+    const kind = getKind(path);
+
+    // Allow explicit override: focus_path/extracted_path can promote any kind
+    const explicitlyTargeted = evidences.some(e =>
+      e.type === "focus_path" || e.type === "extracted_path"
+    );
 
     let role: TaskFileRole = "supporting";
-    if (path.includes(".test.") || path.includes(".spec.") || path.includes("__tests__")) {
-      role = "test"; // always supporting
-    } else if (confidence === "high") {
+    if (kind === "test") {
+      role = "test"; // always supporting, no matter the confidence
+    } else if (confidence === "high" && (isPrimaryEligibleKind(kind) || explicitlyTargeted)) {
       role = "primary";
     }
+    // Everything else (evaluation, snapshot, generated, documentation)
+    // stays as "supporting" even with high confidence, UNLESS explicitly targeted
 
     const recommendedReadTool: "read" | "read_adaptive" | "read_many" =
       confidence === "high" ? "read" :
@@ -373,40 +401,22 @@ export async function buildTaskContext(input: TaskContextInput): Promise<TaskCon
     }
   }
 
-  // 12. Direct dependents — limited to top 3 primary files
+  // 12. Direct dependents — limited to top 3 primary files (skip eval/snapshot/generated/docs)
   let directDependents: TaskContextResult["directDependents"] = [];
   if (effectiveDepth !== "fast") {
     const pDependencySearch = perf.startPhase("dependencySearch");
+    const primaryEligible = primaryFiles
+      .slice(0, 3)
+      .map(c => c.path)
+      .filter(p => isPrimaryEligibleKind(getKind(p)));
     directDependents = await getLimitedSharedDependencies(
     cwd,
-    primaryFiles.slice(0, 3).map(c => c.path)
+    primaryEligible
     );
     pDependencySearch.end();
   }
 
-  // 13. Suggested next steps
-  const suggestedNextSteps: TaskContextResult["suggestedNextSteps"] = [];
-  if (primaryFiles.length > 0) {
-    suggestedNextSteps.push({
-      tool: "read_many",
-      arguments: { paths: primaryFiles.slice(0, 5).map(c => c.path) },
-      reason: "Read the strongest implementation candidates."
-    });
-  } else if (supportingFiles.length > 0) {
-    suggestedNextSteps.push({
-      tool: "read_adaptive",
-      arguments: { path: supportingFiles[0].path },
-      reason: "No high-confidence primary file was found; inspect the strongest supporting candidate."
-    });
-  } else {
-    suggestedNextSteps.push({
-      tool: "grep",
-      arguments: { pattern: expandedKeywords.slice(0, 3).join("|") },
-      reason: "No reliable file candidate was found; search for the normalized goal terms."
-    });
-  }
-
-  // 14. Build result and enforce real budget
+  // 13. Build result (without nextSteps — rebuilt after budget enforcement)
   const pBudget = perf.startPhase("budgetEnforcement");
   const finalResult: TaskContextResult = {
     version: 1,
@@ -421,7 +431,7 @@ export async function buildTaskContext(input: TaskContextInput): Promise<TaskCon
     directDependents,
     applicableInstructions,
     nearbyTestCandidates,
-    suggestedNextSteps,
+    suggestedNextSteps: [], // will be rebuilt after budget
     limitations,
     budget: {
       maxTokens,
@@ -432,8 +442,43 @@ export async function buildTaskContext(input: TaskContextInput): Promise<TaskCon
   };
 
   const result = enforceTaskContextBudget(finalResult, maxTokens);
+
+  // Rebuild suggestedNextSteps based on actual retained files after budget enforcement
+  result.suggestedNextSteps = buildSuggestedNextSteps(result, anchorKeywords);
+
+  // Final budget measurement — includes suggestedNextSteps. If still over, trim and rebuild.
+  const finalResultWithSteps = enforceFinalContextBudget(result, maxTokens, anchorKeywords);
+
   pBudget.end();
-  return result;
+  return finalResultWithSteps;
+}
+
+// ─── Suggested next steps builder (runs after budget enforcement) ─────
+
+function buildSuggestedNextSteps(result: TaskContextResult, anchorKeywords: string[]): TaskContextResult["suggestedNextSteps"] {
+  const steps: TaskContextResult["suggestedNextSteps"] = [];
+
+  if (result.primaryFiles.length > 0) {
+    steps.push({
+      tool: "read_many",
+      arguments: { paths: result.primaryFiles.slice(0, 5).map(c => c.path) },
+      reason: "Read the strongest implementation candidates."
+    });
+  } else if (result.supportingFiles.length > 0) {
+    steps.push({
+      tool: "read_adaptive",
+      arguments: { path: result.supportingFiles[0].path },
+      reason: "No high-confidence primary file was found; inspect the strongest supporting candidate."
+    });
+  } else {
+    steps.push({
+      tool: "grep",
+      arguments: { pattern: anchorKeywords.slice(0, 3).join("|") },
+      reason: "No reliable file candidate was found; search for the normalized goal terms."
+    });
+  }
+
+  return steps;
 }
 
 // ─── Budget enforcement by real JSON size ─────────────────────────────
@@ -484,20 +529,77 @@ function enforceTaskContextBudget(result: TaskContextResult, maxTokens: number):
         ...item,
         testPaths: item.testPaths.filter(path => retainedPaths.has(path)),
       }));
-
-    for (const step of result.suggestedNextSteps) {
-      if (Array.isArray(step.arguments.paths)) {
-        step.arguments.paths = step.arguments.paths.filter(path =>
-          retainedPaths.has(String(path))
-        );
-      }
-    }
   }
 
   result.budget = {
     maxTokens,
     estimatedTokens: measureTokens(),
     truncated,
+    omittedCandidates,
+  };
+
+  return result;
+}
+
+// ─── Final budget enforcement (includes suggestedNextSteps in measurement) ──
+
+function cleanDerivedStructures(result: TaskContextResult): void {
+  const retainedPaths = new Set([
+    ...result.primaryFiles.map(file => file.path),
+    ...result.supportingFiles.map(file => file.path),
+  ]);
+
+  result.directDependents = result.directDependents.filter(item =>
+    retainedPaths.has(item.source)
+  );
+
+  result.nearbyTestCandidates = result.nearbyTestCandidates
+    .filter(item => retainedPaths.has(item.sourcePath))
+    .map(item => ({
+      ...item,
+      testPaths: item.testPaths.filter(path => retainedPaths.has(path)),
+    }));
+}
+
+function enforceFinalContextBudget(result: TaskContextResult, maxTokens: number, anchorKeywords: string[]): TaskContextResult {
+  const measureTokens = () => Math.ceil(JSON.stringify(result).length / 4);
+  let exactTokens = measureTokens();
+
+  let omittedCandidates = result.budget.omittedCandidates;
+
+  // Loop: trim, rebuild nextSteps, measure — repeat until within budget or minimum structure reached
+  while (
+    exactTokens > maxTokens &&
+    (result.supportingFiles.length > 0 || result.primaryFiles.length > 1)
+  ) {
+    if (result.supportingFiles.length > 0) {
+      result.supportingFiles.pop();
+    } else {
+      result.primaryFiles.pop();
+    }
+    omittedCandidates++;
+
+    cleanDerivedStructures(result);
+    result.suggestedNextSteps = buildSuggestedNextSteps(result, anchorKeywords);
+    exactTokens = measureTokens();
+  }
+
+  if (omittedCandidates > result.budget.omittedCandidates) {
+    result.limitations.push(
+      `Budget: omitted ${omittedCandidates} candidate(s) (final) to stay within ${maxTokens} tokens.`
+    );
+  }
+
+  if (exactTokens > maxTokens) {
+    result.limitations.push(
+      "Minimum task context structure exceeds the requested token budget."
+    );
+  }
+
+  result.budget = {
+    maxTokens,
+    estimatedTokens: exactTokens,
+    truncated: exactTokens > maxTokens || result.budget.truncated,
     omittedCandidates,
   };
 
