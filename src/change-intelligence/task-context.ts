@@ -5,7 +5,7 @@ import { normalizeGoal } from "./goal-normalizer.js";
 import { scoreConfidence } from "./evidence.js";
 import { findNearbyTests } from "./test-proximity.js";
 import { getWorkspaceFileCacheKey, getWorkspaceFileSnapshot, setWorkspaceFileSnapshot } from "../workspace/workspace-file-cache.js";
-import { IndexedPath, isPrimaryEligibleKind, isDependencySkippedKind } from "./indexed-path.js";
+import { IndexedPath, isPrimaryEligibleKind, isDependencySkippedKind, candidateKindPriority } from "./indexed-path.js";
 import { getLimitedSharedDependencies } from "./file-dependencies-internal.js";
 import { TaskContextInput, TaskContextResult, TaskFileCandidate, EvidenceEntry, TaskFileRole, TaskType, TaskContextDepth, CandidateKind } from "./types.js";
 import type { ToolResponse } from "../pi-tools.js";
@@ -159,7 +159,7 @@ export async function buildTaskContext(input: TaskContextInput): Promise<TaskCon
   if (snapshot) {
     perf.increment("cacheHits");
     allFiles = snapshot.files.filter(f => !safeExcludeSet.has(f));
-    allFileSet = snapshot.fileSet;
+    allFileSet = safeExcludeSet.size === 0 ? snapshot.fileSet : new Set(allFiles);
     indexedPaths = snapshot.indexedPaths.filter(p => !safeExcludeSet.has(p.path));
   } else {
     perf.increment("cacheMisses");
@@ -175,7 +175,8 @@ export async function buildTaskContext(input: TaskContextInput): Promise<TaskCon
         
       const newSnapshot = setWorkspaceFileSnapshot(cacheKey, rawFiles);
       allFiles = newSnapshot.files.filter(f => !safeExcludeSet.has(f));
-      allFileSet = newSnapshot.fileSet;
+      // Filter fileSet by excludePaths for accurate O(1) lookups
+      allFileSet = safeExcludeSet.size === 0 ? newSnapshot.fileSet : new Set(allFiles);
       indexedPaths = newSnapshot.indexedPaths.filter(p => !safeExcludeSet.has(p.path));
     } catch {
       limitations.push("git ls-files unavailable; filename and content matching disabled");
@@ -319,8 +320,12 @@ export async function buildTaskContext(input: TaskContextInput): Promise<TaskCon
           { cwd, timeout: 5000, maxBuffer: 10 * 1024 * 1024 }
         );
         const grepFiles = stdout.split("\n").map(f => f.trim().replace(/\\/g, "/")).filter(Boolean);
-        for (const gf of grepFiles.slice(0, 20)) {
-          addEvidence(gf, { type: "content_match", detail: `Contains matching keywords` });
+        // Sort by CandidateKind priority before cap — prefer source/test over docs/eval
+        const orderedGrepFiles = grepFiles
+          .map(path => ({ path, kind: getKind(path) }))
+          .sort((a, b) => candidateKindPriority(a.kind) - candidateKindPriority(b.kind));
+        for (const { path } of orderedGrepFiles.slice(0, 20)) {
+          addEvidence(path, { type: "content_match", detail: `Contains matching keywords` });
         }
       } catch (err: any) {
         if (err?.code !== 1) { // 1 means no match, normal for grep
@@ -334,7 +339,9 @@ export async function buildTaskContext(input: TaskContextInput): Promise<TaskCon
   // 10. Test proximity — discover and add as supporting evidence
   const nearbyTestCandidates: TaskContextResult["nearbyTestCandidates"] = [];
   const pTestDiscovery = perf.startPhase("testProximity");
-    for (const [path] of candidatesMap.entries()) {
+    // Use a stable snapshot of candidatesMap keys (don't iterate over newly added test entries)
+    const testDiscoverySources = [...candidatesMap.keys()].filter(path => getKind(path) !== "test");
+    for (const path of testDiscoverySources) {
       const tests = findNearbyTests(path, allFiles, allFileSet);
       if (tests.length > 0) {
         addEvidence(path, { type: "test_proximity", detail: `Has nearby tests: ${tests.join(", ")}` });
@@ -434,8 +441,11 @@ export async function buildTaskContext(input: TaskContextInput): Promise<TaskCon
   // Rebuild suggestedNextSteps based on actual retained files after budget enforcement
   result.suggestedNextSteps = buildSuggestedNextSteps(result, anchorKeywords);
 
+  // Final budget measurement — includes suggestedNextSteps. If still over, trim and rebuild.
+  const finalResultWithSteps = enforceFinalContextBudget(result, maxTokens, anchorKeywords);
+
   pBudget.end();
-  return result;
+  return finalResultWithSteps;
 }
 
 // ─── Suggested next steps builder (runs after budget enforcement) ─────
@@ -520,6 +530,70 @@ function enforceTaskContextBudget(result: TaskContextResult, maxTokens: number):
     maxTokens,
     estimatedTokens: measureTokens(),
     truncated,
+    omittedCandidates,
+  };
+
+  return result;
+}
+
+// ─── Final budget enforcement (includes suggestedNextSteps in measurement) ──
+
+function enforceFinalContextBudget(result: TaskContextResult, maxTokens: number, anchorKeywords: string[]): TaskContextResult {
+  const measureTokens = () => Math.ceil(JSON.stringify(result).length / 4);
+  let currentTokens = measureTokens();
+
+  if (currentTokens <= maxTokens) {
+    // Already within budget — just record final measurement
+    result.budget.estimatedTokens = currentTokens;
+    return result;
+  }
+
+  // Over budget with nextSteps included — trim more
+  let omittedCandidates = result.budget.omittedCandidates;
+  const estimateCandidateTokens = (c: any) => Math.ceil(JSON.stringify(c).length / 4);
+
+  // Trim supporting files (from end = lowest confidence)
+  while (currentTokens > maxTokens && result.supportingFiles.length > 0) {
+    const popped = result.supportingFiles.pop();
+    currentTokens -= estimateCandidateTokens(popped);
+    omittedCandidates++;
+  }
+
+  // Trim primary files (keep at least 1)
+  while (currentTokens > maxTokens && result.primaryFiles.length > 1) {
+    const popped = result.primaryFiles.pop();
+    currentTokens -= estimateCandidateTokens(popped);
+    omittedCandidates++;
+  }
+
+  result.limitations.push(
+    `Budget: omitted ${omittedCandidates} candidate(s) (final) to stay within ${maxTokens} tokens.`
+  );
+
+  // Rebuild derived structures after final trim
+  const retainedPaths = new Set([
+    ...result.primaryFiles.map(file => file.path),
+    ...result.supportingFiles.map(file => file.path),
+  ]);
+
+  result.directDependents = result.directDependents.filter(item =>
+    retainedPaths.has(item.source)
+  );
+
+  result.nearbyTestCandidates = result.nearbyTestCandidates
+    .filter(item => retainedPaths.has(item.sourcePath))
+    .map(item => ({
+      ...item,
+      testPaths: item.testPaths.filter(path => retainedPaths.has(path)),
+    }));
+
+  // Rebuild nextSteps after final trim
+  result.suggestedNextSteps = buildSuggestedNextSteps(result, anchorKeywords);
+
+  result.budget = {
+    maxTokens,
+    estimatedTokens: measureTokens(),
+    truncated: true,
     omittedCandidates,
   };
 

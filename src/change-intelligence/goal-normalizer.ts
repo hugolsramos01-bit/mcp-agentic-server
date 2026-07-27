@@ -78,7 +78,7 @@ const ACTION_WORDS = new Set([
   "adicionar", "adicionado", "corrigir", "corrigido", "criar", "criado",
   "implementar", "implementado", "remover", "removido", "atualizar", "atualizado",
   "alterar", "alterado", "melhorar", "melhorado", "refatorar", "refatorado",
-  "migrar", "migrado", "deletar", "deletado", "suportar", "suportado",
+  "migrar", "migrado", "deletar", "deletado", "suporte", "suportar", "suportado",
   "gerenciar", "gerenciado", "permitir", "permitido", "habilitar", "habilitado",
   "desabilitar", "desabilitado", "prevenir", "prevenido", "garantir", "garantido",
   "configurar", "configurado", "instalar", "instalado", "exportar", "exportado",
@@ -94,6 +94,8 @@ const ACTION_WORDS = new Set([
   "escrever", "escrito", "carregar", "carregado", "salvar", "salvado",
   "reiniciar", "reiniciado", "pular", "pulado", "filtrar", "filtrado",
   "mapear", "mapeado", "reduzir", "reduzido", "coletar", "coletado",
+  // Generic issue/feature nouns (not domain anchors)
+  "bug", "bugs", "feature", "features", "issue", "issues", "tarefa", "task",
 ]);
 
 const SYNONYMS: Record<string, string[]> = {
