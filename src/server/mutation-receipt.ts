@@ -36,8 +36,23 @@ export async function computeHash(filePath: string): Promise<string | null> {
   }
 }
 
+import { execFile } from "node:child_process";
+import { promisify } from "node:util";
+const execFileAsync = promisify(execFile);
+
 export async function generateMutationReceipt(workspaceRoot: string, files: MutationReceiptInput[]): Promise<MutationReceipt | null> {
   if (files.length === 0) return null;
+
+  let allFiles: string[] = [];
+  try {
+    const { stdout } = await execFileAsync(
+      "git", ["ls-files", "--cached", "--others", "--exclude-standard"],
+      { cwd: workspaceRoot, timeout: 8000, maxBuffer: 10 * 1024 * 1024 }
+    );
+    allFiles = stdout.split("\n")
+      .map(f => f.trim().replace(/\\/g, "/"))
+      .filter(f => f.length > 0);
+  } catch {}
 
   const receipt: MutationReceipt = {
     version: 1,
@@ -58,7 +73,11 @@ export async function generateMutationReceipt(workspaceRoot: string, files: Muta
       beforeHash = `sha256:${beforeHash}`;
     }
 
-    const nearbyTestCandidates = await findNearbyTests(absPath, workspaceRoot);
+    const relPath = absPath.startsWith(workspaceRoot) 
+      ? absPath.substring(workspaceRoot.length + 1).replace(/\\/g, "/") 
+      : file.path;
+      
+    const nearbyTestCandidates = findNearbyTests(relPath, allFiles);
 
     receipt.files.push({
       path: file.path,

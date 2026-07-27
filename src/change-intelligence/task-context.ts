@@ -4,8 +4,10 @@ import { basename, dirname, isAbsolute, join, normalize, relative, resolve } fro
 import { normalizeGoal } from "./goal-normalizer.js";
 import { scoreConfidence } from "./evidence.js";
 import { findNearbyTests } from "./test-proximity.js";
+import { getWorkspaceFileCacheKey, getWorkspaceFileSnapshot, setWorkspaceFileSnapshot } from "../workspace/workspace-file-cache.js";
+import { IndexedPath } from "./indexed-path.js";
 import { getLimitedSharedDependencies } from "./file-dependencies-internal.js";
-import { TaskContextInput, TaskContextResult, TaskFileCandidate, EvidenceEntry, TaskFileRole, TaskType } from "./types.js";
+import { TaskContextInput, TaskContextResult, TaskFileCandidate, EvidenceEntry, TaskFileRole, TaskType, TaskContextDepth } from "./types.js";
 import type { ToolResponse } from "../pi-tools.js";
 import { NOOP_PERFORMANCE_RECORDER } from "../performance/performance-recorder.js";
 
@@ -101,15 +103,36 @@ export async function buildTaskContext(input: TaskContextInput): Promise<TaskCon
     focusPaths = [],
     excludePaths = [],
     maxTokens = TASK_CONTEXT_BUDGET.defaultTokens,
-    perf = NOOP_PERFORMANCE_RECORDER,
+    depth,
   } = input;
-
+  const perf = input.perf ?? NOOP_PERFORMANCE_RECORDER;
   const limitations: string[] = [];
 
-  // 1. Normalize goal
+  // 1. Goal Normalization
   const pNormalize = perf.startPhase("normalizeGoal");
   const normalized = normalizeGoal(goal, type);
   pNormalize.end();
+
+  // Depth Resolution
+  let effectiveDepth: TaskContextDepth = "balanced";
+  let depthSource: "explicit" | "inferred" | "default" = "default";
+
+  if (depth) {
+    effectiveDepth = depth;
+    depthSource = "explicit";
+  } else {
+    const isMajor =
+      normalized.taskTypeSuggestion === "migration" ||
+      normalized.taskTypeSuggestion === "refactor" ||
+      normalized.taskTypeSuggestion === "security_review";
+    if (isMajor) {
+      effectiveDepth = "balanced";
+      depthSource = "inferred";
+    } else {
+      effectiveDepth = "fast";
+      depthSource = "default";
+    }
+  }
 
   // 2. Validate focusPaths and excludePaths
   const pResolve = perf.startPhase("resolvePaths");
@@ -127,17 +150,33 @@ export async function buildTaskContext(input: TaskContextInput): Promise<TaskCon
   // 3. Gather all tracked files (excluding excluded paths)
   const pLoadFileList = perf.startPhase("loadFileList");
   let allFiles: string[] = [];
-  try {
-    perf.increment("subprocessCount");
-    const { stdout } = await execFileAsync(
-      "git", ["ls-files", "--cached", "--others", "--exclude-standard"],
-      { cwd, timeout: 8000, maxBuffer: 10 * 1024 * 1024 }
-    );
-    allFiles = stdout.split("\n")
-      .map(f => f.trim().replace(/\\/g, "/"))
-      .filter(f => f.length > 0 && !safeExcludeSet.has(f));
-  } catch {
-    limitations.push("git ls-files unavailable; filename and content matching disabled");
+  let indexedPaths: readonly IndexedPath[] = [];
+  
+  const cacheKey = getWorkspaceFileCacheKey(input.workspaceId, cwd);
+  const snapshot = getWorkspaceFileSnapshot(cacheKey);
+
+  if (snapshot) {
+    perf.increment("cacheHits");
+    allFiles = snapshot.files.filter(f => !safeExcludeSet.has(f));
+    indexedPaths = snapshot.indexedPaths.filter(p => !safeExcludeSet.has(p.path));
+  } else {
+    perf.increment("cacheMisses");
+    try {
+      perf.increment("subprocessCount");
+      const { stdout } = await execFileAsync(
+        "git", ["ls-files", "--cached", "--others", "--exclude-standard"],
+        { cwd, timeout: 8000, maxBuffer: 10 * 1024 * 1024 }
+      );
+      const rawFiles = stdout.split("\n")
+        .map(f => f.trim().replace(/\\/g, "/"))
+        .filter(f => f.length > 0);
+        
+      const newSnapshot = setWorkspaceFileSnapshot(cacheKey, rawFiles);
+      allFiles = newSnapshot.files.filter(f => !safeExcludeSet.has(f));
+      indexedPaths = newSnapshot.indexedPaths.filter(p => !safeExcludeSet.has(p.path));
+    } catch {
+      limitations.push("git ls-files unavailable; filename and content matching disabled");
+    }
   }
   pLoadFileList.end();
 
@@ -192,77 +231,83 @@ export async function buildTaskContext(input: TaskContextInput): Promise<TaskCon
 
   // 8. Filename / Route / Schema matching (segment-based)
   const { expandedKeywords } = normalized;
-  if (allFiles.length > 0 && expandedKeywords.length > 0) {
-    for (const file of allFiles) {
-      const base = basename(file);
-      const dir = dirname(file);
-      const dotIndex = base.lastIndexOf(".");
-      const nameOnly = dotIndex !== -1 ? base.substring(0, dotIndex).toLowerCase() : base.toLowerCase();
-
+  if (indexedPaths.length > 0 && expandedKeywords.length > 0) {
+    for (const file of indexedPaths) {
       for (const kw of expandedKeywords) {
         if (kw.length < 3) continue;
 
         // Filename: exact segment match
-        if (matchesFilenameSegment(nameOnly, kw)) {
-          const type = nameOnly === kw ? "filename_exact" : "filename_partial";
-          addEvidence(file, { type, detail: `Basename segment matches keyword: ${kw}` });
+        if (matchesFilenameSegment(file.nameOnly, kw)) {
+          const type = file.nameOnly === kw ? "filename_exact" : "filename_partial";
+          addEvidence(file.path, { type, detail: `Basename segment matches keyword: ${kw}` });
         }
 
         // Route match: index/page/route files whose directory matches the keyword
-        const lowerBase = base.toLowerCase();
+        const lowerBase = file.base.toLowerCase();
         if (
           (lowerBase === "page.tsx" || lowerBase === "route.ts" ||
            lowerBase === "index.ts" || lowerBase === "index.js" ||
            lowerBase === "page.ts" || lowerBase === "route.tsx") &&
-          dirMatchesKeyword(dir, kw)
+          dirMatchesKeyword(file.dir, kw)
         ) {
-          addEvidence(file, { type: "route", detail: `Route file in directory matching keyword: ${kw}` });
+          addEvidence(file.path, { type: "route", detail: `Route file in directory matching keyword: ${kw}` });
         }
 
         // Schema match: basename contains "schema" and dir or name matches keyword
-        if (nameOnly.includes("schema") && (matchesFilenameSegment(nameOnly, kw) || dirMatchesKeyword(dir, kw))) {
-          addEvidence(file, { type: "schema", detail: `Schema file matching keyword: ${kw}` });
+        if (file.nameOnly.includes("schema") && (matchesFilenameSegment(file.nameOnly, kw) || dirMatchesKeyword(file.dir, kw))) {
+          addEvidence(file.path, { type: "schema", detail: `Schema file matching keyword: ${kw}` });
         }
       }
     }
   }
   pPathMatching.end();
 
-  // 9. Content grep — per-keyword, individual try/catch
-  const pContentSearch = perf.startPhase("contentSearch");
-  for (const kw of expandedKeywords.slice(0, 5)) {
-    if (kw.length < 4) continue;
-    try {
-      perf.increment("subprocessCount");
-      const { stdout } = await execFileAsync(
-        "git", ["grep", "-i", "-l", "--", kw],
-        { cwd, timeout: 5000, maxBuffer: 10 * 1024 * 1024 }
-      );
-      const grepFiles = stdout.split("\n").map(f => f.trim().replace(/\\/g, "/")).filter(Boolean);
-      for (const gf of grepFiles.slice(0, 20)) {
-        addEvidence(gf, { type: "content_match", detail: `Contains keyword: ${kw}` });
+  // 9. Content grep — unified single subprocess
+  if (effectiveDepth !== "fast") {
+    const pContentSearch = perf.startPhase("contentSearch");
+    const grepKeywords = expandedKeywords.slice(0, 5).filter(kw => kw.length >= 4);
+    
+    if (grepKeywords.length > 0) {
+      const grepArgs = ["grep", "-i", "-l", "-F"];
+      for (const kw of grepKeywords) {
+        grepArgs.push("-e", kw);
       }
-    } catch (err: any) {
-      if (err?.code === 1) continue; // no-match: normal git grep exit
-      limitations.push(`git grep failed for keyword "${kw}": ${err?.message ?? "unknown error"}`);
+      
+      try {
+        perf.increment("subprocessCount");
+        const { stdout } = await execFileAsync(
+          "git", grepArgs,
+          { cwd, timeout: 5000, maxBuffer: 10 * 1024 * 1024 }
+        );
+        const grepFiles = stdout.split("\n").map(f => f.trim().replace(/\\/g, "/")).filter(Boolean);
+        for (const gf of grepFiles.slice(0, 20)) {
+          addEvidence(gf, { type: "content_match", detail: `Contains matching keywords` });
+        }
+      } catch (err: any) {
+        if (err?.code !== 1) { // 1 means no match, normal for grep
+          limitations.push(`unified git grep failed: ${err?.message ?? "unknown error"}`);
+        }
+      }
     }
+    pContentSearch.end();
   }
-  pContentSearch.end();
 
   // 10. Test proximity — discover and add as supporting evidence
-  const pTestDiscovery = perf.startPhase("testDiscovery");
   const nearbyTestCandidates: TaskContextResult["nearbyTestCandidates"] = [];
-  for (const [path] of candidatesMap.entries()) {
-    const tests = await findNearbyTests(join(cwd, path), cwd);
-    if (tests.length > 0) {
-      addEvidence(path, { type: "test_proximity", detail: `Has nearby tests: ${tests.join(", ")}` });
-      nearbyTestCandidates.push({ sourcePath: path, testPaths: tests });
-      for (const t of tests) {
-        addEvidence(t, { type: "test_proximity", detail: `Is test for: ${path}` });
+  if (effectiveDepth !== "fast") {
+    const pTestDiscovery = perf.startPhase("testProximity");
+    for (const [path] of candidatesMap.entries()) {
+      const tests = findNearbyTests(path, allFiles);
+      if (tests.length > 0) {
+        addEvidence(path, { type: "test_proximity", detail: `Has nearby tests: ${tests.join(", ")}` });
+        nearbyTestCandidates.push({ sourcePath: path, testPaths: tests });
+        for (const t of tests) {
+          addEvidence(t, { type: "test_proximity", detail: `Is test for: ${path}` });
+        }
       }
     }
+    pTestDiscovery.end();
   }
-  pTestDiscovery.end();
 
   // 11. Initial assignment of confidence & sorting deterministically
   const confidenceScore: Record<string, number> = { high: 3, medium: 2, low: 1 };
@@ -305,21 +350,26 @@ export async function buildTaskContext(input: TaskContextInput): Promise<TaskCon
   }
 
   // 12. Direct dependents — limited to top 3 primary files
-  const pDependencySearch = perf.startPhase("dependencySearch");
-  const directDependents = await getLimitedSharedDependencies(
+  let directDependents: TaskContextResult["directDependents"] = [];
+  if (effectiveDepth !== "fast") {
+    const pDependencySearch = perf.startPhase("dependencySearch");
+    directDependents = await getLimitedSharedDependencies(
     cwd,
     primaryFiles.slice(0, 3).map(c => c.path)
-  );
-  pDependencySearch.end();
+    );
+    pDependencySearch.end();
+  }
 
   // 13. Suggested next steps
   const suggestedNextSteps: TaskContextResult["suggestedNextSteps"] = [];
-  if (primaryFiles.length > 0) {
-    suggestedNextSteps.push({
-      tool: "read_many",
-      arguments: { paths: primaryFiles.slice(0, 5).map(c => c.path) },
-      reason: "Read the most confident primary candidates to understand implementation details."
-    });
+  if (effectiveDepth !== "fast") {
+    if (primaryFiles.length > 0) {
+      suggestedNextSteps.push({
+        tool: "read_many",
+        arguments: { paths: primaryFiles.slice(0, 5).map(c => c.path) },
+        reason: "Read the most confident primary candidates to understand implementation details."
+      });
+    }
   }
 
   // 14. Build result and enforce real budget
@@ -329,6 +379,9 @@ export async function buildTaskContext(input: TaskContextInput): Promise<TaskCon
     goal: input.goal,
     taskType: normalized.taskTypeSuggestion,
     taskTypeSource: normalized.taskTypeSource,
+    requestedDepth: depth,
+    effectiveDepth,
+    depthSource,
     primaryFiles,
     supportingFiles,
     directDependents,
@@ -353,20 +406,25 @@ export async function buildTaskContext(input: TaskContextInput): Promise<TaskCon
 
 function enforceTaskContextBudget(result: TaskContextResult, maxTokens: number): TaskContextResult {
   const measureTokens = () => Math.ceil(JSON.stringify(result).length / 4);
+  let currentTokens = measureTokens();
 
   let omittedCandidates = 0;
   let truncated = false;
 
+  const estimateCandidateTokens = (c: any) => Math.ceil(JSON.stringify(c).length / 4);
+
   // Trim supporting files first (lowest priority), from the end (lowest confidence)
-  while (measureTokens() > maxTokens && result.supportingFiles.length > 0) {
-    result.supportingFiles.pop();
+  while (currentTokens > maxTokens && result.supportingFiles.length > 0) {
+    const popped = result.supportingFiles.pop();
+    currentTokens -= estimateCandidateTokens(popped);
     omittedCandidates++;
     truncated = true;
   }
 
   // Trim primary files only after all supporting is gone, always keep at least 1
-  while (measureTokens() > maxTokens && result.primaryFiles.length > 1) {
-    result.primaryFiles.pop();
+  while (currentTokens > maxTokens && result.primaryFiles.length > 1) {
+    const popped = result.primaryFiles.pop();
+    currentTokens -= estimateCandidateTokens(popped);
     omittedCandidates++;
     truncated = true;
   }
@@ -420,23 +478,27 @@ export async function taskContextTool(
   cwd: string,
   allowedRoots: string[],
   input: {
+    workspaceId?: string;
     goal: string;
     type?: TaskType;
     maxTokens?: number;
     focusPaths?: string[];
     excludePaths?: string[];
+    depth?: TaskContextDepth;
   },
   perf?: PerformanceRecorder
 ): Promise<ToolResponse> {
   const resolvedMaxTokens = input.maxTokens ?? TASK_CONTEXT_BUDGET.defaultTokens;
 
   const result = await buildTaskContext({
+    workspaceId: input.workspaceId ?? cwd,
     cwd,
     allowedRoots,
     goal: input.goal,
     type: input.type,
     focusPaths: input.focusPaths,
     excludePaths: input.excludePaths,
+    depth: input.depth,
     maxTokens: resolvedMaxTokens,
     perf
   });

@@ -42,6 +42,7 @@ import { nextRouteMapTool, payloadSchemaMapTool, fileDependenciesTool } from "./
 import {
   checkpointSaveTool, checkpointListTool, checkpointRestoreTool, checkpointDeleteTool,
 } from "./checkpoint-tools.js";
+import { getWorkspaceFileCacheKey, invalidateWorkspaceFileSnapshot } from "./workspace/workspace-file-cache.js";
 import { proposePlanTool } from "./contract-tools.js";
 import { TOOL_CONTRACTS } from "./tool-contracts.js";
 import { checkEditAllowed, recordPlan, recordDryRun, recordCheckpoint, recordCheckpointRestore, recordChange, markChangesShown, getChangeSummary, getSessionActivity, getSessionLedger, resetSession as resetPvdlState } from "./change-session.js";
@@ -2139,7 +2140,10 @@ function createMcpServer(
       async (req: any) => {
         const workspace = workspaces.getWorkspace(req.workspaceId);
         const result = await checkpointRestoreTool(workspace.root, req);
-        if (!result.isError) recordCheckpointRestore(req.workspaceId, req.id);
+        if (!result.isError) {
+          recordCheckpointRestore(req.workspaceId, req.id);
+          invalidateWorkspaceFileSnapshot(req.workspaceId, workspace.root);
+        }
         return wrap("checkpoint_restore", req, result);
       }
     );
@@ -2196,6 +2200,7 @@ function createMcpServer(
             .optional().describe(`Token budget for the response (default: ${TASK_CONTEXT_BUDGET.defaultTokens})`),
           focusPaths: z.array(z.string().max(500)).max(10).optional().describe("Paths to prioritize explicitly"),
           excludePaths: z.array(z.string().max(500)).max(20).optional().describe("Paths to exclude from candidates"),
+          depth: z.enum(["fast", "balanced", "deep"]).optional().describe("Analysis depth. Implicitly 'balanced' for major refactors/security, 'fast' otherwise."),
         },
         outputSchema: resultOutputSchema(),
         ...toolWidgetDescriptorMeta(config, "read"),
@@ -2214,11 +2219,13 @@ function createMcpServer(
           workspace.root,
           config.allowedRoots,
           {
+            workspaceId: req.workspaceId,
             goal: req.goal,
             type: req.type,
             maxTokens: req.maxTokens,
             focusPaths: req.focusPaths,
             excludePaths: req.excludePaths,
+            depth: req.depth,
           },
           perf
         );
@@ -2334,6 +2341,11 @@ function createMcpServer(
           const result = await applyPatch(workspace.root, req.patch, req.ifMatch, config.requireIfMatch);
           
           recordChange(req.workspaceId, "multiple files", "apply_patch", `Applied patch to ${result.files.length} files (+${result.additions} -${result.removals})`);
+          
+          // Invalidate cache if topology changes (adds/deletes)
+          if (result.files.some(f => f.operation === "add" || f.operation === "delete" || f.operation === "move")) {
+            invalidateWorkspaceFileSnapshot(req.workspaceId, workspace.root);
+          }
           
           const summary = `Applied patch to ${result.files.length} files (+${result.additions} -${result.removals})`;
           const receipt = await generateMutationReceipt(workspace.root, result.files);

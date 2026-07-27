@@ -3,6 +3,8 @@
   "goal": "migrar mutation-receipt.ts para usar dependencias limitadas",
   "taskType": "migration",
   "taskTypeSource": "inferred",
+  "effectiveDepth": "balanced",
+  "depthSource": "inferred",
   "primaryFiles": [
     {
       "path": "src/server/mutation-receipt.ts",
@@ -29,7 +31,7 @@
       "evidence": [
         {
           "type": "content_match",
-          "detail": "Contains keyword: migrar"
+          "detail": "Contains matching keywords"
         },
         {
           "type": "test_proximity",
@@ -45,7 +47,7 @@
       "evidence": [
         {
           "type": "content_match",
-          "detail": "Contains keyword: migrar"
+          "detail": "Contains matching keywords"
         },
         {
           "type": "test_proximity",
@@ -73,19 +75,7 @@
       "evidence": [
         {
           "type": "content_match",
-          "detail": "Contains keyword: migrar"
-        },
-        {
-          "type": "content_match",
-          "detail": "Contains keyword: mutation-receipt.ts"
-        },
-        {
-          "type": "content_match",
-          "detail": "Contains keyword: dependencias"
-        },
-        {
-          "type": "content_match",
-          "detail": "Contains keyword: limitadas"
+          "detail": "Contains matching keywords"
         }
       ],
       "recommendedReadTool": "read_many"
@@ -97,19 +87,7 @@
       "evidence": [
         {
           "type": "content_match",
-          "detail": "Contains keyword: migrar"
-        },
-        {
-          "type": "content_match",
-          "detail": "Contains keyword: mutation-receipt.ts"
-        },
-        {
-          "type": "content_match",
-          "detail": "Contains keyword: dependencias"
-        },
-        {
-          "type": "content_match",
-          "detail": "Contains keyword: limitadas"
+          "detail": "Contains matching keywords"
         }
       ],
       "recommendedReadTool": "read_many"
@@ -169,7 +147,7 @@
   "limitations": [],
   "budget": {
     "maxTokens": 6000,
-    "estimatedTokens": 818,
+    "estimatedTokens": 731,
     "truncated": false,
     "omittedCandidates": 0
   }

@@ -5,12 +5,21 @@ import { join } from "node:path";
 import { mkdtemp, writeFile, mkdir, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 
+import { execFile } from "node:child_process";
+import { promisify } from "node:util";
+const execFileAsync = promisify(execFile);
+
 // Helper: create a minimal temp workspace
 async function makeWorkspace(): Promise<string> {
   const root = await mkdtemp(join(tmpdir(), "agentic-tc-"));
-  await mkdir(join(root, ".git"), { recursive: true });
   await mkdir(join(root, "src"), { recursive: true });
+  await execFileAsync("git", ["init"], { cwd: root });
   return root;
+}
+
+// Helper to commit files to git so ls-files sees them
+async function gitAddAll(cwd: string) {
+  await execFileAsync("git", ["add", "."], { cwd });
 }
 
 describe("task-context", () => {
@@ -20,14 +29,17 @@ describe("task-context", () => {
     await writeFile(join(root, "src", "payment.ts"), "export const charge = () => {};");
     await writeFile(join(root, "src", "payment.test.ts"), "import { charge } from './payment';");
 
-    const res = await buildTaskContext({
+    await gitAddAll(root);
+    const res = await buildTaskContext({ workspaceId: "test",
       cwd: root,
       allowedRoots: [root],
       goal: "fix payment logic in src/payment.ts",
+      depth: "balanced",
     });
 
     assert.equal(res.taskType, "bug_fix");
     assert.equal(res.taskTypeSource, "inferred");
+    assert.equal(res.effectiveDepth, "balanced");
 
     const primary = res.primaryFiles.find(p => p.path.includes("payment.ts") && !p.path.includes(".test."));
     assert.ok(primary, "payment.ts should be a primary candidate");
@@ -48,7 +60,8 @@ describe("task-context", () => {
     await writeFile(join(root, "src", "auth.ts"), "export const login = () => {};");
     await writeFile(join(root, "src", "auth-helper.ts"), "// helper");
 
-    const res = await buildTaskContext({
+    await gitAddAll(root);
+    const res = await buildTaskContext({ workspaceId: "test",
       cwd: root,
       allowedRoots: [root],
       goal: "fix auth login bug in src/auth.ts",
@@ -65,7 +78,8 @@ describe("task-context", () => {
   it("focusPaths with traversal path is rejected and adds limitation", async () => {
     const root = await makeWorkspace();
 
-    const res = await buildTaskContext({
+    await gitAddAll(root);
+    const res = await buildTaskContext({ workspaceId: "test",
       cwd: root,
       allowedRoots: [root],
       goal: "refactor something",
@@ -84,7 +98,8 @@ describe("task-context", () => {
     const root = await makeWorkspace();
     await writeFile(join(root, "src", "foo.spec.ts"), "describe('foo', () => {})");
 
-    const res = await buildTaskContext({
+    await gitAddAll(root);
+    const res = await buildTaskContext({ workspaceId: "test",
       cwd: root,
       allowedRoots: [root],
       goal: "refactor foo module in src/foo.spec.ts",
@@ -101,8 +116,8 @@ describe("task-context", () => {
     await writeFile(join(root, "src", "user.ts"), "export const getUser = () => {};");
     await writeFile(join(root, "src", "userService.ts"), "// service");
 
-    const run1 = await buildTaskContext({ cwd: root, allowedRoots: [root], goal: "add user authentication" });
-    const run2 = await buildTaskContext({ cwd: root, allowedRoots: [root], goal: "add user authentication" });
+    const run1 = await buildTaskContext({ workspaceId: "test", cwd: root, allowedRoots: [root], goal: "add user authentication" });
+    const run2 = await buildTaskContext({ workspaceId: "test", cwd: root, allowedRoots: [root], goal: "add user authentication" });
 
     assert.deepEqual(
       run1.primaryFiles.map(f => f.path),
@@ -126,7 +141,8 @@ describe("task-context", () => {
     // Use explicit focusPaths so candidates are added without needing git ls-files
     const focusPaths = ["src/page0.tsx", "src/page1.tsx", "src/page2.tsx", "src/page3.tsx", "src/page4.tsx"];
 
-    const res = await buildTaskContext({
+    await gitAddAll(root);
+    const res = await buildTaskContext({ workspaceId: "test",
       cwd: root,
       allowedRoots: [root],
       goal: "adicionar rota de pagamento em src/page0.tsx src/page1.tsx src/page2.tsx",
@@ -147,7 +163,8 @@ describe("task-context", () => {
     const root = await makeWorkspace();
     await writeFile(join(root, "src", "small.ts"), "const x = 1;");
 
-    const res = await buildTaskContext({
+    await gitAddAll(root);
+    const res = await buildTaskContext({ workspaceId: "test",
       cwd: root,
       allowedRoots: [root],
       goal: "update small module",
@@ -162,7 +179,8 @@ describe("task-context", () => {
   it("explicit type overrides inferred type", async () => {
     const root = await makeWorkspace();
 
-    const res = await buildTaskContext({
+    await gitAddAll(root);
+    const res = await buildTaskContext({ workspaceId: "test",
       cwd: root,
       allowedRoots: [root],
       goal: "corrigir bug de login",  // would infer bug_fix
@@ -178,7 +196,8 @@ describe("task-context", () => {
     const root = await makeWorkspace();
     await writeFile(join(root, "src", "a.ts"), "const a = 1;");
 
-    const res = await buildTaskContext({
+    await gitAddAll(root);
+    const res = await buildTaskContext({ workspaceId: "test",
       cwd: root,
       allowedRoots: [root],
       goal: "refactor a module",
@@ -195,7 +214,8 @@ describe("task-context", () => {
     await writeFile(join(root, "src", "reviews", "index.ts"), "export const getReviews = () => [];");
     await writeFile(join(root, "src", "view.ts"), "export const View = () => {};");
 
-    const res = await buildTaskContext({
+    await gitAddAll(root);
+    const res = await buildTaskContext({ workspaceId: "test",
       cwd: root,
       allowedRoots: [root],
       goal: "fix bug in view component",
@@ -229,7 +249,8 @@ describe("task-context", () => {
     // in a bare temp dir without git, we test via focusPaths to force a candidate
     // and verify the instruction detection logic via a real git repo path
     // For this unit test, provide instructionFiles directly:
-    const res = await buildTaskContext({
+    await gitAddAll(root);
+    const res = await buildTaskContext({ workspaceId: "test",
       cwd: root,
       allowedRoots: [root],
       goal: "add new feature",
@@ -253,7 +274,8 @@ describe("task-context", () => {
       "src/page3.tsx", "src/page4.tsx",
     ];
 
-    const res = await buildTaskContext({
+    await gitAddAll(root);
+    const res = await buildTaskContext({ workspaceId: "test",
       cwd: root,
       allowedRoots: [root],
       goal: "adicionar rota de pagamento em src/page0.tsx src/page1.tsx src/page2.tsx",
