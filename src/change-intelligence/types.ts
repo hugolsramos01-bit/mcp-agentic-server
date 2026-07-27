@@ -46,12 +46,31 @@ export type TaskFileRole =
   | "instruction"
   | "supporting";
 
+export type CodeRegionKind =
+  | "function"
+  | "method"
+  | "class"
+  | "interface"
+  | "type"
+  | "enum"
+  | "variable";
+
+export interface CodeRegion {
+  name: string;
+  qualifiedName?: string;
+  kind: CodeRegionKind;
+  startLine: number;
+  endLine: number;
+  matchedKeywords?: string[];
+}
+
 export interface TaskFileCandidate {
   path: string;
   role: TaskFileRole;
   confidence: Confidence;
   evidence: EvidenceEntry[];
   recommendedReadTool: "read" | "read_adaptive" | "read_many";
+  codeRegions?: CodeRegion[];
 }
 
 export type TaskContextDepth = "fast" | "balanced" | "deep";
