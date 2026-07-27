@@ -263,7 +263,8 @@ export async function buildTaskContext(input: TaskContextInput): Promise<TaskCon
   pPathMatching.end();
 
   // 9. Content grep — per-keyword, individual try/catch
-  const pContentSearch = perf.startPhase("contentSearch");
+  if (effectiveDepth !== "fast") {
+    const pContentSearch = perf.startPhase("contentSearch");
   for (const kw of expandedKeywords.slice(0, 5)) {
     if (kw.length < 4) continue;
     try {
@@ -281,22 +282,25 @@ export async function buildTaskContext(input: TaskContextInput): Promise<TaskCon
       limitations.push(`git grep failed for keyword "${kw}": ${err?.message ?? "unknown error"}`);
     }
   }
-  pContentSearch.end();
+    pContentSearch.end();
+  }
 
   // 10. Test proximity — discover and add as supporting evidence
-  const pTestDiscovery = perf.startPhase("testProximity");
   const nearbyTestCandidates: TaskContextResult["nearbyTestCandidates"] = [];
-  for (const [path] of candidatesMap.entries()) {
-    const tests = findNearbyTests(path, allFiles);
-    if (tests.length > 0) {
-      addEvidence(path, { type: "test_proximity", detail: `Has nearby tests: ${tests.join(", ")}` });
-      nearbyTestCandidates.push({ sourcePath: path, testPaths: tests });
-      for (const t of tests) {
-        addEvidence(t, { type: "test_proximity", detail: `Is test for: ${path}` });
+  if (effectiveDepth !== "fast") {
+    const pTestDiscovery = perf.startPhase("testProximity");
+    for (const [path] of candidatesMap.entries()) {
+      const tests = findNearbyTests(path, allFiles);
+      if (tests.length > 0) {
+        addEvidence(path, { type: "test_proximity", detail: `Has nearby tests: ${tests.join(", ")}` });
+        nearbyTestCandidates.push({ sourcePath: path, testPaths: tests });
+        for (const t of tests) {
+          addEvidence(t, { type: "test_proximity", detail: `Is test for: ${path}` });
+        }
       }
     }
+    pTestDiscovery.end();
   }
-  pTestDiscovery.end();
 
   // 11. Initial assignment of confidence & sorting deterministically
   const confidenceScore: Record<string, number> = { high: 3, medium: 2, low: 1 };
@@ -339,21 +343,26 @@ export async function buildTaskContext(input: TaskContextInput): Promise<TaskCon
   }
 
   // 12. Direct dependents — limited to top 3 primary files
-  const pDependencySearch = perf.startPhase("dependencySearch");
-  const directDependents = await getLimitedSharedDependencies(
+  let directDependents: TaskContextResult["directDependents"] = [];
+  if (effectiveDepth !== "fast") {
+    const pDependencySearch = perf.startPhase("dependencySearch");
+    directDependents = await getLimitedSharedDependencies(
     cwd,
     primaryFiles.slice(0, 3).map(c => c.path)
-  );
-  pDependencySearch.end();
+    );
+    pDependencySearch.end();
+  }
 
   // 13. Suggested next steps
   const suggestedNextSteps: TaskContextResult["suggestedNextSteps"] = [];
-  if (primaryFiles.length > 0) {
-    suggestedNextSteps.push({
-      tool: "read_many",
-      arguments: { paths: primaryFiles.slice(0, 5).map(c => c.path) },
-      reason: "Read the most confident primary candidates to understand implementation details."
-    });
+  if (effectiveDepth !== "fast") {
+    if (primaryFiles.length > 0) {
+      suggestedNextSteps.push({
+        tool: "read_many",
+        arguments: { paths: primaryFiles.slice(0, 5).map(c => c.path) },
+        reason: "Read the most confident primary candidates to understand implementation details."
+      });
+    }
   }
 
   // 14. Build result and enforce real budget

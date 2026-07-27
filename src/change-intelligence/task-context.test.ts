@@ -34,10 +34,12 @@ describe("task-context", () => {
       cwd: root,
       allowedRoots: [root],
       goal: "fix payment logic in src/payment.ts",
+      depth: "balanced",
     });
 
     assert.equal(res.taskType, "bug_fix");
     assert.equal(res.taskTypeSource, "inferred");
+    assert.equal(res.effectiveDepth, "balanced");
 
     const primary = res.primaryFiles.find(p => p.path.includes("payment.ts") && !p.path.includes(".test."));
     assert.ok(primary, "payment.ts should be a primary candidate");
