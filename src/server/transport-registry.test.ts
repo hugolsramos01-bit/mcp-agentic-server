@@ -1,4 +1,5 @@
-import { describe, it, expect, beforeEach } from 'vitest';
+import { describe, it, beforeEach } from "node:test";
+import assert from "node:assert/strict";
 import { TransportRegistry } from './transport-registry.js';
 import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
 
@@ -25,78 +26,78 @@ describe('TransportRegistry', () => {
 
   it('sessão ociosa expira', () => {
     registry.add('s1', fakes[0]);
-    expect(registry.get('s1')).toBeDefined();
-    
+    assert.ok(registry.get('s1'));
+
     // Advance time beyond TTL
     currentTime += 6000;
     registry.sweep();
-    
-    expect(registry.get('s1')).toBeUndefined();
+
+    assert.equal(registry.get('s1'), undefined);
   });
 
   it('sessão ativa não expira', () => {
     registry.add('s1', fakes[0]);
     registry.markActive('s1');
-    
+
     // Advance time beyond TTL
     currentTime += 6000;
     registry.sweep();
-    
+
     // Still exists because inFlight > 0
-    expect(registry.get('s1')).toBeDefined();
-    expect(registry.get('s1')?.inFlight).toBe(1);
+    assert.ok(registry.get('s1'));
+    assert.equal(registry.get('s1')?.inFlight, 1);
   });
 
   it('excesso remove a sessão ociosa mais antiga', () => {
     registry.add('s1', fakes[0]);
     currentTime += 1000;
     registry.add('s2', fakes[1]);
-    
+
     // Max is 2, adding 3rd should evict oldest (s1)
     currentTime += 1000;
     registry.add('s3', fakes[2]);
-    
-    expect(registry.get('s1')).toBeUndefined(); // evicted
-    expect(registry.get('s2')).toBeDefined();
-    expect(registry.get('s3')).toBeDefined();
+
+    assert.equal(registry.get('s1'), undefined); // evicted
+    assert.ok(registry.get('s2'));
+    assert.ok(registry.get('s3'));
   });
 
   it('excesso não remove inFlight > 0', () => {
     registry.add('s1', fakes[0]); // Oldest
     registry.markActive('s1'); // But active!
-    
+
     currentTime += 1000;
     registry.add('s2', fakes[1]);
-    
+
     currentTime += 1000;
     registry.add('s3', fakes[2]);
-    
+
     // s1 was active, so s2 should be evicted instead
-    expect(registry.get('s1')).toBeDefined();
-    expect(registry.get('s2')).toBeUndefined(); // evicted
-    expect(registry.get('s3')).toBeDefined();
+    assert.ok(registry.get('s1'));
+    assert.equal(registry.get('s2'), undefined); // evicted
+    assert.ok(registry.get('s3'));
   });
 
   it('markIdle não deixa valor negativo', () => {
     registry.add('s1', fakes[0]);
     registry.markIdle('s1');
     registry.markIdle('s1');
-    expect(registry.get('s1')?.inFlight).toBe(0);
+    assert.equal(registry.get('s1')?.inFlight, 0);
   });
 
   it('erro ao fechar uma sessão não bloqueia as demais', () => {
     const errorTransport = createFakeTransport();
     errorTransport.close = () => { throw new Error('Close failed'); };
-    
+
     registry.add('s1', errorTransport);
     currentTime += 1000;
     registry.add('s2', fakes[0]);
-    
+
     currentTime += 6000;
     registry.sweep(); // Both should be expired. s1 throws, but s2 should still be removed.
-    
-    expect(registry.get('s1')).toBeUndefined();
-    expect(registry.get('s2')).toBeUndefined();
+
+    assert.equal(registry.get('s1'), undefined);
+    assert.equal(registry.get('s2'), undefined);
   });
 
   it('stop() cancela o scheduler', () => {
@@ -107,14 +108,14 @@ describe('TransportRegistry', () => {
       autoStart: true,
     });
     r.stop();
-    expect(cancelled).toBe(true);
+    assert.equal(cancelled, true);
   });
 
   it('closeAll() esvazia o registry', () => {
     registry.add('s1', fakes[0]);
     registry.add('s2', fakes[1]);
     registry.closeAll();
-    expect(registry.get('s1')).toBeUndefined();
-    expect(registry.get('s2')).toBeUndefined();
+    assert.equal(registry.get('s1'), undefined);
+    assert.equal(registry.get('s2'), undefined);
   });
 });

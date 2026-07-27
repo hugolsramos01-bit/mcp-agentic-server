@@ -130,8 +130,10 @@ export class TransportRegistry {
       const sorted = [...this.transports.entries()]
         .filter(([, mt]) => mt.inFlight === 0)
         .sort((a, b) => a[1].lastActivityAt - b[1].lastActivityAt);
-        
-      for (const [sid] of sorted.slice(0, sorted.length - this.maxTransports)) {
+
+      // Evict enough idle sessions so total size reaches maxTransports
+      const toEvict = this.transports.size - this.maxTransports;
+      for (const [sid] of sorted.slice(0, toEvict)) {
         try { this.transports.get(sid)?.transport.close(); } catch {}
         this.transports.delete(sid);
       }
