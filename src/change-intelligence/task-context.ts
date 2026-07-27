@@ -498,10 +498,21 @@ function buildSuggestedNextSteps(result: TaskContextResult, anchorKeywords: stri
   const steps: TaskContextResult["suggestedNextSteps"] = [];
 
   if (result.primaryFiles.length > 0) {
+    const items = result.primaryFiles.slice(0, 5).flatMap(c => {
+      if (c.codeRegions && c.codeRegions.length > 0) {
+        return c.codeRegions.map(r => ({
+          path: c.path,
+          startLine: r.startLine,
+          endLine: r.endLine
+        }));
+      }
+      return [{ path: c.path }];
+    });
+
     steps.push({
       tool: "read_many",
-      arguments: { paths: result.primaryFiles.slice(0, 5).map(c => c.path) },
-      reason: "Read the strongest implementation candidates."
+      arguments: { items },
+      reason: "Read the strongest implementation candidates and their relevant regions."
     });
   } else if (result.supportingFiles.length > 0) {
     steps.push({
