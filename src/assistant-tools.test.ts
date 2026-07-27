@@ -1,8 +1,9 @@
 import { describe, it, beforeEach, afterEach } from "node:test";
 import assert from "node:assert/strict";
-import { runScriptTool } from "./assistant-tools.js";
+import { runScriptTool, readManyTool } from "./assistant-tools.js";
 import { join } from "path";
 import { writeFileSync, mkdirSync, rmSync } from "fs";
+import { tmpdir } from "node:os";
 
 describe("runScriptTool", () => {
   let cwd: string;
@@ -44,5 +45,111 @@ describe("runScriptTool", () => {
     }
     assert.equal(parsed.status, "timeout");
     assert.equal(parsed.timeoutMs, 1000);
+  });
+});
+
+// ─── P3: readManyTool deduplication and range validation ─────────────
+
+describe("readManyTool — P3 ranged reads", () => {
+  const TMP = join(tmpdir(), `read-many-test-${process.pid}`);
+  const FILE = "multi.ts";
+  const FULL_PATH = join(TMP, FILE);
+  const LINES = [
+    "export function alpha() { return 1; }",   // line 1
+    "export function beta() { return 2; }",    // line 2
+    "export function gamma() { return 3; }",   // line 3
+    "export function delta() { return 4; }",   // line 4
+    "export function epsilon() { return 5; }", // line 5
+  ];
+
+  beforeEach(() => {
+    mkdirSync(TMP, { recursive: true });
+    writeFileSync(FULL_PATH, LINES.join("\n"), "utf8");
+    process.env.AGENTIC_ALLOWED_ROOTS = TMP;
+  });
+
+  it("reads 5 regions of the same file — only one actual read per file", async () => {
+    // All items point to the same file. The dedup cache means we read it once.
+    const result = await readManyTool({
+      items: [
+        { path: FILE, startLine: 1, endLine: 1 },
+        { path: FILE, startLine: 2, endLine: 2 },
+        { path: FILE, startLine: 3, endLine: 3 },
+        { path: FILE, startLine: 4, endLine: 4 },
+        { path: FILE, startLine: 5, endLine: 5 },
+      ]
+    }, TMP, [TMP]);
+
+    const data = JSON.parse(result.content[0].text);
+    assert.equal(data.files.length, 5, "all 5 ranged items should succeed");
+    assert.equal(data.skipped.length, 0, "nothing should be skipped");
+
+    // Each item should return only its requested line
+    assert.equal(data.files[0].content.trim(), LINES[0].trim());
+    assert.equal(data.files[2].content.trim(), LINES[2].trim());
+    assert.equal(data.files[4].content.trim(), LINES[4].trim());
+
+    // All items share the same contentHash (same underlying file)
+    const hashes = new Set(data.files.map((f: any) => f.contentHash));
+    assert.equal(hashes.size, 1, "all regions of the same file must share one contentHash");
+  });
+
+  it("skips item with only startLine (missing endLine)", async () => {
+    const result = await readManyTool({
+      items: [{ path: FILE, startLine: 1 }]
+    }, TMP, [TMP]);
+
+    const data = JSON.parse(result.content[0].text);
+    assert.equal(data.files.length, 0);
+    assert.equal(data.skipped.length, 1);
+    assert.ok(data.skipped[0].reason.includes("both startLine and endLine"));
+  });
+
+  it("skips item with only endLine (missing startLine)", async () => {
+    const result = await readManyTool({
+      items: [{ path: FILE, endLine: 3 }]
+    }, TMP, [TMP]);
+
+    const data = JSON.parse(result.content[0].text);
+    assert.equal(data.files.length, 0);
+    assert.ok(data.skipped[0].reason.includes("both startLine and endLine"));
+  });
+
+  it("skips item where startLine > endLine", async () => {
+    const result = await readManyTool({
+      items: [{ path: FILE, startLine: 5, endLine: 2 }]
+    }, TMP, [TMP]);
+
+    const data = JSON.parse(result.content[0].text);
+    assert.equal(data.files.length, 0);
+    assert.ok(data.skipped[0].reason.includes("must be <= endLine"));
+  });
+
+  it("skips item where startLine > totalLines", async () => {
+    const result = await readManyTool({
+      items: [{ path: FILE, startLine: 999, endLine: 1000 }]
+    }, TMP, [TMP]);
+
+    const data = JSON.parse(result.content[0].text);
+    assert.equal(data.files.length, 0);
+    assert.ok(data.skipped[0].reason.includes("exceeds file length"));
+  });
+
+  it("skips item where startLine <= 0", async () => {
+    const result = await readManyTool({
+      items: [{ path: FILE, startLine: 0, endLine: 3 }]
+    }, TMP, [TMP]);
+
+    const data = JSON.parse(result.content[0].text);
+    assert.equal(data.files.length, 0);
+    assert.ok(data.skipped[0].reason.includes(">= 1"));
+  });
+
+  it("reads full file when no range is given", async () => {
+    const result = await readManyTool({ items: [{ path: FILE }] }, TMP, [TMP]);
+    const data = JSON.parse(result.content[0].text);
+    assert.equal(data.files.length, 1);
+    assert.ok(data.files[0].content.includes("alpha"));
+    assert.ok(data.files[0].content.includes("epsilon"));
   });
 });
