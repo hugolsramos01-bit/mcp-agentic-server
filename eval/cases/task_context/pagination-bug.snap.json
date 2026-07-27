@@ -135,16 +135,6 @@
             "path": "src/ui/card-types.ts",
             "startLine": 136,
             "endLine": 153
-          },
-          {
-            "path": "src/ui/card-types.ts",
-            "startLine": 4,
-            "endLine": 16
-          },
-          {
-            "path": "src/ui/card-types.ts",
-            "startLine": 18,
-            "endLine": 18
           }
         ]
       },
@@ -154,7 +144,7 @@
   "limitations": [],
   "budget": {
     "maxTokens": 6000,
-    "estimatedTokens": 608,
+    "estimatedTokens": 578,
     "truncated": false,
     "omittedCandidates": 0,
     "omittedRegions": 0

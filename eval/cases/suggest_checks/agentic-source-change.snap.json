@@ -30,6 +30,10 @@
       "reason": "Nenhum sinal detectou relação com os arquivos alterados"
     },
     {
+      "script": "bench:regions",
+      "reason": "Nenhum sinal detectou relação com os arquivos alterados"
+    },
+    {
       "script": "bench:server",
       "reason": "Nenhum sinal detectou relação com os arquivos alterados"
     },

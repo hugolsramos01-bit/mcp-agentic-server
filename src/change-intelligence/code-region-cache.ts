@@ -2,7 +2,7 @@ import { stat, readFile } from "node:fs/promises";
 import { resolveWorkspacePath } from "../security/path-resolution.js";
 import { assertPathOperationAllowed } from "../security/secret-policy.js";
 import { CodeRegion } from "./types.js";
-import { extractCodeRegions, ExtractCodeRegionsOptions } from "./code-regions.js";
+import { extractIndexedCodeRegions, ExtractCodeRegionsOptions, IndexedCodeRegion } from "./code-regions.js";
 
 const MAX_REGION_FILE_SIZE = 512 * 1024; // 512KB
 const MAX_CACHE_SIZE = 150;
@@ -19,11 +19,6 @@ interface CodeRegionRawEntry {
   rawRegions: IndexedCodeRegion[];
 }
 
-interface IndexedCodeRegion extends CodeRegion {
-  _signature?: string;
-  _body?: string;
-  _isExported?: boolean;
-}
 
 const codeRegionCache = new Map<string, CodeRegionRawEntry>();
 
@@ -43,13 +38,12 @@ export interface LoadCodeRegionsOptions extends ExtractCodeRegionsOptions {
 // Always return a defensive copy so that the budget enforcement loop
 // (file.codeRegions.pop()) never mutates the cached array.
 
-function cloneRegions(regions: CodeRegion[]): CodeRegion[] {
+function cloneRegions(regions: IndexedCodeRegion[]): IndexedCodeRegion[] {
   return regions.map(r => {
-    const ir = r as IndexedCodeRegion;
     return {
-      ...ir,
-      matchedKeywords: ir.matchedKeywords ? [...ir.matchedKeywords] : undefined,
-    } as CodeRegion;
+      ...r,
+      matchedKeywords: r.matchedKeywords ? [...r.matchedKeywords] : undefined,
+    };
   });
 }
 
@@ -58,7 +52,7 @@ function cloneRegions(regions: CodeRegion[]): CodeRegion[] {
 // This mirrors extractCodeRegions() but operates on already-parsed data.
 
   function rankAndSlice(
-    rawRegions: CodeRegion[],
+    rawRegions: IndexedCodeRegion[],
     anchorKeywords: string[],
     maxRegions: number | undefined,
   ): CodeRegion[] {
@@ -66,8 +60,8 @@ function cloneRegions(regions: CodeRegion[]): CodeRegion[] {
       // No keywords — preserve source order and apply limit only
       const sliced = rawRegions.slice(0, maxRegions ?? rawRegions.length);
       return cloneRegions(sliced).map(r => {
-        const { _signature, _body, _isExported, ...rest } = r as IndexedCodeRegion;
-        return rest as CodeRegion;
+        const { score, originalIndex, signature, body, isExported, ...rest } = r;
+        return rest;
       });
     }
   
@@ -78,12 +72,11 @@ function cloneRegions(regions: CodeRegion[]): CodeRegion[] {
       _idx: number;
     }
   
-    const scored: Scored[] = rawRegions.map((r, idx) => {
-      const ir = r as IndexedCodeRegion;
+    const scored: Scored[] = rawRegions.map((ir, idx) => {
       const lowerName = ir.name.toLowerCase();
       const lowerQual = (ir.qualifiedName ?? "").toLowerCase();
-      const lowerSig = (ir._signature ?? "").toLowerCase();
-      const lowerBody = (ir._body ?? "").toLowerCase();
+      const lowerSig = (ir.signature ?? "").toLowerCase();
+      const lowerBody = (ir.body ?? "").toLowerCase();
   
       let score = 0;
       const matchedKeywords: string[] = [];
@@ -99,7 +92,7 @@ function cloneRegions(regions: CodeRegion[]): CodeRegion[] {
         if (matched) matchedKeywords.push(kw);
       }
   
-      if (ir._isExported) {
+      if (ir.isExported) {
         score += 5;
       }
   
@@ -117,7 +110,7 @@ function cloneRegions(regions: CodeRegion[]): CodeRegion[] {
   });
 
   const limit = maxRegions ?? scored.length;
-  return scored.slice(0, limit).map(({ _score, _idx, _signature, _body, _isExported, ...rest }) => rest as CodeRegion);
+  return scored.slice(0, limit).map(({ _score, _idx, score, originalIndex, signature, body, isExported, ...rest }) => rest);
 }
 
 // ─── Public API ───────────────────────────────────────────────────────
@@ -139,7 +132,7 @@ export async function loadAndExtractCodeRegions(
 
   // ── Cache lookup (raw index, keyed by path + mtime + size) ──────────
   const cached = codeRegionCache.get(canonicalPath);
-  let rawRegions: CodeRegion[];
+  let rawRegions: IndexedCodeRegion[];
 
   if (cached && cached.mtimeMs === stats.mtimeMs && cached.size === stats.size) {
     // LRU refresh
@@ -150,7 +143,7 @@ export async function loadAndExtractCodeRegions(
     // Cache miss: parse the file and store the unranked, uncut result
     const content = await readFile(canonicalPath, "utf8");
     // Extract without any keyword/maxRegions options so the raw index is neutral
-    rawRegions = extractCodeRegions(canonicalPath, content, {});
+    rawRegions = extractIndexedCodeRegions(canonicalPath, content, {});
 
     const newEntry: CodeRegionRawEntry = {
       mtimeMs: stats.mtimeMs,

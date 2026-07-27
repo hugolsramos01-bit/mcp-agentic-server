@@ -212,7 +212,6 @@ export async function readManyTool(input: ReadManyInput, cwd: string, allowedRoo
 
       resultFiles.push({
         path: p,
-        fullPath: file.resolved.fullPath,
         contentHash: cached.contentHash,
         sizeBytes: cached.sizeBytes,
         mtimeNs: cached.mtimeNs,

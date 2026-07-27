@@ -106,16 +106,6 @@
             "path": "src/server/mutation-receipt.ts",
             "startLine": 16,
             "endLine": 28
-          },
-          {
-            "path": "src/server/mutation-receipt.ts",
-            "startLine": 30,
-            "endLine": 37
-          },
-          {
-            "path": "src/server/mutation-receipt.ts",
-            "startLine": 43,
-            "endLine": 93
           }
         ]
       },
@@ -125,7 +115,7 @@
   "limitations": [],
   "budget": {
     "maxTokens": 6000,
-    "estimatedTokens": 519,
+    "estimatedTokens": 484,
     "truncated": false,
     "omittedCandidates": 0,
     "omittedRegions": 0

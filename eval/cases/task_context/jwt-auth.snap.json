@@ -308,6 +308,18 @@
       "recommendedReadTool": "read_adaptive"
     },
     {
+      "path": "perf/code-regions.mjs",
+      "role": "supporting",
+      "confidence": "medium",
+      "evidence": [
+        {
+          "type": "content_match",
+          "detail": "Contains matching keywords"
+        }
+      ],
+      "recommendedReadTool": "read_adaptive"
+    },
+    {
       "path": "scripts/debug-token.mjs",
       "role": "supporting",
       "confidence": "medium",
@@ -393,18 +405,6 @@
     },
     {
       "path": "src/server.ts",
-      "role": "supporting",
-      "confidence": "medium",
-      "evidence": [
-        {
-          "type": "content_match",
-          "detail": "Contains matching keywords"
-        }
-      ],
-      "recommendedReadTool": "read_adaptive"
-    },
-    {
-      "path": "src/user-config.ts",
       "role": "supporting",
       "confidence": "medium",
       "evidence": [
@@ -604,16 +604,6 @@
             "endLine": 205
           },
           {
-            "path": "src/oauth-store.ts",
-            "startLine": 56,
-            "endLine": 79
-          },
-          {
-            "path": "src/oauth-store.ts",
-            "startLine": 81,
-            "endLine": 99
-          },
-          {
             "path": "src/oauth-provider.ts"
           }
         ]
@@ -624,7 +614,7 @@
   "limitations": [],
   "budget": {
     "maxTokens": 6000,
-    "estimatedTokens": 2502,
+    "estimatedTokens": 2473,
     "truncated": false,
     "omittedCandidates": 0,
     "omittedRegions": 0

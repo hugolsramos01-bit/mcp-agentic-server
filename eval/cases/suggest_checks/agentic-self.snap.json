@@ -106,6 +106,15 @@
       "estimatedCost": "medium"
     },
     {
+      "script": "bench:regions",
+      "command": "npm run bench:regions",
+      "tier": "other",
+      "reason": "Classificação pendente",
+      "confidence": "low",
+      "mutatesWorkspace": false,
+      "estimatedCost": "medium"
+    },
+    {
       "script": "bench:server",
       "command": "npm run bench:server",
       "tier": "other",

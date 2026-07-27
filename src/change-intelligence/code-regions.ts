@@ -6,11 +6,19 @@ export interface ExtractCodeRegionsOptions {
   maxRegions?: number;
 }
 
-export function extractCodeRegions(
+export interface IndexedCodeRegion extends CodeRegion {
+  signature: string;
+  body: string;
+  isExported: boolean;
+  score: number;
+  originalIndex: number;
+}
+
+export function extractIndexedCodeRegions(
   filePath: string,
   content: string,
   options?: ExtractCodeRegionsOptions
-): CodeRegion[] {
+): IndexedCodeRegion[] {
   // Ignorar arquivos não suportados ou genéricos d.ts
   if (!/\.(ts|tsx|mts|cts|js|jsx|mjs|cjs)$/i.test(filePath) || filePath.endsWith(".d.ts")) {
     return [];
@@ -19,7 +27,7 @@ export function extractCodeRegions(
   const normalizedContent = content.replace(/\r\n/g, "\n");
   const sourceFile = ts.createSourceFile(filePath, normalizedContent, ts.ScriptTarget.Latest, true);
 
-  const regions: Array<CodeRegion & { score: number, originalIndex: number }> = [];
+  const regions: IndexedCodeRegion[] = [];
   const anchorKeywords = (options?.anchorKeywords || []).map(k => k.toLowerCase());
 
   let index = 0;
@@ -116,10 +124,10 @@ export function extractCodeRegions(
       matchedKeywords: matchedKeywords.length > 0 ? matchedKeywords : undefined,
       score,
       originalIndex: index++,
-      _signature: signature,
-      _body: body,
-      _isExported: isExported
-    } as any);
+      signature,
+      body,
+      isExported
+    });
   }
 
   function visit(node: ts.Node, parentName?: string) {
@@ -182,5 +190,14 @@ export function extractCodeRegions(
 
   const max = options?.maxRegions ?? regions.length;
   
-  return regions.slice(0, max).map(({ score, originalIndex, ...rest }) => rest);
+  return regions.slice(0, max);
+}
+
+export function extractCodeRegions(
+  filePath: string,
+  content: string,
+  options?: ExtractCodeRegionsOptions
+): CodeRegion[] {
+  const indexed = extractIndexedCodeRegions(filePath, content, options);
+  return indexed.map(({ score, originalIndex, signature, body, isExported, ...rest }) => rest);
 }

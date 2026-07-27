@@ -152,4 +152,18 @@ describe("readManyTool — P3 ranged reads", () => {
     assert.ok(data.files[0].content.includes("alpha"));
     assert.ok(data.files[0].content.includes("epsilon"));
   });
+
+  it("throws error if both paths and items are provided", async () => {
+    await assert.rejects(
+      readManyTool({ paths: [FILE], items: [{ path: FILE }] }, TMP, [TMP]),
+      /read_many requires exactly one of 'paths' or 'items'\./
+    );
+  });
+
+  it("throws error if neither paths nor items are provided", async () => {
+    await assert.rejects(
+      readManyTool({}, TMP, [TMP]),
+      /read_many requires exactly one of 'paths' or 'items'\./
+    );
+  });
 });
