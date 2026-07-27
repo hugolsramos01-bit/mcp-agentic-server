@@ -150,6 +150,7 @@ export async function buildTaskContext(input: TaskContextInput): Promise<TaskCon
   // 3. Gather all tracked files (excluding excluded paths)
   const pLoadFileList = perf.startPhase("loadFileList");
   let allFiles: string[] = [];
+  let allFileSet: ReadonlySet<string> | undefined;
   let indexedPaths: readonly IndexedPath[] = [];
   
   const cacheKey = getWorkspaceFileCacheKey(input.workspaceId, cwd);
@@ -158,6 +159,7 @@ export async function buildTaskContext(input: TaskContextInput): Promise<TaskCon
   if (snapshot) {
     perf.increment("cacheHits");
     allFiles = snapshot.files.filter(f => !safeExcludeSet.has(f));
+    allFileSet = snapshot.fileSet;
     indexedPaths = snapshot.indexedPaths.filter(p => !safeExcludeSet.has(p.path));
   } else {
     perf.increment("cacheMisses");
@@ -173,6 +175,7 @@ export async function buildTaskContext(input: TaskContextInput): Promise<TaskCon
         
       const newSnapshot = setWorkspaceFileSnapshot(cacheKey, rawFiles);
       allFiles = newSnapshot.files.filter(f => !safeExcludeSet.has(f));
+      allFileSet = newSnapshot.fileSet;
       indexedPaths = newSnapshot.indexedPaths.filter(p => !safeExcludeSet.has(p.path));
     } catch {
       limitations.push("git ls-files unavailable; filename and content matching disabled");
@@ -332,7 +335,7 @@ export async function buildTaskContext(input: TaskContextInput): Promise<TaskCon
   const nearbyTestCandidates: TaskContextResult["nearbyTestCandidates"] = [];
   const pTestDiscovery = perf.startPhase("testProximity");
     for (const [path] of candidatesMap.entries()) {
-      const tests = findNearbyTests(path, allFiles);
+      const tests = findNearbyTests(path, allFiles, allFileSet);
       if (tests.length > 0) {
         addEvidence(path, { type: "test_proximity", detail: `Has nearby tests: ${tests.join(", ")}` });
         nearbyTestCandidates.push({ sourcePath: path, testPaths: tests });
@@ -401,29 +404,7 @@ export async function buildTaskContext(input: TaskContextInput): Promise<TaskCon
     pDependencySearch.end();
   }
 
-  // 13. Suggested next steps
-  const suggestedNextSteps: TaskContextResult["suggestedNextSteps"] = [];
-  if (primaryFiles.length > 0) {
-    suggestedNextSteps.push({
-      tool: "read_many",
-      arguments: { paths: primaryFiles.slice(0, 5).map(c => c.path) },
-      reason: "Read the strongest implementation candidates."
-    });
-  } else if (supportingFiles.length > 0) {
-    suggestedNextSteps.push({
-      tool: "read_adaptive",
-      arguments: { path: supportingFiles[0].path },
-      reason: "No high-confidence primary file was found; inspect the strongest supporting candidate."
-    });
-  } else {
-    suggestedNextSteps.push({
-      tool: "grep",
-      arguments: { pattern: anchorKeywords.slice(0, 3).join("|") },
-      reason: "No reliable file candidate was found; search for the normalized goal terms."
-    });
-  }
-
-  // 14. Build result and enforce real budget
+  // 13. Build result (without nextSteps — rebuilt after budget enforcement)
   const pBudget = perf.startPhase("budgetEnforcement");
   const finalResult: TaskContextResult = {
     version: 1,
@@ -438,7 +419,7 @@ export async function buildTaskContext(input: TaskContextInput): Promise<TaskCon
     directDependents,
     applicableInstructions,
     nearbyTestCandidates,
-    suggestedNextSteps,
+    suggestedNextSteps: [], // will be rebuilt after budget
     limitations,
     budget: {
       maxTokens,
@@ -449,8 +430,40 @@ export async function buildTaskContext(input: TaskContextInput): Promise<TaskCon
   };
 
   const result = enforceTaskContextBudget(finalResult, maxTokens);
+
+  // Rebuild suggestedNextSteps based on actual retained files after budget enforcement
+  result.suggestedNextSteps = buildSuggestedNextSteps(result, anchorKeywords);
+
   pBudget.end();
   return result;
+}
+
+// ─── Suggested next steps builder (runs after budget enforcement) ─────
+
+function buildSuggestedNextSteps(result: TaskContextResult, anchorKeywords: string[]): TaskContextResult["suggestedNextSteps"] {
+  const steps: TaskContextResult["suggestedNextSteps"] = [];
+
+  if (result.primaryFiles.length > 0) {
+    steps.push({
+      tool: "read_many",
+      arguments: { paths: result.primaryFiles.slice(0, 5).map(c => c.path) },
+      reason: "Read the strongest implementation candidates."
+    });
+  } else if (result.supportingFiles.length > 0) {
+    steps.push({
+      tool: "read_adaptive",
+      arguments: { path: result.supportingFiles[0].path },
+      reason: "No high-confidence primary file was found; inspect the strongest supporting candidate."
+    });
+  } else {
+    steps.push({
+      tool: "grep",
+      arguments: { pattern: anchorKeywords.slice(0, 3).join("|") },
+      reason: "No reliable file candidate was found; search for the normalized goal terms."
+    });
+  }
+
+  return steps;
 }
 
 // ─── Budget enforcement by real JSON size ─────────────────────────────
@@ -501,14 +514,6 @@ function enforceTaskContextBudget(result: TaskContextResult, maxTokens: number):
         ...item,
         testPaths: item.testPaths.filter(path => retainedPaths.has(path)),
       }));
-
-    for (const step of result.suggestedNextSteps) {
-      if (Array.isArray(step.arguments.paths)) {
-        step.arguments.paths = step.arguments.paths.filter(path =>
-          retainedPaths.has(String(path))
-        );
-      }
-    }
   }
 
   result.budget = {
