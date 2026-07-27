@@ -51,6 +51,18 @@
   ],
   "deferred": [
     {
+      "script": "bench:agent",
+      "reason": "Nenhum sinal detectou relação com os arquivos alterados"
+    },
+    {
+      "script": "bench:server",
+      "reason": "Nenhum sinal detectou relação com os arquivos alterados"
+    },
+    {
+      "script": "bench:tools",
+      "reason": "Nenhum sinal detectou relação com os arquivos alterados"
+    },
+    {
       "script": "build",
       "reason": "Nenhum sinal detectou relação com os arquivos alterados"
     },

@@ -10,6 +10,18 @@
   "recommended": [],
   "deferred": [
     {
+      "script": "bench:agent",
+      "reason": "Alterações ignoram este tipo de check (ex. apenas documentação)"
+    },
+    {
+      "script": "bench:server",
+      "reason": "Alterações ignoram este tipo de check (ex. apenas documentação)"
+    },
+    {
+      "script": "bench:tools",
+      "reason": "Alterações ignoram este tipo de check (ex. apenas documentação)"
+    },
+    {
       "script": "build",
       "reason": "Alterações ignoram este tipo de check (ex. apenas documentação)"
     },

@@ -24,7 +24,58 @@
           "detail": "Has nearby tests: src/oauth-store.test.ts"
         }
       ],
-      "recommendedReadTool": "read"
+      "recommendedReadTool": "read",
+      "codeRegions": [
+        {
+          "name": "SqliteOAuthStore",
+          "kind": "class",
+          "startLine": 40,
+          "endLine": 188,
+          "matchedKeywords": [
+            "auth",
+            "oauth",
+            "token",
+            "client"
+          ]
+        },
+        {
+          "name": "SqliteOAuthClientsStore",
+          "kind": "class",
+          "startLine": 190,
+          "endLine": 205,
+          "matchedKeywords": [
+            "auth",
+            "oauth",
+            "client"
+          ]
+        },
+        {
+          "name": "registerClient",
+          "qualifiedName": "SqliteOAuthStore.registerClient",
+          "kind": "method",
+          "startLine": 56,
+          "endLine": 79,
+          "matchedKeywords": [
+            "auth",
+            "oauth",
+            "token",
+            "client"
+          ]
+        },
+        {
+          "name": "saveAccessToken",
+          "qualifiedName": "SqliteOAuthStore.saveAccessToken",
+          "kind": "method",
+          "startLine": 81,
+          "endLine": 99,
+          "matchedKeywords": [
+            "auth",
+            "oauth",
+            "token",
+            "client"
+          ]
+        }
+      ]
     },
     {
       "path": "src/oauth-provider.ts",
@@ -541,19 +592,41 @@
     {
       "tool": "read_many",
       "arguments": {
-        "paths": [
-          "src/oauth-store.ts",
-          "src/oauth-provider.ts"
+        "items": [
+          {
+            "path": "src/oauth-store.ts",
+            "startLine": 40,
+            "endLine": 188
+          },
+          {
+            "path": "src/oauth-store.ts",
+            "startLine": 190,
+            "endLine": 205
+          },
+          {
+            "path": "src/oauth-store.ts",
+            "startLine": 56,
+            "endLine": 79
+          },
+          {
+            "path": "src/oauth-store.ts",
+            "startLine": 81,
+            "endLine": 99
+          },
+          {
+            "path": "src/oauth-provider.ts"
+          }
         ]
       },
-      "reason": "Read the strongest implementation candidates."
+      "reason": "Read the strongest implementation candidates and their relevant regions."
     }
   ],
   "limitations": [],
   "budget": {
     "maxTokens": 6000,
-    "estimatedTokens": 2282,
+    "estimatedTokens": 2502,
     "truncated": false,
-    "omittedCandidates": 0
+    "omittedCandidates": 0,
+    "omittedRegions": 0
   }
 }

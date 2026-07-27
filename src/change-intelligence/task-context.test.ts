@@ -844,4 +844,101 @@ describe("task-context", () => {
     assert.equal(res.budget.estimatedTokens, exactTokens,
       "estimatedTokens must match exact final JSON measurement");
   });
+
+  // ─── P3: Budget with single primary file ─────────────────────────
+  it("P3: 1 primary + code regions + tight budget removes regions before primary", async () => {
+    const root = await makeWorkspace();
+    // Write a file with many named exports so extractCodeRegions finds multiple regions
+    const content = [
+      "export function alpha() { return 'a'; }",
+      "export function beta() { return 'b'; }",
+      "export function gamma() { return 'c'; }",
+      "export function delta() { return 'd'; }",
+      "export function epsilon() { return 'e'; }",
+      "export function zeta() { return 'f'; }",
+      "export function eta() { return 'g'; }",
+      "export function theta() { return 'h'; }",
+    ].join("\n");
+    await writeFile(join(root, "src/auth-module.ts"), content);
+    await gitAddAll(root);
+
+    // Use focusPath to guarantee this file is detected as a primary candidate.
+    // Tight budget to force region trimming (but within minimum envelope).
+    const tightTokens = 350;
+    const res = await buildTaskContext({
+      workspaceId: "test",
+      cwd: root,
+      allowedRoots: [root],
+      goal: "fix authentication functions",
+      focusPaths: ["src/auth-module.ts"],
+      maxTokens: tightTokens,
+      depth: "deep",
+    });
+
+    // Primary must still exist, exactly 1 (since it's the only focusPath)
+    assert.equal(res.primaryFiles.length, 1, "exactly 1 primary file must be preserved");
+
+    // Must have omitted regions due to tight budget
+    assert.ok((res.budget.omittedRegions ?? 0) > 0, "must omit regions when budget is tight");
+
+    // estimatedTokens must match actual JSON size
+    const exactTokens = Math.ceil(JSON.stringify(res).length / 4);
+    assert.equal(res.budget.estimatedTokens, exactTokens,
+      "estimatedTokens must match exact JSON measurement");
+
+    // Budget must be satisfied
+    assert.ok(exactTokens <= tightTokens, `must be strictly within budget (got ${exactTokens} <= ${tightTokens})`);
+    
+    // We shouldn't hit the minimum task context limitation because 800 tokens is enough for a barebone context
+    assert.equal(
+      res.limitations.some(l => l.includes("Minimum task context structure")),
+      false,
+      "should not hit minimum structure limitation"
+    );
+  });
+
+  // ─── P3: Non-overlapping region selection ────────────────────────
+  it("P3: suggestedNextSteps items do not have overlapping line ranges", async () => {
+    const root = await makeWorkspace();
+    // Write a class with methods (class range will overlap with method ranges)
+    const content = [
+      "export class AuthService {",
+      "  authenticate(token: string) { return true; }",
+      "  invalidate(token: string) { return false; }",
+      "  refresh(token: string) { return token; }",
+      "}",
+      "export function validateToken(token: string) { return token.length > 0; }",
+    ].join("\n");
+    await writeFile(join(root, "src/auth-service.ts"), content);
+    await gitAddAll(root);
+
+    const res = await buildTaskContext({
+      workspaceId: "test",
+      cwd: root,
+      allowedRoots: [root],
+      goal: "fix authentication in auth-service",
+      depth: "balanced",
+    });
+
+    const readStep = res.suggestedNextSteps.find(s => s.tool === "read_many");
+    assert.ok(readStep, "task_context must recommend read_many");
+
+    const items = (readStep.arguments as any).items as Array<{ path: string; startLine?: number; endLine?: number }>;
+    const rangedItems = items.filter(i => i.startLine !== undefined && i.endLine !== undefined);
+    assert.ok(rangedItems.length > 0, "the recommendation must contain ranged items");
+
+    // Check no two ranged items for the same file overlap
+    for (let i = 0; i < rangedItems.length; i++) {
+      for (let j = i + 1; j < rangedItems.length; j++) {
+        if (rangedItems[i].path !== rangedItems[j].path) continue;
+        const a = rangedItems[i], b = rangedItems[j];
+        const overlaps = (a.startLine! <= b.endLine! && a.endLine! >= b.startLine!);
+        assert.ok(!overlaps,
+          `Items ${i} [${a.startLine}-${a.endLine}] and ${j} [${b.startLine}-${b.endLine}] must not overlap`);
+      }
+    }
+
+    // Max 5 items total
+    assert.ok(items.length <= 5, `suggestedNextSteps items must be at most 5, got ${items.length}`);
+  });
 });

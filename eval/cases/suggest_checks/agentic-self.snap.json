@@ -97,6 +97,33 @@
   ],
   "unclassified": [
     {
+      "script": "bench:agent",
+      "command": "npm run bench:agent",
+      "tier": "other",
+      "reason": "Classificação pendente",
+      "confidence": "low",
+      "mutatesWorkspace": false,
+      "estimatedCost": "medium"
+    },
+    {
+      "script": "bench:server",
+      "command": "npm run bench:server",
+      "tier": "other",
+      "reason": "Classificação pendente",
+      "confidence": "low",
+      "mutatesWorkspace": false,
+      "estimatedCost": "medium"
+    },
+    {
+      "script": "bench:tools",
+      "command": "npm run bench:tools",
+      "tier": "other",
+      "reason": "Classificação pendente",
+      "confidence": "low",
+      "mutatesWorkspace": false,
+      "estimatedCost": "medium"
+    },
+    {
       "script": "clean",
       "command": "npm run clean",
       "tier": "other",

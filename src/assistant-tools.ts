@@ -48,8 +48,15 @@ export async function workspaceSummaryTool(cwd: string): Promise<ToolResponse> {
   };
 }
 
+export interface ReadManyItem {
+  path: string;
+  startLine?: number;
+  endLine?: number;
+}
+
 export interface ReadManyInput {
-  paths: string[];
+  paths?: string[];
+  items?: ReadManyItem[];
   compressionLevel?: "none" | "light" | "balanced" | "aggressive" | "skeletal";
   maxTokens?: number;
 }
@@ -59,10 +66,17 @@ export async function readManyTool(input: ReadManyInput, cwd: string, allowedRoo
   let totalTokens = 0;
   const maxTokens = input.maxTokens ?? 64000;
 
+  if ((input.paths && input.items) || (!input.paths && !input.items)) {
+    throw new Error("read_many requires exactly one of 'paths' or 'items'.");
+  }
+
+  const items: ReadManyItem[] = input.items || (input.paths || []).map(p => ({ path: p }));
+  const itemCount = items.length;
+
   // Proactive bloat warning: 5+ files without compression is a context risk
   const bloatWarning =
-    input.paths.length >= 5 && (!input.compressionLevel || input.compressionLevel === "none")
-      ? `⚠️  CONTEXT BLOAT WARNING: ${input.paths.length} files requested without compression. ` +
+    itemCount >= 5 && (!input.compressionLevel || input.compressionLevel === "none")
+      ? `⚠️  CONTEXT BLOAT WARNING: ${itemCount} files requested without compression. ` +
         `Consider setting compressionLevel to 'light' or 'balanced', or using semantic_pack for a goal-focused overview. ` +
         `Proceeding with maxTokens=${maxTokens} budget guard.\n\n`
       : "";
@@ -70,29 +84,122 @@ export async function readManyTool(input: ReadManyInput, cwd: string, allowedRoo
   const { statSync, readFileSync } = await import("node:fs");
   const { createHash } = await import("node:crypto");
 
-  // Sort files by size (smallest first) to maximize what fits in budget
-  type FileEntry = { path: string; fullPath: string; stat: import("node:fs").Stats };
+  // ── Per-call file cache: one stat + read + hash per unique fullPath ──
+  // Prevents multiple stats and reads when multiple regions of a file are requested.
+  interface ResolvedFile {
+    fullPath: string;
+    sizeBytes: number;
+    mtimeNs: number;
+  }
+  const resolvedFiles = new Map<string, ResolvedFile>();
+
+  function resolveFile(item: ReadManyItem): ResolvedFile {
+    const fullPath = enforceSecurePath(item.path, cwd, allowedRoots, false);
+    let resolved = resolvedFiles.get(fullPath);
+    if (!resolved) {
+      const stat = statSync(fullPath);
+      resolved = {
+        fullPath,
+        sizeBytes: stat.size,
+        mtimeNs: Number(stat.mtimeMs) * 1_000_000,
+      };
+      resolvedFiles.set(fullPath, resolved);
+    }
+    return resolved;
+  }
+
+  interface CachedFile {
+    rawBytes: Buffer;
+    lines: string[];
+    contentHash: string;
+    sizeBytes: number;
+    mtimeNs: number;
+  }
+  const loadedFiles = new Map<string, CachedFile>();
+
+  function loadFile(resolved: ResolvedFile): CachedFile {
+    const existing = loadedFiles.get(resolved.fullPath);
+    if (existing) return existing;
+    const rawBytes = readFileSync(resolved.fullPath);
+    const content = rawBytes.toString("utf8");
+    const lines = content.replace(/\r\n/g, "\n").split("\n");
+    const contentHash = "sha256:" + createHash("sha256").update(rawBytes).digest("hex");
+    const entry: CachedFile = {
+      rawBytes,
+      lines,
+      contentHash,
+      sizeBytes: resolved.sizeBytes,
+      mtimeNs: resolved.mtimeNs,
+    };
+    loadedFiles.set(resolved.fullPath, entry);
+    return entry;
+  }
+
+  // ── Resolve paths (keep insertion order for items) ──
+  type FileEntry = { item: ReadManyItem; resolved: ResolvedFile };
   const files: FileEntry[] = [];
-  for (const p of input.paths) {
+  for (const item of items) {
     try {
-      const fullPath = enforceSecurePath(p, cwd, [cwd], false);
-      files.push({ path: p, fullPath, stat: statSync(fullPath) });
+      const resolved = resolveFile(item);
+      files.push({ item, resolved });
     } catch {}
   }
-  files.sort((a, b) => a.stat.size - b.stat.size);
+
+  // For paths-mode, sort smallest-first to maximise budget fit.
+  // For items-mode, preserve order (order = priority from task_context).
+  if (!input.items) {
+    files.sort((a, b) => a.resolved.sizeBytes - b.resolved.sizeBytes);
+  }
 
   const skipped: { path: string; reason: string }[] = [];
   for (const file of files) {
-    const p = file.path;
-    try {
-      const rawBytes = readFileSync(file.fullPath);
-      let content = rawBytes.toString("utf8");
+    const p = file.item.path;
+    const { startLine, endLine } = file.item;
 
-      // Apply compression if requested — pass filePath+mtime to benefit from AST cache
-      if (input.compressionLevel && input.compressionLevel !== "none") {
+    // ── Range validation: require both or neither ──
+    const hasStart = startLine !== undefined;
+    const hasEnd = endLine !== undefined;
+    if (hasStart !== hasEnd) {
+      skipped.push({ path: p, reason: "range requires both startLine and endLine" });
+      continue;
+    }
+
+    const isRanged = hasStart && hasEnd;
+
+    try {
+      const cached = loadFile(file.resolved);
+
+      // ── Bounds validation ──
+      if (isRanged) {
+        const sl = startLine as number;
+        const el = endLine as number;
+        if (sl <= 0 || el <= 0) {
+          skipped.push({ path: p, reason: `range startLine/endLine must be >= 1 (got ${sl}..${el})` });
+          continue;
+        }
+        if (sl > el) {
+          skipped.push({ path: p, reason: `startLine (${sl}) must be <= endLine (${el})` });
+          continue;
+        }
+        if (sl > cached.lines.length) {
+          skipped.push({ path: p, reason: `startLine (${sl}) exceeds file length (${cached.lines.length} lines)` });
+          continue;
+        }
+      }
+
+      // ── Content extraction ──
+      let content: string;
+      if (isRanged) {
+        const sl = startLine as number;
+        const el = endLine as number;
+        content = cached.lines.slice(sl - 1, el).join("\n");
+      } else if (input.compressionLevel && input.compressionLevel !== "none") {
         const { compressAST } = await import("./context-engine/compressors.js");
-        const compressed = compressAST(content, input.compressionLevel, undefined, file.fullPath, file.stat.mtimeMs);
+        const rawContent = cached.rawBytes.toString("utf8");
+        const compressed = compressAST(rawContent, input.compressionLevel, undefined, file.resolved.fullPath, cached.mtimeNs / 1_000_000);
         content = compressed.output;
+      } else {
+        content = cached.rawBytes.toString("utf8");
       }
 
       const estimatedTokens = Math.ceil(content.length / 4);
@@ -102,14 +209,15 @@ export async function readManyTool(input: ReadManyInput, cwd: string, allowedRoo
       }
 
       totalTokens += estimatedTokens;
-      
-      const contentHash = "sha256:" + createHash("sha256").update(rawBytes).digest("hex");
-      
+
       resultFiles.push({
         path: p,
-        contentHash,
-        sizeBytes: file.stat.size,
-        mtimeNs: Number(file.stat.mtimeMs) * 1000000,
+        fullPath: file.resolved.fullPath,
+        contentHash: cached.contentHash,
+        sizeBytes: cached.sizeBytes,
+        mtimeNs: cached.mtimeNs,
+        startLine: file.item.startLine,
+        endLine: file.item.endLine,
         content,
       });
     } catch (e: any) {

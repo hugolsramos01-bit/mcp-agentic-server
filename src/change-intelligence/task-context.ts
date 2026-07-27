@@ -8,6 +8,7 @@ import { getWorkspaceFileCacheKey, getWorkspaceFileSnapshot, setWorkspaceFileSna
 import { IndexedPath, isPrimaryEligibleKind, isDependencySkippedKind, candidateKindPriority } from "./indexed-path.js";
 import { getLimitedSharedDependencies } from "./file-dependencies-internal.js";
 import { TaskContextInput, TaskContextResult, TaskFileCandidate, EvidenceEntry, TaskFileRole, TaskType, TaskContextDepth, CandidateKind } from "./types.js";
+import { loadAndExtractCodeRegions, CodeRegionSkippedError } from "./code-region-cache.js";
 import type { ToolResponse } from "../pi-tools.js";
 import { NOOP_PERFORMANCE_RECORDER } from "../performance/performance-recorder.js";
 
@@ -401,6 +402,44 @@ export async function buildTaskContext(input: TaskContextInput): Promise<TaskCon
     }
   }
 
+  // 11.5 Extract code regions for primary files adaptively
+  const depthConfig = {
+    fast: { maxFiles: 1, maxRegions: 4 },
+    balanced: { maxFiles: 2, maxRegions: 6 },
+    deep: { maxFiles: 3, maxRegions: 8 }
+  };
+  const config = depthConfig[effectiveDepth];
+  const regionTargets = primaryFiles
+    .filter(c => c.confidence === "high" && isPrimaryEligibleKind(getKind(c.path)))
+    .slice(0, config.maxFiles);
+
+  if (regionTargets.length > 0) {
+    const pCodeRegions = perf.startPhase("codeRegions");
+    const regionResults = await Promise.all(
+      regionTargets.map(candidate => 
+        loadAndExtractCodeRegions({
+          workspaceRoot: cwd,
+          path: candidate.path,
+          anchorKeywords,
+          maxRegions: config.maxRegions
+        }).catch(err => {
+          if (!(err instanceof CodeRegionSkippedError)) {
+            limitations.push(`Failed to extract code regions for ${candidate.path}: ${err instanceof Error ? err.message : String(err)}`);
+          }
+          return null;
+        })
+      )
+    );
+    for (const result of regionResults) {
+      if (!result) continue;
+      const candidate = primaryFiles.find(f => f.path === result.path);
+      if (candidate && result.codeRegions.length > 0) {
+        candidate.codeRegions = result.codeRegions;
+      }
+    }
+    pCodeRegions.end();
+  }
+
   // 12. Direct dependents — limited to top 3 primary files (skip eval/snapshot/generated/docs)
   let directDependents: TaskContextResult["directDependents"] = [];
   if (effectiveDepth !== "fast") {
@@ -455,14 +494,50 @@ export async function buildTaskContext(input: TaskContextInput): Promise<TaskCon
 
 // ─── Suggested next steps builder (runs after budget enforcement) ─────
 
+// ─── Non-overlapping region selection ────────────────────────────────
+
+function selectNonOverlappingRegions(
+  regions: import("./types.js").CodeRegion[],
+  maxRegions: number,
+): import("./types.js").CodeRegion[] {
+  const selected: import("./types.js").CodeRegion[] = [];
+  for (const region of regions) {
+    const overlaps = selected.some(
+      cur => region.startLine <= cur.endLine && region.endLine >= cur.startLine,
+    );
+    if (!overlaps) {
+      selected.push(region);
+    }
+    if (selected.length >= maxRegions) break;
+  }
+  return selected;
+}
+
 function buildSuggestedNextSteps(result: TaskContextResult, anchorKeywords: string[]): TaskContextResult["suggestedNextSteps"] {
   const steps: TaskContextResult["suggestedNextSteps"] = [];
 
   if (result.primaryFiles.length > 0) {
+    const MAX_TOTAL_ITEMS = 5;
+    const MAX_REGIONS_PER_FILE = 2;
+    const allItems: Array<{ path: string; startLine?: number; endLine?: number }> = [];
+
+    for (const c of result.primaryFiles.slice(0, MAX_TOTAL_ITEMS)) {
+      if (allItems.length >= MAX_TOTAL_ITEMS) break;
+      if (c.codeRegions && c.codeRegions.length > 0) {
+        const nonOverlapping = selectNonOverlappingRegions(c.codeRegions, MAX_REGIONS_PER_FILE);
+        for (const r of nonOverlapping) {
+          if (allItems.length >= MAX_TOTAL_ITEMS) break;
+          allItems.push({ path: c.path, startLine: r.startLine, endLine: r.endLine });
+        }
+      } else {
+        allItems.push({ path: c.path });
+      }
+    }
+
     steps.push({
       tool: "read_many",
-      arguments: { paths: result.primaryFiles.slice(0, 5).map(c => c.path) },
-      reason: "Read the strongest implementation candidates."
+      arguments: { items: allItems },
+      reason: "Read the strongest implementation candidates and their relevant regions."
     });
   } else if (result.supportingFiles.length > 0) {
     steps.push({
@@ -492,6 +567,8 @@ function enforceTaskContextBudget(result: TaskContextResult, maxTokens: number):
 
   const estimateCandidateTokens = (c: any) => Math.ceil(JSON.stringify(c).length / 4);
 
+  let omittedRegions = 0;
+
   // Trim supporting files first (lowest priority), from the end (lowest confidence)
   while (currentTokens > maxTokens && result.supportingFiles.length > 0) {
     const popped = result.supportingFiles.pop();
@@ -500,7 +577,29 @@ function enforceTaskContextBudget(result: TaskContextResult, maxTokens: number):
     truncated = true;
   }
 
-  // Trim primary files only after all supporting is gone, always keep at least 1
+  // Trim regions from primary files from back to front before dropping files entirely
+  if (currentTokens > maxTokens) {
+    for (let i = result.primaryFiles.length - 1; i >= 0; i--) {
+      if (currentTokens <= maxTokens) break;
+      const file = result.primaryFiles[i];
+      if (file.codeRegions && file.codeRegions.length > 0) {
+        while (currentTokens > maxTokens && file.codeRegions.length > 0) {
+          const regions = file.codeRegions;
+          const oldFileTokens = estimateCandidateTokens(file);
+          regions.pop();
+          const newFileTokens = estimateCandidateTokens(file);
+          currentTokens -= (oldFileTokens - newFileTokens);
+          omittedRegions++;
+          truncated = true;
+        }
+        if (file.codeRegions.length === 0) {
+          delete file.codeRegions;
+        }
+      }
+    }
+  }
+
+  // Trim primary files only after all supporting and regions are gone, always keep at least 1
   while (currentTokens > maxTokens && result.primaryFiles.length > 1) {
     const popped = result.primaryFiles.pop();
     currentTokens -= estimateCandidateTokens(popped);
@@ -536,6 +635,7 @@ function enforceTaskContextBudget(result: TaskContextResult, maxTokens: number):
     estimatedTokens: measureTokens(),
     truncated,
     omittedCandidates,
+    omittedRegions,
   };
 
   return result;
@@ -576,9 +676,29 @@ function enforceFinalContextBudget(
   let exactTokens = measureTokens();
   let finalLimitationAdded = false;
 
+  // Helper: true if any primary file still has codeRegions that can be trimmed
+  const hasCodeRegions = () =>
+    result.primaryFiles.some(f => (f.codeRegions?.length ?? 0) > 0);
+
+  // Helper: remove the lowest-priority region across all primary files
+  const removeLowestPriorityRegion = (): boolean => {
+    for (let i = result.primaryFiles.length - 1; i >= 0; i--) {
+      const file = result.primaryFiles[i];
+      if (file.codeRegions && file.codeRegions.length > 0) {
+        file.codeRegions.pop();
+        if (result.budget.omittedRegions === undefined) result.budget.omittedRegions = 0;
+        result.budget.omittedRegions++;
+        if (file.codeRegions.length === 0) delete file.codeRegions;
+        return true;
+      }
+    }
+    return false;
+  };
+
   while (
     exactTokens > maxTokens &&
     (
+      hasCodeRegions() ||
       result.supportingFiles.length > 0 ||
       result.primaryFiles.length > 1
     )
@@ -590,13 +710,21 @@ function enforceFinalContextBudget(
       finalLimitationAdded = true;
     }
 
+    let poppedSomething = false;
+
     if (result.supportingFiles.length > 0) {
       result.supportingFiles.pop();
-    } else {
+      omittedCandidates++;
+      poppedSomething = true;
+    } else if (removeLowestPriorityRegion()) {
+      poppedSomething = true;
+    } else if (result.primaryFiles.length > 1) {
       result.primaryFiles.pop();
+      omittedCandidates++;
+      poppedSomething = true;
     }
 
-    omittedCandidates++;
+    if (!poppedSomething) break; // Safe-guard: nothing left to trim
 
     cleanDerivedStructures(result);
 
@@ -623,8 +751,10 @@ function enforceFinalContextBudget(
     truncated:
       result.budget.omittedCandidates > 0 ||
       omittedCandidates > 0 ||
+      (result.budget.omittedRegions ?? 0) > 0 ||
       actualTokens > maxTokens,
     omittedCandidates,
+    omittedRegions: result.budget.omittedRegions,
   };
 
   return result;
