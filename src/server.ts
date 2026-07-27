@@ -2196,6 +2196,7 @@ function createMcpServer(
           focusPaths: z.array(z.string().max(500)).max(10).optional().describe("Paths to prioritize explicitly"),
           excludePaths: z.array(z.string().max(500)).max(20).optional().describe("Paths to exclude from candidates"),
         },
+        outputSchema: resultOutputSchema(),
         ...toolWidgetDescriptorMeta(config, "read"),
         annotations: READ_TOOL_ANNOTATIONS,
       } as any,

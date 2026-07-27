@@ -235,9 +235,43 @@ describe("task-context", () => {
       goal: "add new feature",
       instructionFiles: ["AGENTS.md"],
     });
-
     const inst = res.applicableInstructions.find(i => i.path.includes("AGENTS.md"));
     assert.ok(inst, "AGENTS.md should be in applicableInstructions when provided via instructionFiles");
     assert.equal(inst!.scope, "workspace");
+  });
+
+  // ─── 13. Budget truncation consistency ───────────────────────
+  it("removes omitted candidates from derived structures (dependents, nearby tests, next steps)", async () => {
+    const root = await makeWorkspace();
+    for (let i = 0; i < 5; i++) {
+      await writeFile(join(root, "src", `page${i}.tsx`), "export default function Page() {}");
+      await writeFile(join(root, "src", `page${i}.test.tsx`), "test()");
+    }
+
+    const focusPaths = [
+      "src/page0.tsx", "src/page1.tsx", "src/page2.tsx",
+      "src/page3.tsx", "src/page4.tsx",
+    ];
+
+    const res = await buildTaskContext({
+      cwd: root,
+      allowedRoots: [root],
+      goal: "adicionar rota de pagamento em src/page0.tsx src/page1.tsx src/page2.tsx",
+      focusPaths,
+      maxTokens: 200,
+    });
+
+    assert.ok(res.budget.truncated, "Result must be truncated for test");
+    
+    // Check that nearbyTestCandidates does not contain paths not in supportingFiles
+    const retainedSupporting = new Set(res.supportingFiles.map(f => f.path));
+    const retainedPrimary = new Set(res.primaryFiles.map(f => f.path));
+
+    for (const testCandidate of res.nearbyTestCandidates) {
+      assert.ok(retainedPrimary.has(testCandidate.sourcePath) || retainedSupporting.has(testCandidate.sourcePath), "nearbyTestCandidates sourcePath must be retained");
+      for (const t of testCandidate.testPaths) {
+        assert.ok(retainedSupporting.has(t), "nearbyTestCandidates testPaths must be in supportingFiles");
+      }
+    }
   });
 });

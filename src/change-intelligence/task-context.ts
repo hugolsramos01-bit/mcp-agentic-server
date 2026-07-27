@@ -354,6 +354,31 @@ function enforceTaskContextBudget(result: TaskContextResult, maxTokens: number):
     result.limitations.push(
       `Budget: omitted ${omittedCandidates} candidate(s) to stay within ${maxTokens} tokens.`
     );
+
+    // Clean up references to truncated files
+    const retainedPaths = new Set([
+      ...result.primaryFiles.map(file => file.path),
+      ...result.supportingFiles.map(file => file.path),
+    ]);
+
+    result.directDependents = result.directDependents.filter(item =>
+      retainedPaths.has(item.source)
+    );
+
+    result.nearbyTestCandidates = result.nearbyTestCandidates
+      .filter(item => retainedPaths.has(item.sourcePath))
+      .map(item => ({
+        ...item,
+        testPaths: item.testPaths.filter(path => retainedPaths.has(path)),
+      }));
+
+    for (const step of result.suggestedNextSteps) {
+      if (Array.isArray(step.arguments.paths)) {
+        step.arguments.paths = step.arguments.paths.filter(path =>
+          retainedPaths.has(String(path))
+        );
+      }
+    }
   }
 
   result.budget = {

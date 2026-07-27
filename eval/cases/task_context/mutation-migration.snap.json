@@ -14,16 +14,14 @@
           "detail": "Extracted from goal text"
         },
         {
-          "type": "filename_partial",
-          "detail": "Basename contains keyword: mutation-receipt.ts"
-        },
-        {
           "type": "test_proximity",
           "detail": "Has nearby tests: src/server/mutation-receipt.test.ts"
         }
       ],
       "recommendedReadTool": "read"
-    },
+    }
+  ],
+  "supportingFiles": [
     {
       "path": "src/change-intelligence/goal-normalizer.test.ts",
       "role": "test",
@@ -41,20 +39,6 @@
       "recommendedReadTool": "read_adaptive"
     },
     {
-      "path": "src/server/mutation-receipt.test.ts",
-      "role": "test",
-      "confidence": "medium",
-      "evidence": [
-        {
-          "type": "test_proximity",
-          "detail": "Is test for: src/server/mutation-receipt.ts"
-        }
-      ],
-      "recommendedReadTool": "read_adaptive"
-    }
-  ],
-  "supportingFiles": [
-    {
       "path": "src/change-intelligence/goal-normalizer.ts",
       "role": "supporting",
       "confidence": "medium",
@@ -66,6 +50,18 @@
         {
           "type": "test_proximity",
           "detail": "Has nearby tests: src/change-intelligence/goal-normalizer.test.ts"
+        }
+      ],
+      "recommendedReadTool": "read_adaptive"
+    },
+    {
+      "path": "src/server/mutation-receipt.test.ts",
+      "role": "test",
+      "confidence": "medium",
+      "evidence": [
+        {
+          "type": "test_proximity",
+          "detail": "Is test for: src/server/mutation-receipt.ts"
         }
       ],
       "recommendedReadTool": "read_adaptive"
@@ -134,39 +130,17 @@
       ],
       "confidence": "medium",
       "limitations": [
-        "Lexical search only (no AST)"
-      ]
-    },
-    {
-      "source": "src/change-intelligence/goal-normalizer.test.ts",
-      "dependents": [
-        "eval/cases/read/package-json.snap.json",
-        "eval/cases/read_many/two-files.snap.json",
-        "eval/cases/semantic_pack/workspace-lifecycle.snap.json",
-        "eval/cases/task_context/jwt-auth.snap.json",
-        "package.json"
-      ],
-      "confidence": "medium",
-      "limitations": [
-        "Lexical search only (no AST)"
-      ]
-    },
-    {
-      "source": "src/server/mutation-receipt.test.ts",
-      "dependents": [
-        "eval/cases/read/package-json.snap.json",
-        "eval/cases/read_many/two-files.snap.json",
-        "eval/cases/semantic_pack/workspace-lifecycle.snap.json",
-        "eval/cases/task_context/mutation-migration.snap.json",
-        "package.json"
-      ],
-      "confidence": "medium",
-      "limitations": [
-        "Lexical search only (no AST)"
+        "Lexical search only (no AST); results may include false positives"
       ]
     }
   ],
-  "applicableInstructions": [],
+  "applicableInstructions": [
+    {
+      "path": "AGENTS.md",
+      "scope": "global",
+      "reason": "Instruction file detected in workspace"
+    }
+  ],
   "nearbyTestCandidates": [
     {
       "sourcePath": "src/server/mutation-receipt.ts",
@@ -186,18 +160,16 @@
       "tool": "read_many",
       "arguments": {
         "paths": [
-          "src/server/mutation-receipt.ts",
-          "src/change-intelligence/goal-normalizer.test.ts",
-          "src/server/mutation-receipt.test.ts"
+          "src/server/mutation-receipt.ts"
         ]
       },
-      "reason": "Read the most confident primary candidates first to understand the implementation details."
+      "reason": "Read the most confident primary candidates to understand implementation details."
     }
   ],
   "limitations": [],
   "budget": {
-    "maxTokens": 15000,
-    "estimatedTokens": 1400,
+    "maxTokens": 6000,
+    "estimatedTokens": 818,
     "truncated": false,
     "omittedCandidates": 0
   }

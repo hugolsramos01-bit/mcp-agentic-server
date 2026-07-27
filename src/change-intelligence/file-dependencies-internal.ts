@@ -69,8 +69,11 @@ export async function getLimitedSharedDependencies(
         results.push({
           source: target,
           dependents: [],
-          confidence: "high", // confidently no matches
-          limitations: ["Lexical search only (no AST)"],
+          confidence: "medium", // lexical: only proves no textual matches
+          limitations: [
+            "No lexical references were found",
+            "Imports, aliases, re-exports, and dynamic loading were not parsed",
+          ],
         });
       } else {
         // Real error (git not available, timeout, etc.) → low confidence
