@@ -561,45 +561,68 @@ function cleanDerivedStructures(result: TaskContextResult): void {
     }));
 }
 
-function enforceFinalContextBudget(result: TaskContextResult, maxTokens: number, anchorKeywords: string[]): TaskContextResult {
-  const measureTokens = () => Math.ceil(JSON.stringify(result).length / 4);
+function enforceFinalContextBudget(
+  result: TaskContextResult,
+  maxTokens: number,
+  anchorKeywords: string[],
+): TaskContextResult {
+  const measureTokens = () =>
+    Math.ceil(JSON.stringify(result).length / 4);
+
+  const initialOmitted =
+    result.budget.omittedCandidates;
+
+  let omittedCandidates = initialOmitted;
   let exactTokens = measureTokens();
+  let finalLimitationAdded = false;
 
-  let omittedCandidates = result.budget.omittedCandidates;
-
-  // Loop: trim, rebuild nextSteps, measure — repeat until within budget or minimum structure reached
   while (
     exactTokens > maxTokens &&
-    (result.supportingFiles.length > 0 || result.primaryFiles.length > 1)
+    (
+      result.supportingFiles.length > 0 ||
+      result.primaryFiles.length > 1
+    )
   ) {
+    if (!finalLimitationAdded) {
+      result.limitations.push(
+        "Budget: additional candidates omitted after rebuilding suggestedNextSteps.",
+      );
+      finalLimitationAdded = true;
+    }
+
     if (result.supportingFiles.length > 0) {
       result.supportingFiles.pop();
     } else {
       result.primaryFiles.pop();
     }
+
     omittedCandidates++;
 
     cleanDerivedStructures(result);
-    result.suggestedNextSteps = buildSuggestedNextSteps(result, anchorKeywords);
-    exactTokens = measureTokens();
-  }
 
-  if (omittedCandidates > result.budget.omittedCandidates) {
-    result.limitations.push(
-      `Budget: omitted ${omittedCandidates} candidate(s) (final) to stay within ${maxTokens} tokens.`
-    );
+    result.suggestedNextSteps =
+      buildSuggestedNextSteps(
+        result,
+        anchorKeywords,
+      );
+
+    exactTokens = measureTokens();
   }
 
   if (exactTokens > maxTokens) {
     result.limitations.push(
-      "Minimum task context structure exceeds the requested token budget."
+      "Minimum task context structure exceeds the requested token budget.",
     );
+
+    exactTokens = measureTokens();
   }
 
   result.budget = {
     maxTokens,
     estimatedTokens: exactTokens,
-    truncated: exactTokens > maxTokens || result.budget.truncated,
+    truncated:
+      omittedCandidates > 0 ||
+      exactTokens > maxTokens,
     omittedCandidates,
   };
 
