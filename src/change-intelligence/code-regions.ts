@@ -115,8 +115,11 @@ export function extractCodeRegions(
       endLine,
       matchedKeywords: matchedKeywords.length > 0 ? matchedKeywords : undefined,
       score,
-      originalIndex: index++
-    });
+      originalIndex: index++,
+      _signature: signature,
+      _body: body,
+      _isExported: isExported
+    } as any);
   }
 
   function visit(node: ts.Node, parentName?: string) {

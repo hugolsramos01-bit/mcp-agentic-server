@@ -80,7 +80,7 @@ describe("readManyTool — P3 ranged reads", () => {
       ]
     }, TMP, [TMP]);
 
-    const data = JSON.parse(result.content[0].text);
+    const data = JSON.parse((result.content[0] as any).text);
     assert.equal(data.files.length, 5, "all 5 ranged items should succeed");
     assert.equal(data.skipped.length, 0, "nothing should be skipped");
 
@@ -99,7 +99,7 @@ describe("readManyTool — P3 ranged reads", () => {
       items: [{ path: FILE, startLine: 1 }]
     }, TMP, [TMP]);
 
-    const data = JSON.parse(result.content[0].text);
+    const data = JSON.parse((result.content[0] as any).text);
     assert.equal(data.files.length, 0);
     assert.equal(data.skipped.length, 1);
     assert.ok(data.skipped[0].reason.includes("both startLine and endLine"));
@@ -110,7 +110,7 @@ describe("readManyTool — P3 ranged reads", () => {
       items: [{ path: FILE, endLine: 3 }]
     }, TMP, [TMP]);
 
-    const data = JSON.parse(result.content[0].text);
+    const data = JSON.parse((result.content[0] as any).text);
     assert.equal(data.files.length, 0);
     assert.ok(data.skipped[0].reason.includes("both startLine and endLine"));
   });
@@ -120,7 +120,7 @@ describe("readManyTool — P3 ranged reads", () => {
       items: [{ path: FILE, startLine: 5, endLine: 2 }]
     }, TMP, [TMP]);
 
-    const data = JSON.parse(result.content[0].text);
+    const data = JSON.parse((result.content[0] as any).text);
     assert.equal(data.files.length, 0);
     assert.ok(data.skipped[0].reason.includes("must be <= endLine"));
   });
@@ -130,7 +130,7 @@ describe("readManyTool — P3 ranged reads", () => {
       items: [{ path: FILE, startLine: 999, endLine: 1000 }]
     }, TMP, [TMP]);
 
-    const data = JSON.parse(result.content[0].text);
+    const data = JSON.parse((result.content[0] as any).text);
     assert.equal(data.files.length, 0);
     assert.ok(data.skipped[0].reason.includes("exceeds file length"));
   });
@@ -140,14 +140,14 @@ describe("readManyTool — P3 ranged reads", () => {
       items: [{ path: FILE, startLine: 0, endLine: 3 }]
     }, TMP, [TMP]);
 
-    const data = JSON.parse(result.content[0].text);
+    const data = JSON.parse((result.content[0] as any).text);
     assert.equal(data.files.length, 0);
     assert.ok(data.skipped[0].reason.includes(">= 1"));
   });
 
   it("reads full file when no range is given", async () => {
     const result = await readManyTool({ items: [{ path: FILE }] }, TMP, [TMP]);
-    const data = JSON.parse(result.content[0].text);
+    const data = JSON.parse((result.content[0] as any).text);
     assert.equal(data.files.length, 1);
     assert.ok(data.files[0].content.includes("alpha"));
     assert.ok(data.files[0].content.includes("epsilon"));

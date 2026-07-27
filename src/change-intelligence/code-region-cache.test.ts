@@ -172,4 +172,41 @@ test("code-region-cache", async (t) => {
     });
     assert.equal(res2.codeRegions.length, 2, "should re-extract after file change");
   });
+
+  await t.test("P3: anchor keyword found in signature/body outranks other regions (cache neutrality)", async () => {
+    // Create a file where the keyword is in the body/signature but not the name
+    const tsCode = `
+      export function genericProcess(input: string) {
+        // no keyword here
+        return input;
+      }
+      export function processRequest(input: PaginationCursor) {
+        return validateExpiredCursor(input);
+      }
+    `;
+    const testFile = join(TMP_DIR, "cursor.ts");
+    await writeFile(testFile, tsCode);
+
+    const res1 = await loadAndExtractCodeRegions({
+      workspaceRoot: TMP_DIR,
+      path: "cursor.ts",
+      anchorKeywords: ["cursor"],
+      maxRegions: 1,
+    });
+    
+    assert.equal(res1.codeRegions.length, 1);
+    assert.equal(res1.codeRegions[0].name, "processRequest", "should rank processRequest highest because 'cursor' is in signature and body");
+
+    // Clear and do it again to test that even on warm hit it re-ranks correctly? 
+    // Wait, cache hits use the already parsed data! 
+    const res2 = await loadAndExtractCodeRegions({
+      workspaceRoot: TMP_DIR,
+      path: "cursor.ts",
+      anchorKeywords: ["cursor"],
+      maxRegions: 1,
+    });
+    
+    assert.equal(res2.codeRegions.length, 1);
+    assert.equal(res2.codeRegions[0].name, "processRequest", "cache hit should also rank processRequest highest based on cached _signature and _body");
+  });
 });

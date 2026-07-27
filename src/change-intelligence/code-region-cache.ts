@@ -16,7 +16,13 @@ interface CodeRegionRawEntry {
   mtimeMs: number;
   size: number;
   /** All regions extracted from the file, in original source order (no ranking). */
-  rawRegions: CodeRegion[];
+  rawRegions: IndexedCodeRegion[];
+}
+
+interface IndexedCodeRegion extends CodeRegion {
+  _signature?: string;
+  _body?: string;
+  _isExported?: boolean;
 }
 
 const codeRegionCache = new Map<string, CodeRegionRawEntry>();
@@ -38,59 +44,72 @@ export interface LoadCodeRegionsOptions extends ExtractCodeRegionsOptions {
 // (file.codeRegions.pop()) never mutates the cached array.
 
 function cloneRegions(regions: CodeRegion[]): CodeRegion[] {
-  return regions.map(r => ({
-    ...r,
-    matchedKeywords: r.matchedKeywords ? [...r.matchedKeywords] : undefined,
-  }));
+  return regions.map(r => {
+    const ir = r as IndexedCodeRegion;
+    return {
+      ...ir,
+      matchedKeywords: ir.matchedKeywords ? [...ir.matchedKeywords] : undefined,
+    } as CodeRegion;
+  });
 }
 
 // ─── Ranking helper ───────────────────────────────────────────────────
 // Apply anchorKeyword scoring and maxRegions slicing to a raw region list.
 // This mirrors extractCodeRegions() but operates on already-parsed data.
 
-function rankAndSlice(
-  rawRegions: CodeRegion[],
-  anchorKeywords: string[],
-  maxRegions: number | undefined,
-): CodeRegion[] {
-  if (anchorKeywords.length === 0) {
-    // No keywords — preserve source order and apply limit only
-    const sliced = rawRegions.slice(0, maxRegions ?? rawRegions.length);
-    return cloneRegions(sliced);
-  }
-
-  const lowerKeywords = anchorKeywords.map(k => k.toLowerCase());
-
-  interface Scored extends CodeRegion {
-    _score: number;
-    _idx: number;
-  }
-
-  const scored: Scored[] = rawRegions.map((r, idx) => {
-    const lowerName = r.name.toLowerCase();
-    const lowerQual = (r.qualifiedName ?? "").toLowerCase();
-    let score = 0;
-    const matchedKeywords: string[] = [];
-
-    for (const kw of lowerKeywords) {
-      let matched = false;
-      if (lowerName === kw) { score += 100; matched = true; }
-      else if (lowerName.includes(kw)) { score += 60; matched = true; }
-      else if (lowerQual.includes(kw)) { score += 50; matched = true; }
-      // Note: body/signature scoring would require the original text.
-      // For cache hits we rely on name/qualifiedName scoring only, which
-      // covers the vast majority of real use-cases. Full scoring happens
-      // on the initial extraction path inside extractCodeRegions().
-      if (matched) matchedKeywords.push(kw);
+  function rankAndSlice(
+    rawRegions: CodeRegion[],
+    anchorKeywords: string[],
+    maxRegions: number | undefined,
+  ): CodeRegion[] {
+    if (anchorKeywords.length === 0) {
+      // No keywords — preserve source order and apply limit only
+      const sliced = rawRegions.slice(0, maxRegions ?? rawRegions.length);
+      return cloneRegions(sliced).map(r => {
+        const { _signature, _body, _isExported, ...rest } = r as IndexedCodeRegion;
+        return rest as CodeRegion;
+      });
     }
-
-    return {
-      ...r,
-      matchedKeywords: matchedKeywords.length > 0 ? matchedKeywords : r.matchedKeywords,
-      _score: score,
-      _idx: idx,
-    };
-  });
+  
+    const lowerKeywords = anchorKeywords.map(k => k.toLowerCase());
+  
+    interface Scored extends IndexedCodeRegion {
+      _score: number;
+      _idx: number;
+    }
+  
+    const scored: Scored[] = rawRegions.map((r, idx) => {
+      const ir = r as IndexedCodeRegion;
+      const lowerName = ir.name.toLowerCase();
+      const lowerQual = (ir.qualifiedName ?? "").toLowerCase();
+      const lowerSig = (ir._signature ?? "").toLowerCase();
+      const lowerBody = (ir._body ?? "").toLowerCase();
+  
+      let score = 0;
+      const matchedKeywords: string[] = [];
+  
+      for (const kw of lowerKeywords) {
+        let matched = false;
+        if (lowerName === kw) { score += 100; matched = true; }
+        else if (lowerName.includes(kw)) { score += 60; matched = true; }
+        else if (lowerQual.includes(kw)) { score += 50; matched = true; }
+        else if (lowerSig.includes(kw)) { score += 30; matched = true; }
+        else if (lowerBody.includes(kw)) { score += 15; matched = true; }
+  
+        if (matched) matchedKeywords.push(kw);
+      }
+  
+      if (ir._isExported) {
+        score += 5;
+      }
+  
+      return {
+        ...ir,
+        matchedKeywords: matchedKeywords.length > 0 ? matchedKeywords : ir.matchedKeywords,
+        _score: score,
+        _idx: idx,
+      };
+    });
 
   scored.sort((a, b) => {
     if (a._score !== b._score) return b._score - a._score;
@@ -98,7 +117,7 @@ function rankAndSlice(
   });
 
   const limit = maxRegions ?? scored.length;
-  return scored.slice(0, limit).map(({ _score, _idx, ...rest }) => rest);
+  return scored.slice(0, limit).map(({ _score, _idx, _signature, _body, _isExported, ...rest }) => rest as CodeRegion);
 }
 
 // ─── Public API ───────────────────────────────────────────────────────

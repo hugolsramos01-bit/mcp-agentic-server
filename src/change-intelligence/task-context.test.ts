@@ -864,7 +864,7 @@ describe("task-context", () => {
 
     // Use focusPath to guarantee this file is detected as a primary candidate.
     // Tight budget to force region trimming (but within minimum envelope).
-    const tightTokens = 800;
+    const tightTokens = 350;
     const res = await buildTaskContext({
       workspaceId: "test",
       cwd: root,
@@ -875,19 +875,26 @@ describe("task-context", () => {
       depth: "deep",
     });
 
-    // Primary must still exist (we never remove the last one)
-    assert.ok(res.primaryFiles.length >= 1, "primary file must be preserved even under tight budget");
+    // Primary must still exist, exactly 1 (since it's the only focusPath)
+    assert.equal(res.primaryFiles.length, 1, "exactly 1 primary file must be preserved");
+
+    // Must have omitted regions due to tight budget
+    assert.ok((res.budget.omittedRegions ?? 0) > 0, "must omit regions when budget is tight");
 
     // estimatedTokens must match actual JSON size
     const exactTokens = Math.ceil(JSON.stringify(res).length / 4);
     assert.equal(res.budget.estimatedTokens, exactTokens,
       "estimatedTokens must match exact JSON measurement");
 
-    // Budget must be satisfied (or minimum structure was unavoidably larger)
-    const withinBudget = exactTokens <= res.budget.maxTokens;
-    const minimumExceeded = res.limitations.some(l => l.includes("Minimum task context structure"));
-    assert.ok(withinBudget || minimumExceeded,
-      `must be within budget OR have minimum-exceeded limitation (got ${exactTokens} tokens vs ${tightTokens} max)`);
+    // Budget must be satisfied
+    assert.ok(exactTokens <= tightTokens, `must be strictly within budget (got ${exactTokens} <= ${tightTokens})`);
+    
+    // We shouldn't hit the minimum task context limitation because 800 tokens is enough for a barebone context
+    assert.equal(
+      res.limitations.some(l => l.includes("Minimum task context structure")),
+      false,
+      "should not hit minimum structure limitation"
+    );
   });
 
   // ─── P3: Non-overlapping region selection ────────────────────────
@@ -914,10 +921,11 @@ describe("task-context", () => {
     });
 
     const readStep = res.suggestedNextSteps.find(s => s.tool === "read_many");
-    if (!readStep) return; // OK if no items (file might not have been detected)
+    assert.ok(readStep, "task_context must recommend read_many");
 
     const items = (readStep.arguments as any).items as Array<{ path: string; startLine?: number; endLine?: number }>;
     const rangedItems = items.filter(i => i.startLine !== undefined && i.endLine !== undefined);
+    assert.ok(rangedItems.length > 0, "the recommendation must contain ranged items");
 
     // Check no two ranged items for the same file overlap
     for (let i = 0; i < rangedItems.length; i++) {

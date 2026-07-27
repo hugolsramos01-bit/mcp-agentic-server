@@ -11,14 +11,12 @@ function helloWorld() {
     `.trim();
     const regions = extractCodeRegions("test.ts", code);
     assert.strictEqual(regions.length, 1);
-    assert.deepStrictEqual(regions[0], {
-      name: "helloWorld",
-      qualifiedName: undefined,
-      kind: "function",
-      startLine: 1,
-      endLine: 3,
-      matchedKeywords: undefined
-    });
+    assert.strictEqual(regions[0].name, "helloWorld");
+    assert.strictEqual(regions[0].qualifiedName, undefined);
+    assert.strictEqual(regions[0].kind, "function");
+    assert.strictEqual(regions[0].startLine, 1);
+    assert.strictEqual(regions[0].endLine, 3);
+    assert.strictEqual(regions[0].matchedKeywords, undefined);
   });
 
   await t.test("classe, método, getter, setter, constructor", () => {

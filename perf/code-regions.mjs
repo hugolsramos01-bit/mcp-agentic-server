@@ -159,6 +159,5 @@ for (let i = 0; i < 10; i++) {
 }
 console.log(`  5 regions of ${FILE_PATH}`);
 console.log(`  mean=${avg(dedupTimes).toFixed(2)}ms  min=${Math.min(...dedupTimes).toFixed(2)}ms  max=${Math.max(...dedupTimes).toFixed(2)}ms`);
-console.log("  (one stat+read+hash internally, 5 slices)");
 
 console.log("\n=== Done ===\n");

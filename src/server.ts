@@ -1800,7 +1800,7 @@ function createMcpServer(
     const getSummary = (tool: string, req: any) => {
       switch (tool) {
         case "workspace_summary": return "Workspace Summary";
-        case "read_many": return `Read ${req.paths?.length || 0} file(s)`;
+        case "read_many": return `Read ${req.items?.length ?? req.paths?.length ?? 0} file region(s)`;
         case "tree": return `Tree of ${req.path || '.'} (Depth: ${req.depth || 'unlimited'})`;
         case "safe_file_preview": return `Preview ${req.paths?.length || 0} file(s)`;
         case "git_status": return "Git Status";
@@ -2419,10 +2419,16 @@ function createMcpServer(
           workspaceId: z.string(),
           paths: z.array(z.string()).optional(),
           items: z.array(z.object({
-            path: z.string(),
-            startLine: z.number().optional(),
-            endLine: z.number().optional()
-          })).optional(),
+            path: z.string().min(1),
+            startLine: z.number().int().positive().optional(),
+            endLine: z.number().int().positive().optional()
+          }).refine(
+            item => (item.startLine === undefined) === (item.endLine === undefined),
+            { message: "Provide both startLine and endLine, or neither." }
+          ).refine(
+            item => item.startLine === undefined || item.endLine === undefined || item.startLine <= item.endLine,
+            { message: "startLine must be less than or equal to endLine." }
+          )).optional(),
           compressionLevel: z.enum(["none", "light", "balanced", "aggressive", "skeletal"]).optional().describe("Optional compression level to reduce token usage"),
           maxTokens: z.number().optional().describe("Optional token budget (default 64000) — files are skipped once budget is exceeded"),
         },

@@ -85,7 +85,29 @@ export async function readManyTool(input: ReadManyInput, cwd: string, allowedRoo
   const { createHash } = await import("node:crypto");
 
   // ── Per-call file cache: one stat + read + hash per unique fullPath ──
-  // Prevents 4 reads of server.ts when 4 regions of that file are requested.
+  // Prevents multiple stats and reads when multiple regions of a file are requested.
+  interface ResolvedFile {
+    fullPath: string;
+    sizeBytes: number;
+    mtimeNs: number;
+  }
+  const resolvedFiles = new Map<string, ResolvedFile>();
+
+  function resolveFile(item: ReadManyItem): ResolvedFile {
+    const fullPath = enforceSecurePath(item.path, cwd, allowedRoots, false);
+    let resolved = resolvedFiles.get(fullPath);
+    if (!resolved) {
+      const stat = statSync(fullPath);
+      resolved = {
+        fullPath,
+        sizeBytes: stat.size,
+        mtimeNs: Number(stat.mtimeMs) * 1_000_000,
+      };
+      resolvedFiles.set(fullPath, resolved);
+    }
+    return resolved;
+  }
+
   interface CachedFile {
     rawBytes: Buffer;
     lines: string[];
@@ -95,40 +117,38 @@ export async function readManyTool(input: ReadManyInput, cwd: string, allowedRoo
   }
   const loadedFiles = new Map<string, CachedFile>();
 
-  function loadFile(fullPath: string): CachedFile {
-    const existing = loadedFiles.get(fullPath);
+  function loadFile(resolved: ResolvedFile): CachedFile {
+    const existing = loadedFiles.get(resolved.fullPath);
     if (existing) return existing;
-    const rawBytes = readFileSync(fullPath);
+    const rawBytes = readFileSync(resolved.fullPath);
     const content = rawBytes.toString("utf8");
     const lines = content.replace(/\r\n/g, "\n").split("\n");
     const contentHash = "sha256:" + createHash("sha256").update(rawBytes).digest("hex");
-    const stat = statSync(fullPath);
     const entry: CachedFile = {
       rawBytes,
       lines,
       contentHash,
-      sizeBytes: stat.size,
-      mtimeNs: Number(stat.mtimeMs) * 1_000_000,
+      sizeBytes: resolved.sizeBytes,
+      mtimeNs: resolved.mtimeNs,
     };
-    loadedFiles.set(fullPath, entry);
+    loadedFiles.set(resolved.fullPath, entry);
     return entry;
   }
 
   // ── Resolve paths (keep insertion order for items) ──
-  type FileEntry = { item: ReadManyItem; fullPath: string; sizeBytes: number };
+  type FileEntry = { item: ReadManyItem; resolved: ResolvedFile };
   const files: FileEntry[] = [];
   for (const item of items) {
     try {
-      const fullPath = enforceSecurePath(item.path, cwd, [cwd], false);
-      const sizeBytes = statSync(fullPath).size;
-      files.push({ item, fullPath, sizeBytes });
+      const resolved = resolveFile(item);
+      files.push({ item, resolved });
     } catch {}
   }
 
   // For paths-mode, sort smallest-first to maximise budget fit.
   // For items-mode, preserve order (order = priority from task_context).
   if (!input.items) {
-    files.sort((a, b) => a.sizeBytes - b.sizeBytes);
+    files.sort((a, b) => a.resolved.sizeBytes - b.resolved.sizeBytes);
   }
 
   const skipped: { path: string; reason: string }[] = [];
@@ -147,7 +167,7 @@ export async function readManyTool(input: ReadManyInput, cwd: string, allowedRoo
     const isRanged = hasStart && hasEnd;
 
     try {
-      const cached = loadFile(file.fullPath);
+      const cached = loadFile(file.resolved);
 
       // ── Bounds validation ──
       if (isRanged) {
@@ -176,7 +196,7 @@ export async function readManyTool(input: ReadManyInput, cwd: string, allowedRoo
       } else if (input.compressionLevel && input.compressionLevel !== "none") {
         const { compressAST } = await import("./context-engine/compressors.js");
         const rawContent = cached.rawBytes.toString("utf8");
-        const compressed = compressAST(rawContent, input.compressionLevel, undefined, file.fullPath, cached.mtimeNs / 1_000_000);
+        const compressed = compressAST(rawContent, input.compressionLevel, undefined, file.resolved.fullPath, cached.mtimeNs / 1_000_000);
         content = compressed.output;
       } else {
         content = cached.rawBytes.toString("utf8");
@@ -192,6 +212,7 @@ export async function readManyTool(input: ReadManyInput, cwd: string, allowedRoo
 
       resultFiles.push({
         path: p,
+        fullPath: file.resolved.fullPath,
         contentHash: cached.contentHash,
         sizeBytes: cached.sizeBytes,
         mtimeNs: cached.mtimeNs,
