@@ -245,7 +245,8 @@ export async function buildTaskContext(input: TaskContextInput): Promise<TaskCon
 
   // 6. Focus paths (explicitly provided)
   for (const fp of safeFocusPaths) {
-    if (allFileSet.has(fp)) {
+    const exists = allFileSet ? allFileSet.has(fp) : allFiles.includes(fp);
+    if (exists) {
       addEvidence(fp, { type: "focus_path", detail: "Provided directly in focusPaths" });
     } else {
       limitations.push(`Focus path was not found: ${fp}`);
