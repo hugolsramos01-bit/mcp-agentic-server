@@ -196,38 +196,6 @@ export async function buildTaskContext(input: TaskContextInput): Promise<TaskCon
   }
   pLoadFileList.end();
 
-  // Focus scope logic
-  const focusFiles: string[] = [];
-  const focusPrefixes: string[] = [];
-
-  for (const focusPath of safeFocusPaths) {
-    const normalized = focusPath.replace(/\/+$/, "");
-    if (allFiles.includes(normalized)) {
-      focusFiles.push(normalized);
-      continue;
-    }
-    const prefix = `${normalized}/`;
-    if (allFiles.some(file => file.startsWith(prefix))) {
-      focusPrefixes.push(normalized);
-      continue;
-    }
-    limitations.push(`Focus path was not found: ${focusPath}`);
-  }
-
-  function isInsideFocusScope(path: string): boolean {
-    if (focusFiles.length === 0 && focusPrefixes.length === 0) {
-      return true;
-    }
-    return (
-      focusFiles.includes(path) ||
-      focusPrefixes.some(prefix => path.startsWith(`${prefix}/`))
-    );
-  }
-
-  allFiles = allFiles.filter(isInsideFocusScope);
-  indexedPaths = indexedPaths.filter(path => isInsideFocusScope(path.path));
-  // Keep allFileSet mostly accurate for O(1) lookups (it's used for test proximity)
-  allFileSet = new Set(allFiles);
 
   // 4. Detect workspace instruction files
   const pPathMatching = perf.startPhase("pathMatching");
@@ -276,8 +244,12 @@ export async function buildTaskContext(input: TaskContextInput): Promise<TaskCon
   }
 
   // 6. Focus paths (explicitly provided)
-  for (const fp of focusFiles) {
-    addEvidence(fp, { type: "focus_path", detail: "Provided directly in focusPaths" });
+  for (const fp of safeFocusPaths) {
+    if (allFileSet.has(fp)) {
+      addEvidence(fp, { type: "focus_path", detail: "Provided directly in focusPaths" });
+    } else {
+      limitations.push(`Focus path was not found: ${fp}`);
+    }
   }
 
   // 7. Paths extracted from goal text
