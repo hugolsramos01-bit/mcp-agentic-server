@@ -5,6 +5,21 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.2.0] - 2026-07-28
+
+### Added
+- Feature: **Code Region Context (P3)**. Extractor now supports TS, TSX, JS, JSX, MTS, CTS, MJS and CJS. Extracts classes, functions, methods, interfaces, types, enums and variables.
+- Feature: Added `items` array parameter to `read_many` allowing targeted reading of specific regions or line ranges to respect the context budget (max 512 KB, max 2 regions per file).
+- Feature: `task_context` now supports Code Region Context for granular visibility, ranking candidate regions dynamically according to the objective.
+
+### Fixed
+- Fixed task_context hot path with Quality Guards and Candidate Hygiene.
+- Fixed `read_many` deduplication of stat/read per canonical path with internal caching.
+
+### Changed
+- Server hot path optimized, natively handling `structuredContent` and nested/top-level envelopes.
+- Buffer deduplication and transactional flush.
+
 ## [1.1.4] - 2026-07-22
 
 ### Fixed
