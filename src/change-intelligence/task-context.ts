@@ -137,6 +137,7 @@ export async function buildTaskContext(input: TaskContextInput): Promise<TaskCon
 
   // 2. Validate focusPaths and excludePaths
   const pResolve = perf.startPhase("resolvePaths");
+  const focusWasRequested = focusPaths.length > 0;
   const safeFocusPaths = focusPaths
     .map(fp => resolveAndValidatePath(fp, cwd, allowedRoots, limitations))
     .filter((fp): fp is string => fp !== null);
@@ -146,8 +147,64 @@ export async function buildTaskContext(input: TaskContextInput): Promise<TaskCon
     .filter((ep): ep is string => ep !== null);
 
   function normalizeScopePath(path: string): string {
-    return path.replace(/\\/g, "/").replace(/\/+$/, "");
+    const normalized = path.replace(/\\/g, "/").replace(/^\.\/+/, "").replace(/\/+$/, "");
+    return normalized === "." ? "" : normalized;
   }
+
+  interface ResolvedFocusScope {
+    active: boolean;
+    exactFiles: Set<string>;
+    directoryPrefixes: string[];
+    unresolved: string[];
+  }
+
+  function resolveFocusScope(
+    validatedFocusPaths: string[],
+    allFiles: readonly string[],
+    allFileSet: ReadonlySet<string>,
+    active: boolean,
+  ): ResolvedFocusScope {
+    const exactFiles = new Set<string>();
+    const directoryPrefixes: string[] = [];
+    const unresolved: string[] = [];
+
+    for (const rawPath of validatedFocusPaths) {
+      const path = normalizeScopePath(rawPath);
+
+      if (path === "") {
+        directoryPrefixes.push("");
+        continue;
+      }
+
+      if (allFileSet.has(path)) {
+        exactFiles.add(path);
+        continue;
+      }
+
+      const prefix = `${path}/`;
+      if (allFiles.some(file => file.startsWith(prefix))) {
+        directoryPrefixes.push(path);
+        continue;
+      }
+
+      unresolved.push(rawPath);
+    }
+
+    return {
+      active,
+      exactFiles,
+      directoryPrefixes,
+      unresolved,
+    };
+  }
+
+  function isInsideFocusScope(path: string, scope: ResolvedFocusScope): boolean {
+    if (!scope.active) return true;
+    const normalized = normalizeScopePath(path);
+    if (scope.exactFiles.has(normalized)) return true;
+    return scope.directoryPrefixes.some(prefix => prefix === "" || normalized.startsWith(`${prefix}/`));
+  }
+
 
   function isPathExcluded(path: string): boolean {
     const normalizedPath = normalizeScopePath(path);
@@ -196,6 +253,21 @@ export async function buildTaskContext(input: TaskContextInput): Promise<TaskCon
   }
   pLoadFileList.end();
 
+  const focusScope = resolveFocusScope(
+    safeFocusPaths,
+    allFiles,
+    allFileSet ?? new Set(allFiles),
+    focusWasRequested
+  );
+
+  for (const unresolved of focusScope.unresolved) {
+    limitations.push(`Focus path was not found: ${unresolved}`);
+  }
+
+  const discoveryFiles = allFiles.filter(file => isInsideFocusScope(file, focusScope));
+  const discoveryIndexedPaths = indexedPaths.filter(indexed => isInsideFocusScope(indexed.path, focusScope));
+
+
 
   // 4. Detect workspace instruction files
   const pPathMatching = perf.startPhase("pathMatching");
@@ -234,8 +306,15 @@ export async function buildTaskContext(input: TaskContextInput): Promise<TaskCon
     return kindMap.get(path) ?? "source";
   }
 
-  function addEvidence(path: string, ev: EvidenceEntry) {
+  type EvidenceScope = "discovery" | "supporting";
+
+  function addEvidence(path: string, ev: EvidenceEntry, scope: EvidenceScope = "discovery") {
     if (isPathExcluded(path)) return; // respect excludePaths for all additions
+    
+    if (scope === "discovery" && !isInsideFocusScope(path, focusScope)) {
+      return;
+    }
+
     if (!candidatesMap.has(path)) candidatesMap.set(path, []);
     const existing = candidatesMap.get(path)!;
     if (!existing.some(e => e.type === ev.type && e.detail === ev.detail)) {
@@ -244,27 +323,22 @@ export async function buildTaskContext(input: TaskContextInput): Promise<TaskCon
   }
 
   // 6. Focus paths (explicitly provided)
-  for (const fp of safeFocusPaths) {
-    const exists = allFileSet ? allFileSet.has(fp) : allFiles.includes(fp);
-    if (exists) {
-      addEvidence(fp, { type: "focus_path", detail: "Provided directly in focusPaths" });
-    } else {
-      limitations.push(`Focus path was not found: ${fp}`);
-    }
+  for (const file of focusScope.exactFiles) {
+    addEvidence(file, { type: "focus_path", detail: "Provided directly in focusPaths" }, "discovery");
   }
 
   // 7. Paths extracted from goal text
   for (const ep of normalized.extractedPaths) {
-    if (allFiles.length === 0 || allFiles.includes(ep) || allFiles.some(f => f.endsWith(ep))) {
-      const match = allFiles.find(f => f.endsWith(ep)) ?? ep;
-      addEvidence(match, { type: "extracted_path", detail: "Extracted from goal text" });
+    const match = discoveryFiles.find(f => f === ep || f.endsWith(ep));
+    if (match) {
+      addEvidence(match, { type: "extracted_path", detail: "Extracted from goal text" }, "discovery");
     }
   }
 
   // 8. Filename / Route / Schema matching (segment-based)
   const { expandedKeywords, anchorKeywords } = normalized;
-  if (indexedPaths.length > 0 && expandedKeywords.length > 0) {
-    for (const file of indexedPaths) {
+  if (discoveryIndexedPaths.length > 0 && expandedKeywords.length > 0) {
+    for (const file of discoveryIndexedPaths) {
       for (const kw of expandedKeywords) {
         if (kw.length < 3) continue;
 
@@ -312,10 +386,13 @@ export async function buildTaskContext(input: TaskContextInput): Promise<TaskCon
     currentHighCandidates.length === 1 &&
     currentHighCandidates[0].evidences.length >= 2;
 
+  const hasDirectoryFocus = focusScope.directoryPrefixes.length > 0;
+
   const directContextSufficient =
-    hasExactFocusPath ||
+    !hasDirectoryFocus &&
+    (hasExactFocusPath ||
     hasExactExtractedPath ||
-    hasUniqueHighConfidenceIndexedCandidate;
+    hasUniqueHighConfidenceIndexedCandidate);
 
   const shouldRunContentSearch =
     !directContextSufficient &&
@@ -331,23 +408,43 @@ export async function buildTaskContext(input: TaskContextInput): Promise<TaskCon
         grepArgs.push("-e", kw);
       }
       
-      try {
-        perf.increment("subprocessCount");
-        const { stdout } = await execFileAsync(
-          "git", grepArgs,
-          { cwd, timeout: 5000, maxBuffer: 10 * 1024 * 1024 }
-        );
-        const grepFiles = stdout.split("\n").map(f => f.trim().replace(/\\/g, "/")).filter(Boolean);
-        // Sort by CandidateKind priority before cap — prefer source/test over docs/eval
-        const orderedGrepFiles = grepFiles
-          .map(path => ({ path, kind: getKind(path) }))
-          .sort((a, b) => candidateKindPriority(a.kind) - candidateKindPriority(b.kind));
-        for (const { path } of orderedGrepFiles.slice(0, 20)) {
-          addEvidence(path, { type: "content_match", detail: `Contains matching keywords` });
-        }
-      } catch (err: any) {
-        if (err?.code !== 1) { // 1 means no match, normal for grep
-          limitations.push(`unified git grep failed: ${err?.message ?? "unknown error"}`);
+      const hasRootFocus = focusScope.directoryPrefixes.includes("");
+      const scopedPathspecs = [
+        ...focusScope.exactFiles,
+        ...focusScope.directoryPrefixes.filter(prefix => prefix !== "")
+      ];
+      const hasResolvedFocus = hasRootFocus || scopedPathspecs.length > 0;
+
+      if (focusScope.active && !hasRootFocus && scopedPathspecs.length > 0) {
+        grepArgs.push("--", ...scopedPathspecs.map(path => `:(literal)${path}`));
+      }
+
+      if (focusScope.active && !hasResolvedFocus) {
+        // foco inválido: não executar grep
+      } else {
+        try {
+          perf.increment("subprocessCount");
+          const { stdout } = await execFileAsync(
+            "git", grepArgs,
+            { cwd, timeout: 5000, maxBuffer: 10 * 1024 * 1024 }
+          );
+          const grepFiles = stdout.split("\n")
+            .map(f => f.trim().replace(/\\/g, "/"))
+            .filter(Boolean)
+            .filter(file => isInsideFocusScope(file, focusScope));
+            
+          // Sort by CandidateKind priority before cap — prefer source/test over docs/eval
+          const orderedGrepFiles = grepFiles
+            .map(path => ({ path, kind: getKind(path) }))
+            .sort((a, b) => candidateKindPriority(a.kind) - candidateKindPriority(b.kind));
+            
+          for (const { path } of orderedGrepFiles.slice(0, 20)) {
+            addEvidence(path, { type: "content_match", detail: `Contains matching keywords` }, "discovery");
+          }
+        } catch (err: any) {
+          if (err?.code !== 1) { // 1 means no match, normal for grep
+            limitations.push(`unified git grep failed: ${err?.message ?? "unknown error"}`);
+          }
         }
       }
     }
@@ -362,10 +459,10 @@ export async function buildTaskContext(input: TaskContextInput): Promise<TaskCon
     for (const path of testDiscoverySources) {
       const tests = findNearbyTests(path, allFiles, allFileSet);
       if (tests.length > 0) {
-        addEvidence(path, { type: "test_proximity", detail: `Has nearby tests: ${tests.join(", ")}` });
+        addEvidence(path, { type: "test_proximity", detail: `Has nearby tests: ${tests.join(", ")}` }, "supporting");
         nearbyTestCandidates.push({ sourcePath: path, testPaths: tests });
         for (const t of tests) {
-          addEvidence(t, { type: "test_proximity", detail: `Is test for: ${path}` });
+          addEvidence(t, { type: "test_proximity", detail: `Is test for: ${path}` }, "supporting");
         }
       }
     }
@@ -469,7 +566,13 @@ export async function buildTaskContext(input: TaskContextInput): Promise<TaskCon
       cwd,
       primaryEligible
     );
-    directDependents = directDependents.filter(dependent => !isPathExcluded(dependent.source));
+    directDependents = directDependents
+      .filter(entry => !isPathExcluded(entry.source))
+      .map(entry => ({
+        ...entry,
+        dependents: entry.dependents.filter(path => !isPathExcluded(path)),
+      }))
+      .filter(entry => entry.dependents.length > 0);
     pDependencySearch.end();
   }
 
@@ -483,6 +586,13 @@ export async function buildTaskContext(input: TaskContextInput): Promise<TaskCon
     requestedDepth: depth,
     effectiveDepth,
     depthSource,
+    focusScope: {
+      active: focusScope.active,
+      exactFiles: [...focusScope.exactFiles],
+      directories: focusScope.directoryPrefixes,
+      matchedFileCount: discoveryFiles.length,
+      unresolved: focusScope.unresolved,
+    },
     primaryFiles,
     supportingFiles,
     directDependents,

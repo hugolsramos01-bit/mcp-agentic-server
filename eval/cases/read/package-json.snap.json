@@ -1,6 +1,6 @@
 {
   "name": "mcp-agentic-server",
-  "version": "1.1.8",
+  "version": "1.2.2",
   "mcpName": "io.github.hugolsramos01-bit/mcp-agentic-server",
   "description": "Agentic MCP — local coding tools for ChatGPT Developer Mode and other MCP clients. Tested with ChatGPT Plus via HTTPS tunnel; availability varies by plan and rollout. Independent project, not affiliated with OpenAI.",
   "type": "module",
@@ -39,6 +39,7 @@
     "bench:tools": "npm run build && node perf/tool-latency.mjs",
     "bench:agent": "npm run build && node perf/agent-loop.mjs",
     "bench:server": "npm run build && node perf/server-hot-path.mjs",
+    "test:runtime": "node scripts/test-runtime-mcp.mjs",
     "bench:regions": "npm run build && node perf/code-regions.mjs"
   },
   "keywords": [

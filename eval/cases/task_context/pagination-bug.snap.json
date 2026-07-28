@@ -5,6 +5,15 @@
   "taskTypeSource": "inferred",
   "effectiveDepth": "fast",
   "depthSource": "default",
+  "focusScope": {
+    "active": true,
+    "exactFiles": [
+      "src/ui/card-types.ts"
+    ],
+    "directories": [],
+    "matchedFileCount": 1,
+    "unresolved": []
+  },
   "primaryFiles": [
     {
       "path": "src/ui/card-types.ts",
@@ -57,42 +66,6 @@
   ],
   "supportingFiles": [
     {
-      "path": ".github/ISSUE_TEMPLATE/bug_report.md",
-      "role": "supporting",
-      "confidence": "medium",
-      "evidence": [
-        {
-          "type": "filename_partial",
-          "detail": "Basename segment matches keyword: bug"
-        }
-      ],
-      "recommendedReadTool": "read_adaptive"
-    },
-    {
-      "path": "eval/cases/task_context/pagination-bug.input.json",
-      "role": "supporting",
-      "confidence": "medium",
-      "evidence": [
-        {
-          "type": "filename_partial",
-          "detail": "Basename segment matches keyword: bug"
-        }
-      ],
-      "recommendedReadTool": "read_adaptive"
-    },
-    {
-      "path": "eval/cases/task_context/pagination-bug.snap.json",
-      "role": "supporting",
-      "confidence": "medium",
-      "evidence": [
-        {
-          "type": "filename_partial",
-          "detail": "Basename segment matches keyword: bug"
-        }
-      ],
-      "recommendedReadTool": "read_adaptive"
-    },
-    {
       "path": "src/ui/card-types.test.ts",
       "role": "test",
       "confidence": "low",
@@ -144,7 +117,7 @@
   "limitations": [],
   "budget": {
     "maxTokens": 6000,
-    "estimatedTokens": 578,
+    "estimatedTokens": 439,
     "truncated": false,
     "omittedCandidates": 0,
     "omittedRegions": 0

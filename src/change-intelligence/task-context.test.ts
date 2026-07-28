@@ -941,4 +941,203 @@ describe("task-context", () => {
     // Max 5 items total
     assert.ok(items.length <= 5, `suggestedNextSteps items must be at most 5, got ${items.length}`);
   });
+
+  // ─── Directory-Aware Focus Scope Boundaries ─────────────────────
+  it("Directory limits discovery but preserves tests outside", async () => {
+    const root = await makeWorkspace();
+    await mkdir(join(root, "src"), { recursive: true });
+    await mkdir(join(root, "outside"), { recursive: true });
+    await writeFile(join(root, "src/auth.ts"), "export const login = () => {};");
+    await writeFile(join(root, "src/auth.test.ts"), "import { login } from './auth';");
+    await writeFile(join(root, "outside/other.ts"), "export const unrelated = () => {};");
+    
+    await gitAddAll(root);
+    
+    const res = await buildTaskContext({
+      workspaceId: "test",
+      cwd: root,
+      allowedRoots: [root],
+      goal: "fix login",
+      focusPaths: ["src/auth.ts"]
+    });
+
+    // Exact file focus restricts candidates
+    const authCandidate = res.primaryFiles.find(c => c.path === "src/auth.ts");
+    assert.ok(authCandidate, "src/auth.ts must be discovered");
+    
+    const outsideCandidate = [...res.primaryFiles, ...res.supportingFiles].find(c => c.path === "outside/other.ts");
+    assert.equal(outsideCandidate, undefined, "outside/other.ts must be excluded by focus");
+
+    // But tests are preserved as supporting even though they aren't in focusPaths
+    const testCandidate = res.supportingFiles.find(c => c.path === "src/auth.test.ts");
+    assert.ok(testCandidate, "src/auth.test.ts must be in supporting files despite focus");
+  });
+
+  it("A directory itself doesn't become a candidate", async () => {
+    const root = await makeWorkspace();
+    await mkdir(join(root, "src"), { recursive: true });
+    await writeFile(join(root, "src/index.ts"), "export const search = 1;");
+    await gitAddAll(root);
+
+    const res = await buildTaskContext({
+      workspaceId: "test",
+      cwd: root,
+      allowedRoots: [root],
+      goal: "change search",
+      focusPaths: ["src"]
+    });
+
+    const isDirCandidate = res.primaryFiles.some(file => file.path === "src");
+    assert.equal(isDirCandidate, false, "directory must not be listed as a file candidate");
+  });
+
+  it("Siblings don't leak into the scope", async () => {
+    const root = await makeWorkspace();
+    await mkdir(join(root, "apps/api/src"), { recursive: true });
+    await mkdir(join(root, "apps/web/src"), { recursive: true });
+    await writeFile(join(root, "apps/api/src/auth.ts"), "const apiAuth = 1;");
+    await writeFile(join(root, "apps/web/src/auth.ts"), "const webAuth = 1;");
+    await gitAddAll(root);
+
+    const res = await buildTaskContext({
+      workspaceId: "test",
+      cwd: root,
+      allowedRoots: [root],
+      goal: "fix auth",
+      focusPaths: ["apps/web"]
+    });
+
+    const web = res.primaryFiles.find(f => f.path === "apps/web/src/auth.ts");
+    const api = [...res.primaryFiles, ...res.supportingFiles].find(f => f.path === "apps/api/src/auth.ts");
+
+    assert.ok(web, "web auth must be present");
+    assert.equal(api, undefined, "api auth sibling must not leak into focus");
+  });
+
+  it("Union of multiple valid focus scopes", async () => {
+    const root = await makeWorkspace();
+    await mkdir(join(root, "apps/web"), { recursive: true });
+    await mkdir(join(root, "packages/auth"), { recursive: true });
+    await mkdir(join(root, "apps/desktop"), { recursive: true });
+    await writeFile(join(root, "apps/web/validation.ts"), "const validation = 1;");
+    await writeFile(join(root, "packages/auth/validation.ts"), "const validation = 1;");
+    await writeFile(join(root, "apps/desktop/validation.ts"), "const validation = 1;");
+    await gitAddAll(root);
+
+    const res = await buildTaskContext({
+      workspaceId: "test",
+      cwd: root,
+      allowedRoots: [root],
+      goal: "fix validation",
+      focusPaths: ["apps/web", "packages/auth"]
+    });
+
+    const hasWeb = res.primaryFiles.some(f => f.path === "apps/web/validation.ts");
+    const hasAuth = res.primaryFiles.some(f => f.path === "packages/auth/validation.ts");
+    const hasDesktop = [...res.primaryFiles, ...res.supportingFiles].some(f => f.path === "apps/desktop/validation.ts");
+
+    assert.ok(hasWeb, "web must be in scope");
+    assert.ok(hasAuth, "auth must be in scope");
+    assert.equal(hasDesktop, false, "desktop must be excluded");
+  });
+
+  it("Exclusions override directory focus scopes", async () => {
+    const root = await makeWorkspace();
+    await mkdir(join(root, "src/generated"), { recursive: true });
+    await writeFile(join(root, "src/auth.ts"), "const auth = 1;");
+    await writeFile(join(root, "src/generated/types.ts"), "const auth = 1;");
+    await gitAddAll(root);
+
+    const res = await buildTaskContext({
+      workspaceId: "test",
+      cwd: root,
+      allowedRoots: [root],
+      goal: "fix auth",
+      focusPaths: ["src"],
+      excludePaths: ["src/generated"]
+    });
+
+    const hasAuth = res.primaryFiles.some(f => f.path === "src/auth.ts");
+    const hasGen = [...res.primaryFiles, ...res.supportingFiles].some(f => f.path === "src/generated/types.ts");
+
+    assert.ok(hasAuth, "auth must be present");
+    assert.equal(hasGen, false, "generated files must be excluded despite being in focus scope");
+  });
+
+  it("Exclusions apply to the internal dependents array", async () => {
+    const root = await makeWorkspace();
+    await mkdir(join(root, "src"), { recursive: true });
+    await mkdir(join(root, "excluded"), { recursive: true });
+    await writeFile(join(root, "src/auth.ts"), "export const auth = 1;");
+    await writeFile(join(root, "src/valid.ts"), "import { auth } from './auth'; console.log(auth);");
+    await writeFile(join(root, "excluded/other.ts"), "import { auth } from '../src/auth'; console.log(auth);");
+    await gitAddAll(root);
+
+    const res = await buildTaskContext({
+      workspaceId: "test",
+      cwd: root,
+      allowedRoots: [root],
+      goal: "fix auth",
+      excludePaths: ["excluded"],
+      depth: "deep"
+    });
+
+    const dependentsFlat = res.directDependents.flatMap(entry => entry.dependents);
+    assert.ok(dependentsFlat.includes("src/valid.ts"), "Valid dependent should be kept");
+    assert.equal(dependentsFlat.includes("excluded/other.ts"), false, "Excluded dependent must be pruned");
+  });
+
+  it("Invalid focus gracefully yields empty candidates instead of fallback global search", async () => {
+    const root = await makeWorkspace();
+    await writeFile(join(root, "index.ts"), "const a = 1;");
+    await gitAddAll(root);
+
+    const res = await buildTaskContext({
+      workspaceId: "test",
+      cwd: root,
+      allowedRoots: [root],
+      goal: "fix bugs",
+      focusPaths: ["non-existent-directory"]
+    });
+
+    assert.equal(res.primaryFiles.length, 0, "must not fallback to global search");
+    assert.ok(res.limitations.some(l => l.includes("Focus path was not found")), "must report unresolved limitation");
+  });
+
+  it("Rejected focus never falls back globally", async () => {
+    const root = await makeWorkspace();
+    await writeFile(join(root, "index.ts"), "const a = 1;");
+    await gitAddAll(root);
+
+    const result = await buildTaskContext({
+      workspaceId: "test",
+      cwd: root,
+      allowedRoots: [root],
+      goal: "fix bugs",
+      focusPaths: ["../outside", "", "../../outside", "C:/Windows/System32"],
+    });
+
+    assert.equal(result.focusScope?.active, true);
+    assert.equal(result.primaryFiles.length, 0);
+    assert.equal(result.supportingFiles.length, 0);
+  });
+
+  it("Root focus preserves global content search", async () => {
+    const root = await makeWorkspace();
+    await writeFile(join(root, "src/hidden-name.ts"), "const uniqueBodyKeyword = 1;");
+    await gitAddAll(root);
+
+    const result = await buildTaskContext({
+      workspaceId: "test",
+      cwd: root,
+      allowedRoots: [root],
+      goal: "fix uniqueBodyKeyword",
+      focusPaths: ["."],
+    });
+
+    assert.equal(result.focusScope?.directories.includes(""), true);
+    assert.ok(
+      [...result.primaryFiles, ...result.supportingFiles].some(file => file.path === "src/hidden-name.ts"),
+    );
+  });
 });

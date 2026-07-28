@@ -52,7 +52,7 @@ export function classifyCandidateKind(path: string): CandidateKind {
   if (base.startsWith("tsconfig")) return "configuration";
   if (base.startsWith("eslint")) return "configuration";
   if (base.startsWith(".env")) return "configuration";
-  if (lower.endsWith("d.ts")) return "configuration";
+  if (lower.endsWith(".d.ts")) return "configuration";
 
   // .github/ and perf/ without more specific pattern
   if (lower.startsWith(".github/")) return "configuration";
