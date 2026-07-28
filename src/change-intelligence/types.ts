@@ -91,6 +91,14 @@ export interface TaskContextInput {
   perf?: PerformanceRecorder;
 }
 
+export interface TaskFocusScope {
+  active: boolean;
+  exactFiles: string[];
+  directories: string[];
+  matchedFileCount: number;
+  unresolved: string[];
+}
+
 export interface TaskContextResult {
   version: 1;
   goal: string;
@@ -101,6 +109,8 @@ export interface TaskContextResult {
   effectiveDepth: TaskContextDepth;
   depthSource: "explicit" | "inferred" | "default";
   
+  focusScope?: TaskFocusScope;
+
   primaryFiles: TaskFileCandidate[];
   supportingFiles: TaskFileCandidate[];
   
