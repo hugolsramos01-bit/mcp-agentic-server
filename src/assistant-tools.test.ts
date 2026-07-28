@@ -99,10 +99,9 @@ describe("readManyTool — P3 ranged reads", () => {
       items: [{ path: FILE, startLine: 1 }]
     }, TMP, [TMP]);
 
-    const data = JSON.parse((result.content[0] as any).text);
-    assert.equal(data.files.length, 0);
-    assert.equal(data.skipped.length, 1);
-    assert.ok(data.skipped[0].reason.includes("both startLine and endLine"));
+    const text = (result.content[0] as any).text;
+    assert.equal(result.isError, true);
+    assert.ok(text.includes("both startLine and endLine"));
   });
 
   it("skips item with only endLine (missing startLine)", async () => {
@@ -110,9 +109,9 @@ describe("readManyTool — P3 ranged reads", () => {
       items: [{ path: FILE, endLine: 3 }]
     }, TMP, [TMP]);
 
-    const data = JSON.parse((result.content[0] as any).text);
-    assert.equal(data.files.length, 0);
-    assert.ok(data.skipped[0].reason.includes("both startLine and endLine"));
+    const text = (result.content[0] as any).text;
+    assert.equal(result.isError, true);
+    assert.ok(text.includes("both startLine and endLine"));
   });
 
   it("skips item where startLine > endLine", async () => {
@@ -120,9 +119,9 @@ describe("readManyTool — P3 ranged reads", () => {
       items: [{ path: FILE, startLine: 5, endLine: 2 }]
     }, TMP, [TMP]);
 
-    const data = JSON.parse((result.content[0] as any).text);
-    assert.equal(data.files.length, 0);
-    assert.ok(data.skipped[0].reason.includes("must be <= endLine"));
+    const text = (result.content[0] as any).text;
+    assert.equal(result.isError, true);
+    assert.ok(text.includes("must be <= endLine"));
   });
 
   it("skips item where startLine > totalLines", async () => {
@@ -130,9 +129,9 @@ describe("readManyTool — P3 ranged reads", () => {
       items: [{ path: FILE, startLine: 999, endLine: 1000 }]
     }, TMP, [TMP]);
 
-    const data = JSON.parse((result.content[0] as any).text);
-    assert.equal(data.files.length, 0);
-    assert.ok(data.skipped[0].reason.includes("exceeds file length"));
+    const text = (result.content[0] as any).text;
+    assert.equal(result.isError, true);
+    assert.ok(text.includes("exceeds file length"));
   });
 
   it("skips item where startLine <= 0", async () => {
@@ -140,9 +139,9 @@ describe("readManyTool — P3 ranged reads", () => {
       items: [{ path: FILE, startLine: 0, endLine: 3 }]
     }, TMP, [TMP]);
 
-    const data = JSON.parse((result.content[0] as any).text);
-    assert.equal(data.files.length, 0);
-    assert.ok(data.skipped[0].reason.includes(">= 1"));
+    const text = (result.content[0] as any).text;
+    assert.equal(result.isError, true);
+    assert.ok(text.includes(">= 1"));
   });
 
   it("reads full file when no range is given", async () => {
