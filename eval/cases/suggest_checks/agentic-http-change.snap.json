@@ -105,6 +105,10 @@
     {
       "script": "test",
       "reason": "Nenhum sinal detectou relação com os arquivos alterados"
+    },
+    {
+      "script": "test:runtime",
+      "reason": "Nenhum sinal detectou relação com os arquivos alterados"
     }
   ],
   "stages": {

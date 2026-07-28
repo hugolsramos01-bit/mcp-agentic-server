@@ -41,24 +41,24 @@ async function run() {
   let shouldDeleteTarball = false;
 
   if (suppliedTarball) {
+    await stat(suppliedTarball);
     tarballPath = suppliedTarball;
     console.log(`Using supplied tarball: ${tarballPath}`);
   } else {
     console.log("Packing project...");
     const { stdout: packOut } = await exec(`npm pack`, { cwd: ROOT });
-    const tarballName = packOut.trim().split("\n").pop().trim();
-    tarballPath = join(ROOT, tarballName);
+    const generatedName = packOut.trim().split("\n").pop().trim();
+    tarballPath = join(ROOT, generatedName);
     shouldDeleteTarball = true;
   }
 
-  console.log(`Installing ${tarballPath}...`);
-  await exec(`npm install --no-save ${tarballPath}`, { cwd: TEMP_DIR });
+  const tarballLabel = tarballPath.split(/[\\/]/).pop();
 
   const installDir = join(TEMP_DIR, "install-env");
   await mkdir(installDir);
   await writeFile(join(installDir, "package.json"), JSON.stringify({ name: "test-env" }));
 
-  console.log(`Installing ${tarballName}...`);
+  console.log(`Installing ${tarballLabel}...`);
   await exec(`npm install ${tarballPath}`, { cwd: installDir });
 
   const installedCliPath = join(installDir, "node_modules", "mcp-agentic-server", "dist", "cli.js");

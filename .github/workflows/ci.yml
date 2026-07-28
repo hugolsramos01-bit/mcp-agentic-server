@@ -62,3 +62,7 @@ jobs:
 
       - name: HTTP Authentication Test
         run: npm run test:http
+
+      - name: Packaged MCP Runtime Test
+        if: matrix.os != 'macos-latest'
+        run: npm run test:runtime

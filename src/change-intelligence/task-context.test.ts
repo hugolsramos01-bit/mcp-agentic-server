@@ -1064,6 +1064,29 @@ describe("task-context", () => {
     assert.equal(hasGen, false, "generated files must be excluded despite being in focus scope");
   });
 
+  it("Exclusions apply to the internal dependents array", async () => {
+    const root = await makeWorkspace();
+    await mkdir(join(root, "src"), { recursive: true });
+    await mkdir(join(root, "excluded"), { recursive: true });
+    await writeFile(join(root, "src/auth.ts"), "export const auth = 1;");
+    await writeFile(join(root, "src/valid.ts"), "import { auth } from './auth'; console.log(auth);");
+    await writeFile(join(root, "excluded/other.ts"), "import { auth } from '../src/auth'; console.log(auth);");
+    await gitAddAll(root);
+
+    const res = await buildTaskContext({
+      workspaceId: "test",
+      cwd: root,
+      allowedRoots: [root],
+      goal: "fix auth",
+      excludePaths: ["excluded"],
+      depth: "deep"
+    });
+
+    const dependentsFlat = res.directDependents.flatMap(entry => entry.dependents);
+    assert.ok(dependentsFlat.includes("src/valid.ts"), "Valid dependent should be kept");
+    assert.equal(dependentsFlat.includes("excluded/other.ts"), false, "Excluded dependent must be pruned");
+  });
+
   it("Invalid focus gracefully yields empty candidates instead of fallback global search", async () => {
     const root = await makeWorkspace();
     await writeFile(join(root, "index.ts"), "const a = 1;");
