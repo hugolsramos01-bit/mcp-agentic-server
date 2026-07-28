@@ -137,6 +137,7 @@ export async function buildTaskContext(input: TaskContextInput): Promise<TaskCon
 
   // 2. Validate focusPaths and excludePaths
   const pResolve = perf.startPhase("resolvePaths");
+  const focusWasRequested = focusPaths.length > 0;
   const safeFocusPaths = focusPaths
     .map(fp => resolveAndValidatePath(fp, cwd, allowedRoots, limitations))
     .filter((fp): fp is string => fp !== null);
@@ -158,15 +159,16 @@ export async function buildTaskContext(input: TaskContextInput): Promise<TaskCon
   }
 
   function resolveFocusScope(
-    focusPaths: string[],
+    validatedFocusPaths: string[],
     allFiles: readonly string[],
     allFileSet: ReadonlySet<string>,
+    active: boolean,
   ): ResolvedFocusScope {
     const exactFiles = new Set<string>();
     const directoryPrefixes: string[] = [];
     const unresolved: string[] = [];
 
-    for (const rawPath of focusPaths) {
+    for (const rawPath of validatedFocusPaths) {
       const path = normalizeScopePath(rawPath);
 
       if (path === "") {
@@ -189,7 +191,7 @@ export async function buildTaskContext(input: TaskContextInput): Promise<TaskCon
     }
 
     return {
-      active: focusPaths.length > 0,
+      active,
       exactFiles,
       directoryPrefixes,
       unresolved,
@@ -254,7 +256,8 @@ export async function buildTaskContext(input: TaskContextInput): Promise<TaskCon
   const focusScope = resolveFocusScope(
     safeFocusPaths,
     allFiles,
-    allFileSet ?? new Set(allFiles)
+    allFileSet ?? new Set(allFiles),
+    focusWasRequested
   );
 
   for (const unresolved of focusScope.unresolved) {
@@ -262,7 +265,6 @@ export async function buildTaskContext(input: TaskContextInput): Promise<TaskCon
   }
 
   const discoveryFiles = allFiles.filter(file => isInsideFocusScope(file, focusScope));
-  const discoveryFileSet = new Set(discoveryFiles);
   const discoveryIndexedPaths = indexedPaths.filter(indexed => isInsideFocusScope(indexed.path, focusScope));
 
 
@@ -406,17 +408,19 @@ export async function buildTaskContext(input: TaskContextInput): Promise<TaskCon
         grepArgs.push("-e", kw);
       }
       
-      const focusPathspecs = [
+      const hasRootFocus = focusScope.directoryPrefixes.includes("");
+      const scopedPathspecs = [
         ...focusScope.exactFiles,
-        ...focusScope.directoryPrefixes.filter(Boolean)
+        ...focusScope.directoryPrefixes.filter(prefix => prefix !== "")
       ];
+      const hasResolvedFocus = hasRootFocus || scopedPathspecs.length > 0;
 
-      if (focusScope.active && focusPathspecs.length > 0) {
-        grepArgs.push("--", ...focusPathspecs);
+      if (focusScope.active && !hasRootFocus && scopedPathspecs.length > 0) {
+        grepArgs.push("--", ...scopedPathspecs.map(path => `:(literal)${path}`));
       }
 
-      if (focusScope.active && focusPathspecs.length === 0) {
-        // Do not run global grep if focus was requested but nothing resolved
+      if (focusScope.active && !hasResolvedFocus) {
+        // foco inválido: não executar grep
       } else {
         try {
           perf.increment("subprocessCount");
@@ -562,7 +566,13 @@ export async function buildTaskContext(input: TaskContextInput): Promise<TaskCon
       cwd,
       primaryEligible
     );
-    directDependents = directDependents.filter(dependent => !isPathExcluded(dependent.source));
+    directDependents = directDependents
+      .filter(entry => !isPathExcluded(entry.source))
+      .map(entry => ({
+        ...entry,
+        dependents: entry.dependents.filter(path => !isPathExcluded(path)),
+      }))
+      .filter(entry => entry.dependents.length > 0);
     pDependencySearch.end();
   }
 

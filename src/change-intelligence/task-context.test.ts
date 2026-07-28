@@ -1080,4 +1080,41 @@ describe("task-context", () => {
     assert.equal(res.primaryFiles.length, 0, "must not fallback to global search");
     assert.ok(res.limitations.some(l => l.includes("Focus path was not found")), "must report unresolved limitation");
   });
+
+  it("Rejected focus never falls back globally", async () => {
+    const root = await makeWorkspace();
+    await writeFile(join(root, "index.ts"), "const a = 1;");
+    await gitAddAll(root);
+
+    const result = await buildTaskContext({
+      workspaceId: "test",
+      cwd: root,
+      allowedRoots: [root],
+      goal: "fix bugs",
+      focusPaths: ["../outside", "", "../../outside", "C:/Windows/System32"],
+    });
+
+    assert.equal(result.focusScope?.active, true);
+    assert.equal(result.primaryFiles.length, 0);
+    assert.equal(result.supportingFiles.length, 0);
+  });
+
+  it("Root focus preserves global content search", async () => {
+    const root = await makeWorkspace();
+    await writeFile(join(root, "src/hidden-name.ts"), "const uniqueBodyKeyword = 1;");
+    await gitAddAll(root);
+
+    const result = await buildTaskContext({
+      workspaceId: "test",
+      cwd: root,
+      allowedRoots: [root],
+      goal: "fix uniqueBodyKeyword",
+      focusPaths: ["."],
+    });
+
+    assert.equal(result.focusScope?.directories.includes(""), true);
+    assert.ok(
+      [...result.primaryFiles, ...result.supportingFiles].some(file => file.path === "src/hidden-name.ts"),
+    );
+  });
 });
