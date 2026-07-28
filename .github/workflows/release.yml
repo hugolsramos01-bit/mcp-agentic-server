@@ -44,7 +44,13 @@ jobs:
       # NPM_TOKEN authentication does not provide the OIDC identity required by
       # `--provenance`. Switch to npm Trusted Publishing before re-enabling it.
       - name: Publish package
-        run: npm publish
+        run: |
+          VERSION=$(node -p "require('./package.json').version")
+          if npm view mcp-agentic-server@$VERSION version >/dev/null 2>&1; then
+            echo "Version $VERSION is already published to npm. Skipping publish."
+          else
+            npm publish
+          fi
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
 
