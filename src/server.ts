@@ -1182,9 +1182,7 @@ function createMcpServer(
           .min(1),
         ifMatch: z.string().nullable().optional().describe("sha256 hash of the expected current file contents, or null if the file must not exist."),
       },
-      outputSchema: resultOutputSchema({
-        status: z.literal("applied"),
-      }),
+      outputSchema: resultOutputSchema(),
       ...toolWidgetDescriptorMeta(config, "edit"),
       annotations: EDIT_TOOL_ANNOTATIONS,
     },
@@ -1267,7 +1265,7 @@ function createMcpServer(
           },
         },
         structuredContent: {
-          status: "applied",
+          mutationStatus: "applied",
           result: contentText(editContent),
           mutationReceipt: await generateMutationReceipt(workspace.root, [{
             path: input.path,
@@ -2199,9 +2197,7 @@ function createMcpServer(
           patch: z.string().describe("The unified diff (patch) to apply."),
           ifMatch: z.record(z.string(), z.string().nullable()).optional().describe("Map of file paths to their expected sha256 hashes, or null if the file must not exist."),
         },
-        outputSchema: resultOutputSchema({
-          status: z.literal("applied"),
-        }),
+        outputSchema: resultOutputSchema(),
         ...toolWidgetDescriptorMeta(config, "write"),
         annotations: WRITE_TOOL_ANNOTATIONS,
       } as any,
@@ -2238,9 +2234,10 @@ function createMcpServer(
               } 
             },
             structuredContent: {
-              status: "applied",
+              mutationStatus: "applied",
               result: summary,
-              files: result.files
+              files: result.files,
+              mutationReceipt: receipt
             }
           };
         } catch (error: any) {
@@ -2438,7 +2435,7 @@ function createMcpServer(
       } as any,
       async (req: any) => {
         const workspace = workspaces.getWorkspace(req.workspaceId);
-        return wrap("read_many", req, await readManyTool(req, workspace.root, config.allowedRoots));
+        return wrap("read_many", req, await readManyTool(req, workspace.root, [workspace.root]));
       }
     );
     registerAppTool("tree",

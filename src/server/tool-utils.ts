@@ -1,6 +1,7 @@
 import type { Request, Response } from "express";
-import { readFileSync } from "node:fs";
+import { readFileSync, existsSync } from "node:fs";
 import { access } from "node:fs/promises";
+import { createHash } from "node:crypto";
 import { fileURLToPath } from "node:url";
 import * as z from "zod/v4";
 import type { ServerConfig, WidgetMode } from "../config.js";
@@ -466,11 +467,10 @@ export interface AtomicMutationOptions {
 }
 
 export function computeFileHash(absolutePath: string): string | null {
-  const { readFileSync, existsSync } = require("node:fs");
   if (!existsSync(absolutePath)) return null;
   try {
     const rawBytes = readFileSync(absolutePath);
-    return "sha256:" + require("node:crypto").createHash("sha256").update(rawBytes).digest("hex");
+    return "sha256:" + createHash("sha256").update(rawBytes).digest("hex");
   } catch {
     return null;
   }

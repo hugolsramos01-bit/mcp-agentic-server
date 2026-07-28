@@ -141,11 +141,22 @@ export async function buildTaskContext(input: TaskContextInput): Promise<TaskCon
     .map(fp => resolveAndValidatePath(fp, cwd, allowedRoots, limitations))
     .filter((fp): fp is string => fp !== null);
 
-  const safeExcludeSet = new Set(
-    excludePaths
-      .map(ep => resolveAndValidatePath(ep, cwd, allowedRoots, limitations))
-      .filter((ep): ep is string => ep !== null)
-  );
+  const safeExcludePaths = excludePaths
+    .map(ep => resolveAndValidatePath(ep, cwd, allowedRoots, limitations))
+    .filter((ep): ep is string => ep !== null);
+
+  function normalizeScopePath(path: string): string {
+    return path.replace(/\\/g, "/").replace(/\/+$/, "");
+  }
+
+  function isPathExcluded(path: string): boolean {
+    const normalizedPath = normalizeScopePath(path);
+    return safeExcludePaths.some(excluded => {
+      const prefix = normalizeScopePath(excluded);
+      return normalizedPath === prefix || normalizedPath.startsWith(`${prefix}/`);
+    });
+  }
+
   pResolve.end();
 
   // 3. Gather all tracked files (excluding excluded paths)
@@ -159,9 +170,9 @@ export async function buildTaskContext(input: TaskContextInput): Promise<TaskCon
 
   if (snapshot) {
     perf.increment("cacheHits");
-    allFiles = snapshot.files.filter(f => !safeExcludeSet.has(f));
-    allFileSet = safeExcludeSet.size === 0 ? snapshot.fileSet : new Set(allFiles);
-    indexedPaths = snapshot.indexedPaths.filter(p => !safeExcludeSet.has(p.path));
+    allFiles = snapshot.files.filter(f => !isPathExcluded(f));
+    allFileSet = safeExcludePaths.length === 0 ? snapshot.fileSet : new Set(allFiles);
+    indexedPaths = snapshot.indexedPaths.filter(p => !isPathExcluded(p.path));
   } else {
     perf.increment("cacheMisses");
     try {
@@ -175,15 +186,48 @@ export async function buildTaskContext(input: TaskContextInput): Promise<TaskCon
         .filter(f => f.length > 0);
         
       const newSnapshot = setWorkspaceFileSnapshot(cacheKey, rawFiles);
-      allFiles = newSnapshot.files.filter(f => !safeExcludeSet.has(f));
+      allFiles = newSnapshot.files.filter(f => !isPathExcluded(f));
       // Filter fileSet by excludePaths for accurate O(1) lookups
-      allFileSet = safeExcludeSet.size === 0 ? newSnapshot.fileSet : new Set(allFiles);
-      indexedPaths = newSnapshot.indexedPaths.filter(p => !safeExcludeSet.has(p.path));
+      allFileSet = safeExcludePaths.length === 0 ? newSnapshot.fileSet : new Set(allFiles);
+      indexedPaths = newSnapshot.indexedPaths.filter(p => !isPathExcluded(p.path));
     } catch {
       limitations.push("git ls-files unavailable; filename and content matching disabled");
     }
   }
   pLoadFileList.end();
+
+  // Focus scope logic
+  const focusFiles: string[] = [];
+  const focusPrefixes: string[] = [];
+
+  for (const focusPath of safeFocusPaths) {
+    const normalized = focusPath.replace(/\/+$/, "");
+    if (allFiles.includes(normalized)) {
+      focusFiles.push(normalized);
+      continue;
+    }
+    const prefix = `${normalized}/`;
+    if (allFiles.some(file => file.startsWith(prefix))) {
+      focusPrefixes.push(normalized);
+      continue;
+    }
+    limitations.push(`Focus path was not found: ${focusPath}`);
+  }
+
+  function isInsideFocusScope(path: string): boolean {
+    if (focusFiles.length === 0 && focusPrefixes.length === 0) {
+      return true;
+    }
+    return (
+      focusFiles.includes(path) ||
+      focusPrefixes.some(prefix => path.startsWith(`${prefix}/`))
+    );
+  }
+
+  allFiles = allFiles.filter(isInsideFocusScope);
+  indexedPaths = indexedPaths.filter(path => isInsideFocusScope(path.path));
+  // Keep allFileSet mostly accurate for O(1) lookups (it's used for test proximity)
+  allFileSet = new Set(allFiles);
 
   // 4. Detect workspace instruction files
   const pPathMatching = perf.startPhase("pathMatching");
@@ -223,7 +267,7 @@ export async function buildTaskContext(input: TaskContextInput): Promise<TaskCon
   }
 
   function addEvidence(path: string, ev: EvidenceEntry) {
-    if (safeExcludeSet.has(path)) return; // respect excludePaths for all additions
+    if (isPathExcluded(path)) return; // respect excludePaths for all additions
     if (!candidatesMap.has(path)) candidatesMap.set(path, []);
     const existing = candidatesMap.get(path)!;
     if (!existing.some(e => e.type === ev.type && e.detail === ev.detail)) {
@@ -232,7 +276,7 @@ export async function buildTaskContext(input: TaskContextInput): Promise<TaskCon
   }
 
   // 6. Focus paths (explicitly provided)
-  for (const fp of safeFocusPaths) {
+  for (const fp of focusFiles) {
     addEvidence(fp, { type: "focus_path", detail: "Provided directly in focusPaths" });
   }
 
@@ -449,9 +493,10 @@ export async function buildTaskContext(input: TaskContextInput): Promise<TaskCon
       .map(c => c.path)
       .filter(p => isPrimaryEligibleKind(getKind(p)));
     directDependents = await getLimitedSharedDependencies(
-    cwd,
-    primaryEligible
+      cwd,
+      primaryEligible
     );
+    directDependents = directDependents.filter(dependent => !isPathExcluded(dependent.source));
     pDependencySearch.end();
   }
 

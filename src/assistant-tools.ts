@@ -61,6 +61,21 @@ export interface ReadManyInput {
   maxTokens?: number;
 }
 
+function safeReadFailureReason(error: unknown): string {
+  const code =
+    typeof error === "object" && error !== null && "code" in error
+      ? String((error as any).code)
+      : undefined;
+
+  switch (code) {
+    case "ENOENT": return "file_not_found";
+    case "EISDIR": return "path_is_directory";
+    case "EACCES":
+    case "EPERM": return "permission_denied";
+    default: return "path_resolution_failed";
+  }
+}
+
 export async function readManyTool(input: ReadManyInput, cwd: string, allowedRoots: string[]): Promise<ToolResponse> {
   const resultFiles: any[] = [];
   let totalTokens = 0;
@@ -68,6 +83,12 @@ export async function readManyTool(input: ReadManyInput, cwd: string, allowedRoo
 
   if ((input.paths && input.items) || (!input.paths && !input.items)) {
     throw new Error("read_many requires exactly one of 'paths' or 'items'.");
+  }
+  if (input.paths && input.paths.length === 0) {
+    throw new Error("read_many requires non-empty 'paths' array.");
+  }
+  if (input.items && input.items.length === 0) {
+    throw new Error("read_many requires non-empty 'items' array.");
   }
 
   const items: ReadManyItem[] = input.items || (input.paths || []).map(p => ({ path: p }));
@@ -138,11 +159,15 @@ export async function readManyTool(input: ReadManyInput, cwd: string, allowedRoo
   // ── Resolve paths (keep insertion order for items) ──
   type FileEntry = { item: ReadManyItem; resolved: ResolvedFile };
   const files: FileEntry[] = [];
+  const skipped: { path: string; reason: string }[] = [];
+
   for (const item of items) {
     try {
       const resolved = resolveFile(item);
       files.push({ item, resolved });
-    } catch {}
+    } catch (e: any) {
+      skipped.push({ path: item.path, reason: safeReadFailureReason(e) });
+    }
   }
 
   // For paths-mode, sort smallest-first to maximise budget fit.
@@ -150,8 +175,6 @@ export async function readManyTool(input: ReadManyInput, cwd: string, allowedRoo
   if (!input.items) {
     files.sort((a, b) => a.resolved.sizeBytes - b.resolved.sizeBytes);
   }
-
-  const skipped: { path: string; reason: string }[] = [];
   for (const file of files) {
     const p = file.item.path;
     const { startLine, endLine } = file.item;
@@ -220,22 +243,33 @@ export async function readManyTool(input: ReadManyInput, cwd: string, allowedRoo
         content,
       });
     } catch (e: any) {
-      skipped.push({ path: p, reason: e.message });
+      skipped.push({ path: p, reason: safeReadFailureReason(e) });
     }
   }
 
+  const allFailed = items.length > 0 && resultFiles.length === 0;
+
   const envelope = {
-    status: "success",
+    status: allFailed ? "error" : "success",
     data: {
       files: resultFiles,
       skipped,
       warning: bloatWarning ? bloatWarning.trim() : undefined,
-    }
+    },
+    error: allFailed ? "read_many could not read any requested item" : null,
+    diagnostics: allFailed
+      ? [{
+          code: "all_items_failed",
+          requestedItems: items.length,
+          skippedItems: skipped.length,
+        }]
+      : []
   };
 
   return {
-    content: [{ type: "text", text: JSON.stringify(envelope.data, null, 2) }],
-    structuredContent: { envelope }
+    isError: allFailed,
+    content: [{ type: "text", text: allFailed ? "read_many failed. Errors:\n" + JSON.stringify(skipped, null, 2) : JSON.stringify(envelope.data, null, 2) }],
+    structuredContent: envelope
   };
 }
 
