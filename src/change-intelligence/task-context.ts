@@ -96,9 +96,34 @@ function resolveAndValidatePath(
 // ─── Core ─────────────────────────────────────────────────────────────
 
 
+const LOCK_FILES = new Set([
+  "package-lock.json",
+  "yarn.lock",
+  "pnpm-lock.yaml",
+  "bun.lock",
+  "bun.lockb",
+  ".terraform.lock.hcl",
+  "gemfile.lock"
+]);
+
+export function isLockFile(path: string): boolean {
+  const basename = path
+    .replace(/\\/g, "/")
+    .split("/")
+    .pop()
+    ?.toLowerCase() ?? "";
+  return LOCK_FILES.has(basename);
+}
+
 function inferGoalIntent(goal: string, type: TaskType, focusPaths: string[]): GoalIntent {
   const g = goal.toLowerCase();
-  if (g.includes("test") || (type === "auto" && g.includes("test"))) return "testing";
+  const tokens = new Set(g.match(/[a-z0-9_]+/g) ?? []);
+  
+  const testingIntent = 
+    ["test", "tests", "testing", "spec", "specs"].some(token => tokens.has(token)) ||
+    focusPaths.some(path => /\.(?:test|spec)\./i.test(path));
+  
+  if (testingIntent || (type === "auto" && testingIntent)) return "testing";
   if (g.includes("config") || g.includes("eslint") || g.includes("tsconfig")) return "configuration";
   if (g.includes("doc") || g.includes("readme")) return "documentation";
   if (g.includes("investigat") || g.includes("why") || g.includes("explain")) return "investigation";
@@ -354,8 +379,9 @@ export async function buildTaskContext(input: TaskContextInput): Promise<TaskCon
 
         // Filename: exact segment match
         if (matchesFilenameSegment(file.nameOnly, kw)) {
-          const type = file.nameOnly === kw ? "filename_exact" : "filename_partial";
-          addEvidence(file.path, { type, detail: `Basename segment matches keyword: ${kw}` });
+          addEvidence(file.path, { type: "filename_exact", detail: `Basename segment matches keyword: ${kw}` });
+        } else if (file.nameOnly.includes(kw)) {
+          addEvidence(file.path, { type: "filename_partial", detail: `Basename contains keyword: ${kw}` });
         }
 
         // Route match: index/page/route files whose directory matches the keyword
@@ -492,18 +518,18 @@ export async function buildTaskContext(input: TaskContextInput): Promise<TaskCon
     }
     score -= KIND_PENALTIES[kind] || 0;
 
-    const explicitlyFocused = evidence.some(e => e.type === "focus_path" || e.type === "extracted_path");
+    const explicitlyFocused = evidence.some(e => e.type === "focus_path");
+    const explicitlyMentioned = evidence.some(e => e.type === "extracted_path");
     
     // Elegibilidade
-    let primaryEligible = isPrimaryEligibleKind(kind) || explicitlyFocused;
+    let primaryEligible = isPrimaryEligibleKind(kind) || explicitlyFocused || explicitlyMentioned;
     if (kind === "test") primaryEligible = false;
     if (intent === "testing" && kind === "test") primaryEligible = true;
     if (intent === "configuration" && kind === "configuration") primaryEligible = true;
 
     // autoReadEligible logic
     let autoReadEligible = true;
-    if (kind === "generated") autoReadEligible = false;
-    if (path.endsWith("package-lock.json") || path.endsWith("yarn.lock") || path.endsWith("pnpm-lock.yaml") || path.endsWith("bun.lock") || path.endsWith("bun.lockb")) {
+    if (kind === "generated" || isLockFile(path)) {
       autoReadEligible = false;
     }
     if (explicitlyFocused) autoReadEligible = true;

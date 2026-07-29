@@ -88,6 +88,10 @@
     {
       "script": "test:runtime",
       "reason": "Nenhum sinal detectou relação com os arquivos alterados"
+    },
+    {
+      "script": "test:runtime:built",
+      "reason": "Nenhum sinal detectou relação com os arquivos alterados"
     }
   ],
   "stages": {

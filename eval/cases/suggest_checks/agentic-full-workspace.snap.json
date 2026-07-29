@@ -194,6 +194,15 @@
       "confidence": "low",
       "mutatesWorkspace": false,
       "estimatedCost": "medium"
+    },
+    {
+      "script": "test:runtime:built",
+      "command": "npm run test:runtime:built",
+      "tier": "other",
+      "reason": "Classificação pendente",
+      "confidence": "low",
+      "mutatesWorkspace": false,
+      "estimatedCost": "medium"
     }
   ],
   "limitations": [

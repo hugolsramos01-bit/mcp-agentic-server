@@ -93,8 +93,8 @@ describe("task-context", () => {
     assert.ok(res.limitations.some(l => l.includes("Rejected")), "should have rejection in limitations");
   });
 
-  // ─── 4. Tests always in supportingFiles ───────────────────────
-  it("spec files are always in supportingFiles regardless of confidence", async () => {
+  // ─── 4. Tests can be in primaryFiles if intent is testing ─────
+  it("spec files are primary if intent is testing via focusPaths", async () => {
     const root = await makeWorkspace();
     await writeFile(join(root, "src", "foo.spec.ts"), "describe('foo', () => {})");
 
@@ -107,7 +107,7 @@ describe("task-context", () => {
     });
 
     const inPrimary = res.primaryFiles.find(p => p.path.includes(".spec."));
-    assert.equal(inPrimary, undefined, ".spec. files must not be in primaryFiles");
+    assert.ok(inPrimary, ".spec. files must be in primaryFiles when explicitly focused");
   });
 
   // ─── 5. Determinism ───────────────────────────────────────────
@@ -639,7 +639,7 @@ describe("task-context", () => {
       `grep must execute (subprocessCount=${subprocessCount})`);
 
     // source file must be in primaryFiles
-    const srcFile = [...res.primaryFiles, ...res.supportingFiles].find(p => p.path.includes("src/auth-handler.ts"));
+    const srcFile = res.primaryFiles.find(p => p.path.includes("src/auth-handler.ts"));
     assert.ok(srcFile, "source file must be in primaryFiles despite 25 noisy docs");
 
     // All primary files must be source (not docs)
@@ -1008,9 +1008,8 @@ describe("task-context", () => {
       focusPaths: ["apps/web"]
     });
 
-    const allCands2 = [...res.primaryFiles, ...res.supportingFiles];
-    const web = allCands2.find(f => f.path === "apps/web/src/auth.ts");
-    const api = allCands2.find(f => f.path === "apps/api/src/auth.ts");
+    const web = res.primaryFiles.find(f => f.path === "apps/web/src/auth.ts");
+    const api = [...res.primaryFiles, ...res.supportingFiles].find(f => f.path === "apps/api/src/auth.ts");
 
     assert.ok(web, "web auth must be present");
     assert.equal(api, undefined, "api auth sibling must not leak into focus");
@@ -1034,10 +1033,9 @@ describe("task-context", () => {
       focusPaths: ["apps/web", "packages/auth"]
     });
 
-    const allCands = [...res.primaryFiles, ...res.supportingFiles];
-    const hasWeb = allCands.some(f => f.path === "apps/web/validation.ts");
-    const hasAuth = allCands.some(f => f.path === "packages/auth/validation.ts");
-    const hasDesktop = allCands.some(f => f.path === "apps/desktop/validation.ts");
+    const hasWeb = res.primaryFiles.some(f => f.path === "apps/web/validation.ts");
+    const hasAuth = res.primaryFiles.some(f => f.path === "packages/auth/validation.ts");
+    const hasDesktop = [...res.primaryFiles, ...res.supportingFiles].some(f => f.path === "apps/desktop/validation.ts");
 
     assert.ok(hasWeb, "web must be in scope");
     assert.ok(hasAuth, "auth must be in scope");
@@ -1061,8 +1059,8 @@ describe("task-context", () => {
     });
 
     const allCands3 = [...res.primaryFiles, ...res.supportingFiles];
-    const hasAuth = allCands3.some(f => f.path === "src/auth.ts");
-    const hasGen = allCands3.some(f => f.path === "src/generated/types.ts");
+    const hasAuth = res.primaryFiles.some(f => f.path === "src/auth.ts");
+    const hasGen = [...res.primaryFiles, ...res.supportingFiles].some(f => f.path === "src/generated/types.ts");
 
     assert.ok(hasAuth, "auth must be present");
     assert.equal(hasGen, false, "generated files must be excluded despite being in focus scope");
@@ -1087,9 +1085,8 @@ describe("task-context", () => {
     });
 
     const dependentsFlat = res.directDependents.flatMap(entry => entry.dependents);
-    const depsIncludingSupporting = [...dependentsFlat, ...res.supportingFiles.map(f => f.path)];
-    assert.ok(depsIncludingSupporting.includes("src/valid.ts"), "Valid dependent should be kept");
-    assert.equal(depsIncludingSupporting.includes("excluded/other.ts"), false, "Excluded dependent must be pruned");
+    assert.ok(dependentsFlat.includes("src/valid.ts"), "Valid dependent should be kept");
+    assert.equal(dependentsFlat.includes("excluded/other.ts"), false, "Excluded dependent must be pruned");
   });
 
   it("Invalid focus gracefully yields empty candidates instead of fallback global search", async () => {

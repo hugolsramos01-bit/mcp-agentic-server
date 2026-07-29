@@ -9,14 +9,29 @@
     "active": false,
     "exactFiles": [],
     "directories": [],
-    "matchedFileCount": 253,
+    "matchedFileCount": 251,
     "unresolved": []
   },
-  "primaryFiles": [
+  "primaryFiles": [],
+  "supportingFiles": [
+    {
+      "path": "src/db/client.ts",
+      "role": "supporting",
+      "confidence": "medium",
+      "evidence": [
+        {
+          "type": "filename_exact",
+          "detail": "Basename segment matches keyword: client"
+        }
+      ],
+      "recommendedReadTool": "read_adaptive",
+      "selectionReason": "filename_exact",
+      "autoReadEligible": true
+    },
     {
       "path": "src/oauth-store.ts",
-      "role": "primary",
-      "confidence": "high",
+      "role": "supporting",
+      "confidence": "medium",
       "evidence": [
         {
           "type": "filename_partial",
@@ -31,63 +46,42 @@
           "detail": "Has nearby tests: src/oauth-store.test.ts"
         }
       ],
-      "recommendedReadTool": "read",
-      "codeRegions": [
+      "recommendedReadTool": "read_adaptive",
+      "selectionReason": "filename_partial, content_match, test_proximity",
+      "autoReadEligible": true
+    },
+    {
+      "path": "scripts/debug-token.mjs",
+      "role": "supporting",
+      "confidence": "medium",
+      "evidence": [
         {
-          "name": "SqliteOAuthStore",
-          "kind": "class",
-          "startLine": 40,
-          "endLine": 188,
-          "matchedKeywords": [
-            "auth",
-            "oauth",
-            "token",
-            "client"
-          ]
-        },
-        {
-          "name": "SqliteOAuthClientsStore",
-          "kind": "class",
-          "startLine": 190,
-          "endLine": 205,
-          "matchedKeywords": [
-            "auth",
-            "oauth",
-            "client"
-          ]
-        },
-        {
-          "name": "registerClient",
-          "qualifiedName": "SqliteOAuthStore.registerClient",
-          "kind": "method",
-          "startLine": 56,
-          "endLine": 79,
-          "matchedKeywords": [
-            "auth",
-            "oauth",
-            "token",
-            "client"
-          ]
-        },
-        {
-          "name": "saveAccessToken",
-          "qualifiedName": "SqliteOAuthStore.saveAccessToken",
-          "kind": "method",
-          "startLine": 81,
-          "endLine": 99,
-          "matchedKeywords": [
-            "auth",
-            "oauth",
-            "token",
-            "client"
-          ]
+          "type": "filename_partial",
+          "detail": "Basename segment matches keyword: token"
         }
-      ]
+      ],
+      "recommendedReadTool": "read_adaptive",
+      "selectionReason": "filename_partial",
+      "autoReadEligible": true
+    },
+    {
+      "path": "src/change-session.ts",
+      "role": "supporting",
+      "confidence": "medium",
+      "evidence": [
+        {
+          "type": "filename_partial",
+          "detail": "Basename segment matches keyword: session"
+        }
+      ],
+      "recommendedReadTool": "read_adaptive",
+      "selectionReason": "filename_partial",
+      "autoReadEligible": true
     },
     {
       "path": "src/oauth-provider.ts",
-      "role": "primary",
-      "confidence": "high",
+      "role": "supporting",
+      "confidence": "medium",
       "evidence": [
         {
           "type": "filename_partial",
@@ -98,121 +92,9 @@
           "detail": "Contains matching keywords"
         }
       ],
-      "recommendedReadTool": "read"
-    }
-  ],
-  "supportingFiles": [
-    {
-      "path": "eval/cases/task_context/jwt-auth.input.json",
-      "role": "supporting",
-      "confidence": "medium",
-      "evidence": [
-        {
-          "type": "filename_partial",
-          "detail": "Basename segment matches keyword: jwt"
-        },
-        {
-          "type": "filename_partial",
-          "detail": "Basename segment matches keyword: auth"
-        }
-      ],
-      "recommendedReadTool": "read_adaptive"
-    },
-    {
-      "path": "eval/cases/task_context/jwt-auth.snap.json",
-      "role": "supporting",
-      "confidence": "medium",
-      "evidence": [
-        {
-          "type": "filename_partial",
-          "detail": "Basename segment matches keyword: jwt"
-        },
-        {
-          "type": "filename_partial",
-          "detail": "Basename segment matches keyword: auth"
-        }
-      ],
-      "recommendedReadTool": "read_adaptive"
-    },
-    {
-      "path": "src/change-intelligence/goal-normalizer.ts",
-      "role": "supporting",
-      "confidence": "medium",
-      "evidence": [
-        {
-          "type": "content_match",
-          "detail": "Contains matching keywords"
-        },
-        {
-          "type": "test_proximity",
-          "detail": "Has nearby tests: src/change-intelligence/goal-normalizer.test.ts"
-        }
-      ],
-      "recommendedReadTool": "read_adaptive"
-    },
-    {
-      "path": "src/check-selector.ts",
-      "role": "supporting",
-      "confidence": "medium",
-      "evidence": [
-        {
-          "type": "content_match",
-          "detail": "Contains matching keywords"
-        },
-        {
-          "type": "test_proximity",
-          "detail": "Has nearby tests: src/check-selector.test.ts"
-        }
-      ],
-      "recommendedReadTool": "read_adaptive"
-    },
-    {
-      "path": "src/cli.ts",
-      "role": "supporting",
-      "confidence": "medium",
-      "evidence": [
-        {
-          "type": "content_match",
-          "detail": "Contains matching keywords"
-        },
-        {
-          "type": "test_proximity",
-          "detail": "Has nearby tests: src/cli.test.ts"
-        }
-      ],
-      "recommendedReadTool": "read_adaptive"
-    },
-    {
-      "path": "src/config.ts",
-      "role": "supporting",
-      "confidence": "medium",
-      "evidence": [
-        {
-          "type": "content_match",
-          "detail": "Contains matching keywords"
-        },
-        {
-          "type": "test_proximity",
-          "detail": "Has nearby tests: src/config.test.ts"
-        }
-      ],
-      "recommendedReadTool": "read_adaptive"
-    },
-    {
-      "path": "src/diagnostics/log-compressor.ts",
-      "role": "supporting",
-      "confidence": "medium",
-      "evidence": [
-        {
-          "type": "content_match",
-          "detail": "Contains matching keywords"
-        },
-        {
-          "type": "test_proximity",
-          "detail": "Has nearby tests: src/diagnostics/log-compressor.test.ts"
-        }
-      ],
-      "recommendedReadTool": "read_adaptive"
+      "recommendedReadTool": "read_adaptive",
+      "selectionReason": "filename_partial, content_match",
+      "autoReadEligible": true
     },
     {
       "path": "src/oauth-store.test.ts",
@@ -228,7 +110,99 @@
           "detail": "Is test for: src/oauth-store.ts"
         }
       ],
-      "recommendedReadTool": "read_adaptive"
+      "recommendedReadTool": "read_adaptive",
+      "selectionReason": "filename_partial, test_proximity",
+      "autoReadEligible": true
+    },
+    {
+      "path": "src/change-intelligence/goal-normalizer.ts",
+      "role": "supporting",
+      "confidence": "medium",
+      "evidence": [
+        {
+          "type": "content_match",
+          "detail": "Contains matching keywords"
+        },
+        {
+          "type": "test_proximity",
+          "detail": "Has nearby tests: src/change-intelligence/goal-normalizer.test.ts"
+        }
+      ],
+      "recommendedReadTool": "read_adaptive",
+      "selectionReason": "content_match, test_proximity",
+      "autoReadEligible": true
+    },
+    {
+      "path": "src/check-selector.ts",
+      "role": "supporting",
+      "confidence": "medium",
+      "evidence": [
+        {
+          "type": "content_match",
+          "detail": "Contains matching keywords"
+        },
+        {
+          "type": "test_proximity",
+          "detail": "Has nearby tests: src/check-selector.test.ts"
+        }
+      ],
+      "recommendedReadTool": "read_adaptive",
+      "selectionReason": "content_match, test_proximity",
+      "autoReadEligible": true
+    },
+    {
+      "path": "src/cli.ts",
+      "role": "supporting",
+      "confidence": "medium",
+      "evidence": [
+        {
+          "type": "content_match",
+          "detail": "Contains matching keywords"
+        },
+        {
+          "type": "test_proximity",
+          "detail": "Has nearby tests: src/cli.test.ts"
+        }
+      ],
+      "recommendedReadTool": "read_adaptive",
+      "selectionReason": "content_match, test_proximity",
+      "autoReadEligible": true
+    },
+    {
+      "path": "src/config.ts",
+      "role": "supporting",
+      "confidence": "medium",
+      "evidence": [
+        {
+          "type": "content_match",
+          "detail": "Contains matching keywords"
+        },
+        {
+          "type": "test_proximity",
+          "detail": "Has nearby tests: src/config.test.ts"
+        }
+      ],
+      "recommendedReadTool": "read_adaptive",
+      "selectionReason": "content_match, test_proximity",
+      "autoReadEligible": true
+    },
+    {
+      "path": "src/diagnostics/log-compressor.ts",
+      "role": "supporting",
+      "confidence": "medium",
+      "evidence": [
+        {
+          "type": "content_match",
+          "detail": "Contains matching keywords"
+        },
+        {
+          "type": "test_proximity",
+          "detail": "Has nearby tests: src/diagnostics/log-compressor.test.ts"
+        }
+      ],
+      "recommendedReadTool": "read_adaptive",
+      "selectionReason": "content_match, test_proximity",
+      "autoReadEligible": true
     },
     {
       "path": "src/process-sessions.ts",
@@ -244,7 +218,9 @@
           "detail": "Has nearby tests: src/process-sessions.test.ts"
         }
       ],
-      "recommendedReadTool": "read_adaptive"
+      "recommendedReadTool": "read_adaptive",
+      "selectionReason": "content_match, test_proximity",
+      "autoReadEligible": true
     },
     {
       "path": "src/review-checkpoints.ts",
@@ -260,7 +236,9 @@
           "detail": "Has nearby tests: src/review-checkpoints.test.ts"
         }
       ],
-      "recommendedReadTool": "read_adaptive"
+      "recommendedReadTool": "read_adaptive",
+      "selectionReason": "content_match, test_proximity",
+      "autoReadEligible": true
     },
     {
       "path": "package.json",
@@ -272,7 +250,9 @@
           "detail": "Contains matching keywords"
         }
       ],
-      "recommendedReadTool": "read_adaptive"
+      "recommendedReadTool": "read_adaptive",
+      "selectionReason": "content_match",
+      "autoReadEligible": true
     },
     {
       "path": "perf/_executor-warm.mjs",
@@ -284,7 +264,9 @@
           "detail": "Contains matching keywords"
         }
       ],
-      "recommendedReadTool": "read_adaptive"
+      "recommendedReadTool": "read_adaptive",
+      "selectionReason": "content_match",
+      "autoReadEligible": true
     },
     {
       "path": "perf/_executor.mjs",
@@ -296,7 +278,9 @@
           "detail": "Contains matching keywords"
         }
       ],
-      "recommendedReadTool": "read_adaptive"
+      "recommendedReadTool": "read_adaptive",
+      "selectionReason": "content_match",
+      "autoReadEligible": true
     },
     {
       "path": "perf/code-regions.mjs",
@@ -308,19 +292,9 @@
           "detail": "Contains matching keywords"
         }
       ],
-      "recommendedReadTool": "read_adaptive"
-    },
-    {
-      "path": "scripts/debug-token.mjs",
-      "role": "supporting",
-      "confidence": "medium",
-      "evidence": [
-        {
-          "type": "filename_partial",
-          "detail": "Basename segment matches keyword: token"
-        }
-      ],
-      "recommendedReadTool": "read_adaptive"
+      "recommendedReadTool": "read_adaptive",
+      "selectionReason": "content_match",
+      "autoReadEligible": true
     },
     {
       "path": "scripts/smoke-package.mjs",
@@ -332,7 +306,9 @@
           "detail": "Contains matching keywords"
         }
       ],
-      "recommendedReadTool": "read_adaptive"
+      "recommendedReadTool": "read_adaptive",
+      "selectionReason": "content_match",
+      "autoReadEligible": true
     },
     {
       "path": "scripts/test-http.mjs",
@@ -344,7 +320,9 @@
           "detail": "Contains matching keywords"
         }
       ],
-      "recommendedReadTool": "read_adaptive"
+      "recommendedReadTool": "read_adaptive",
+      "selectionReason": "content_match",
+      "autoReadEligible": true
     },
     {
       "path": "scripts/test-runtime-mcp.mjs",
@@ -356,19 +334,9 @@
           "detail": "Contains matching keywords"
         }
       ],
-      "recommendedReadTool": "read_adaptive"
-    },
-    {
-      "path": "src/change-session.ts",
-      "role": "supporting",
-      "confidence": "medium",
-      "evidence": [
-        {
-          "type": "filename_partial",
-          "detail": "Basename segment matches keyword: session"
-        }
-      ],
-      "recommendedReadTool": "read_adaptive"
+      "recommendedReadTool": "read_adaptive",
+      "selectionReason": "content_match",
+      "autoReadEligible": true
     },
     {
       "path": "src/context-engine/compressors.ts",
@@ -380,7 +348,9 @@
           "detail": "Contains matching keywords"
         }
       ],
-      "recommendedReadTool": "read_adaptive"
+      "recommendedReadTool": "read_adaptive",
+      "selectionReason": "content_match",
+      "autoReadEligible": true
     },
     {
       "path": "src/db/migrations.ts",
@@ -392,7 +362,9 @@
           "detail": "Contains matching keywords"
         }
       ],
-      "recommendedReadTool": "read_adaptive"
+      "recommendedReadTool": "read_adaptive",
+      "selectionReason": "content_match",
+      "autoReadEligible": true
     },
     {
       "path": "src/db/schema.ts",
@@ -404,7 +376,9 @@
           "detail": "Contains matching keywords"
         }
       ],
-      "recommendedReadTool": "read_adaptive"
+      "recommendedReadTool": "read_adaptive",
+      "selectionReason": "content_match",
+      "autoReadEligible": true
     },
     {
       "path": "src/server.ts",
@@ -416,103 +390,143 @@
           "detail": "Contains matching keywords"
         }
       ],
-      "recommendedReadTool": "read_adaptive"
+      "recommendedReadTool": "read_adaptive",
+      "selectionReason": "content_match",
+      "autoReadEligible": true
     },
     {
       "path": "src/change-intelligence/goal-normalizer.test.ts",
       "role": "test",
-      "confidence": "low",
+      "confidence": "medium",
       "evidence": [
         {
           "type": "test_proximity",
           "detail": "Is test for: src/change-intelligence/goal-normalizer.ts"
         }
       ],
-      "recommendedReadTool": "read_many"
+      "recommendedReadTool": "read_adaptive",
+      "selectionReason": "test_proximity",
+      "autoReadEligible": true
     },
     {
       "path": "src/check-selector.test.ts",
       "role": "test",
-      "confidence": "low",
+      "confidence": "medium",
       "evidence": [
         {
           "type": "test_proximity",
           "detail": "Is test for: src/check-selector.ts"
         }
       ],
-      "recommendedReadTool": "read_many"
+      "recommendedReadTool": "read_adaptive",
+      "selectionReason": "test_proximity",
+      "autoReadEligible": true
     },
     {
       "path": "src/cli.test.ts",
       "role": "test",
-      "confidence": "low",
+      "confidence": "medium",
       "evidence": [
         {
           "type": "test_proximity",
           "detail": "Is test for: src/cli.ts"
         }
       ],
-      "recommendedReadTool": "read_many"
+      "recommendedReadTool": "read_adaptive",
+      "selectionReason": "test_proximity",
+      "autoReadEligible": true
     },
     {
       "path": "src/config.test.ts",
       "role": "test",
-      "confidence": "low",
+      "confidence": "medium",
       "evidence": [
         {
           "type": "test_proximity",
           "detail": "Is test for: src/config.ts"
         }
       ],
-      "recommendedReadTool": "read_many"
-    },
-    {
-      "path": "src/db/client.ts",
-      "role": "supporting",
-      "confidence": "low",
-      "evidence": [
-        {
-          "type": "filename_exact",
-          "detail": "Basename segment matches keyword: client"
-        }
-      ],
-      "recommendedReadTool": "read_many"
+      "recommendedReadTool": "read_adaptive",
+      "selectionReason": "test_proximity",
+      "autoReadEligible": true
     },
     {
       "path": "src/diagnostics/log-compressor.test.ts",
       "role": "test",
-      "confidence": "low",
+      "confidence": "medium",
       "evidence": [
         {
           "type": "test_proximity",
           "detail": "Is test for: src/diagnostics/log-compressor.ts"
         }
       ],
-      "recommendedReadTool": "read_many"
+      "recommendedReadTool": "read_adaptive",
+      "selectionReason": "test_proximity",
+      "autoReadEligible": true
     },
     {
       "path": "src/process-sessions.test.ts",
       "role": "test",
-      "confidence": "low",
+      "confidence": "medium",
       "evidence": [
         {
           "type": "test_proximity",
           "detail": "Is test for: src/process-sessions.ts"
         }
       ],
-      "recommendedReadTool": "read_many"
+      "recommendedReadTool": "read_adaptive",
+      "selectionReason": "test_proximity",
+      "autoReadEligible": true
     },
     {
       "path": "src/review-checkpoints.test.ts",
       "role": "test",
-      "confidence": "low",
+      "confidence": "medium",
       "evidence": [
         {
           "type": "test_proximity",
           "detail": "Is test for: src/review-checkpoints.ts"
         }
       ],
-      "recommendedReadTool": "read_many"
+      "recommendedReadTool": "read_adaptive",
+      "selectionReason": "test_proximity",
+      "autoReadEligible": true
+    },
+    {
+      "path": "eval/cases/task_context/jwt-auth.input.json",
+      "role": "supporting",
+      "confidence": "medium",
+      "evidence": [
+        {
+          "type": "filename_partial",
+          "detail": "Basename segment matches keyword: jwt"
+        },
+        {
+          "type": "filename_partial",
+          "detail": "Basename segment matches keyword: auth"
+        }
+      ],
+      "recommendedReadTool": "read_adaptive",
+      "selectionReason": "filename_partial, filename_partial",
+      "autoReadEligible": true
+    },
+    {
+      "path": "eval/cases/task_context/jwt-auth.snap.json",
+      "role": "supporting",
+      "confidence": "medium",
+      "evidence": [
+        {
+          "type": "filename_partial",
+          "detail": "Basename segment matches keyword: jwt"
+        },
+        {
+          "type": "filename_partial",
+          "detail": "Basename segment matches keyword: auth"
+        }
+      ],
+      "recommendedReadTool": "read_adaptive",
+      "selectionReason": "filename_partial, filename_partial",
+      "autoReadEligible": true
     }
   ],
   "directDependents": [],
@@ -575,31 +589,17 @@
   ],
   "suggestedNextSteps": [
     {
-      "tool": "read_many",
+      "tool": "read_adaptive",
       "arguments": {
-        "items": [
-          {
-            "path": "src/oauth-store.ts",
-            "startLine": 40,
-            "endLine": 188
-          },
-          {
-            "path": "src/oauth-store.ts",
-            "startLine": 190,
-            "endLine": 205
-          },
-          {
-            "path": "src/oauth-provider.ts"
-          }
-        ]
+        "path": "src/db/client.ts"
       },
-      "reason": "Read the strongest implementation candidates and their relevant regions."
+      "reason": "No high-confidence primary file was found; inspect the strongest supporting candidate."
     }
   ],
   "limitations": [],
   "budget": {
     "maxTokens": 6000,
-    "estimatedTokens": 2412,
+    "estimatedTokens": 2790,
     "truncated": false,
     "omittedCandidates": 0,
     "omittedRegions": 0

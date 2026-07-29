@@ -14,8 +14,6 @@ export type EvidenceType =
   | "filename_exact"
   | "filename_partial"
   | "content_match"
-  | "content_match_strong"
-  | "content_match_normal"
   | "route"
   | "schema"
   | "import"

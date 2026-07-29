@@ -30,6 +30,8 @@
         }
       ],
       "recommendedReadTool": "read",
+      "selectionReason": "focus_path, test_proximity",
+      "autoReadEligible": true,
       "codeRegions": [
         {
           "name": "isReviewTool",
@@ -68,14 +70,16 @@
     {
       "path": "src/ui/card-types.test.ts",
       "role": "test",
-      "confidence": "low",
+      "confidence": "medium",
       "evidence": [
         {
           "type": "test_proximity",
           "detail": "Is test for: src/ui/card-types.ts"
         }
       ],
-      "recommendedReadTool": "read_many"
+      "recommendedReadTool": "read_adaptive",
+      "selectionReason": "test_proximity",
+      "autoReadEligible": true
     }
   ],
   "directDependents": [],
@@ -117,7 +121,7 @@
   "limitations": [],
   "budget": {
     "maxTokens": 6000,
-    "estimatedTokens": 439,
+    "estimatedTokens": 473,
     "truncated": false,
     "omittedCandidates": 0,
     "omittedRegions": 0

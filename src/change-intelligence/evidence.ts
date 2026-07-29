@@ -23,8 +23,7 @@ export const EVIDENCE_WEIGHTS = {
   extracted_path: 80,
   filename_exact: 45,
   schema: 40,
-  content_match_strong: 35,
-  content_match_normal: 20,
+  content_match: 20,
   route: 10,
   filename_partial: 8,
   test_proximity: 5,
@@ -43,22 +42,32 @@ export const KIND_PENALTIES = {
 
 export function inferConfidence(evidence: readonly EvidenceEntry[]): Confidence {
   const has = (type: EvidenceType): boolean => evidence.some(item => item.type === type);
-  const hasStrongContent = has("content_match_strong");
-  const hasAnyContent = hasStrongContent || has("content_match_normal") || has("content_match");
 
   if (has("focus_path") || has("extracted_path")) {
     return "high";
   }
 
-  if (has("filename_exact") && (hasStrongContent || has("route") || has("schema"))) {
+  if (
+    has("filename_exact") &&
+    (
+      has("content_match") ||
+      has("route") ||
+      has("schema")
+    )
+  ) {
+    return "high";
+  }
+  if (
+    has("schema") &&
+    has("content_match")
+  ) {
     return "high";
   }
 
-  if (has("schema") && hasStrongContent) {
-    return "high";
-  }
-
-  if (has("route") && hasAnyContent) {
+  if (
+    has("route") &&
+    has("content_match")
+  ) {
     return "medium";
   }
 
