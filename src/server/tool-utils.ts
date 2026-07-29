@@ -497,7 +497,9 @@ export async function applyAtomicMutation(options: AtomicMutationOptions): Promi
         expectedHash: options.ifMatch,
         actualHash: currentHash,
         mutationApplied: false,
-        retryableAfterRefresh: true
+        retryableAfterRefresh: true,
+        beforeHash: currentHash,
+        afterHash: null
       }
     };
   }
@@ -513,7 +515,9 @@ export async function applyAtomicMutation(options: AtomicMutationOptions): Promi
           expectedHash: options.ifMatch,
           actualHash: currentHash,
           mutationApplied: false,
-          retryableAfterRefresh: true
+          retryableAfterRefresh: true,
+          beforeHash: currentHash,
+          afterHash: null
         }
       };
     }
@@ -557,6 +561,14 @@ export async function applyAtomicMutation(options: AtomicMutationOptions): Promi
       if (mutationResult.structuredContent && typeof mutationResult.structuredContent === "object") {
          mutationResult.structuredContent.newHash = newHash;
       }
+      mutationResult.details = {
+        ...(mutationResult.details ?? {}),
+        atomicMutation: {
+          beforeHash: currentHash,
+          afterHash: newHash,
+        },
+      };
+      console.log("DEBUG applyAtomicMutation currentHash:", currentHash, "newHash:", newHash, "details:", JSON.stringify(mutationResult.details));
     }
     return mutationResult;
   } catch (error: any) {

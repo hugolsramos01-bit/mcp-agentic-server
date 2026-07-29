@@ -44,8 +44,8 @@ export async function contextBudgetTool(input: ContextBudgetInput, cwd: string):
       if (/\.(?:[cm]?[jt]sx?)$/i.test(p)) {
         const { compressAST } = await import("./context-engine/compressors.js");
         const stat = secureFs.stat(cwd, p);
-        const balanced = compressAST(content, "balanced", undefined, fullPath, stat.mtimeMs);
-        const skeletal = compressAST(content, "skeletal", undefined, fullPath, stat.mtimeMs);
+        const balanced = compressAST(content, "balanced", undefined, { cacheKey: fullPath, displayPath: p, mtime: stat.mtimeMs });
+        const skeletal = compressAST(content, "skeletal", undefined, { cacheKey: fullPath, displayPath: p, mtime: stat.mtimeMs });
         compressionBenchmarks.push({
           path: p,
           originalTokens: tokens,
@@ -305,7 +305,7 @@ export async function semanticPackTool(
       let finalTokens = 0;
 
       for (const level of levels) {
-        const compressed = compressAST(content, level, undefined, fullPath, stat.mtimeMs);
+        const compressed = compressAST(content, level, undefined, { cacheKey: fullPath, displayPath: file, mtime: stat.mtimeMs });
         const estTokens = compressed.metadata.outputTokensEstimate;
 
         if (usedTokens + estTokens <= maxTokens) {
@@ -320,7 +320,7 @@ export async function semanticPackTool(
         fileContents.push({ path: file, compression: finalCompression, content: finalContent });
         usedTokens += finalTokens;
       } else {
-        const skeletal = compressAST(content, "skeletal", undefined, fullPath, stat.mtimeMs);
+        const skeletal = compressAST(content, "skeletal", undefined, { cacheKey: fullPath, displayPath: file, mtime: stat.mtimeMs });
         const remainingChars = (maxTokens - usedTokens) * 4;
         if (remainingChars > 100) {
           fileContents.push({

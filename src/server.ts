@@ -970,7 +970,7 @@ function createMcpServer(
       const content = fsModule.readFileSync(fullPath, "utf8");
       
       const { compressAST } = await import("./context-engine/compressors.js");
-      const compressed = compressAST(content, req.level, undefined, fullPath, stat.mtimeMs);
+      const compressed = compressAST(content, req.level, undefined, { cacheKey: fullPath, displayPath: req.path, mtime: stat.mtimeMs });
       const text = JSON.stringify(compressed, null, 2);
       
       return {
@@ -1039,7 +1039,7 @@ function createMcpServer(
       }
       
       const { compressAST } = await import("./context-engine/compressors.js");
-      const compressed = compressAST(content, level as any, undefined, fullPath, stat.mtimeMs);
+      const compressed = compressAST(content, level as any, undefined, { cacheKey: fullPath, displayPath: req.path, mtime: stat.mtimeMs });
       const output = compressed.output;
       
       return {
@@ -1149,7 +1149,9 @@ function createMcpServer(
             path: input.path,
             operation: writeExistedBefore ? "update" : "add",
             additions: summary.lines,
-            removals: 0
+            removals: 0,
+            beforeHash: response.details?.atomicMutation?.beforeHash ?? null,
+            afterHash: response.details?.atomicMutation?.afterHash ?? null,
           }])
         },
       };
@@ -1271,7 +1273,9 @@ function createMcpServer(
             path: input.path,
             operation: "update",
             additions: stats.additions,
-            removals: stats.removals
+            removals: stats.removals,
+            beforeHash: response.details?.atomicMutation?.beforeHash ?? null,
+            afterHash: response.details?.atomicMutation?.afterHash ?? null,
           }])
         },
       };
@@ -2719,7 +2723,7 @@ function createMcpServer(
             if (file.level && file.level !== "none") {
               try {
                 const { compressAST } = await import("./context-engine/compressors.js");
-                const result = compressAST(originalContent, file.level);
+                const result = compressAST(originalContent, file.level, undefined, { cacheKey: file.path, displayPath: file.path });
                 wasEffective = result.metadata.compressionEffective;
               } catch {}
             }

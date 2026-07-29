@@ -2,6 +2,12 @@ import ts from "typescript";
 
 export type CompressionLevel = "none" | "light" | "balanced" | "aggressive" | "skeletal";
 
+export interface CompressionSource {
+  cacheKey?: string;
+  displayPath?: string;
+  mtime?: number;
+}
+
 export interface Omission {
   lines: string;
   reason: string;
@@ -71,8 +77,7 @@ export function compressAST(
   content: string, 
   level: CompressionLevel, 
   protectPatterns: string[] = DEFAULT_PROTECT_POLICY,
-  filePath?: string,
-  mtime?: number
+  source: CompressionSource = {}
 ): CompressionResult {
   
   if (level === "none") {
@@ -100,23 +105,25 @@ export function compressAST(
   const normalizedContent = content.replace(/\r\n/g, '\n');
 
   let sourceFile: ts.SourceFile;
-  if (filePath && mtime !== undefined) {
-    const cached = globalAstCache.get(filePath, mtime);
+  const parserPath = source.cacheKey ?? source.displayPath ?? "temp.ts";
+
+  if (source.cacheKey && source.mtime !== undefined) {
+    const cached = globalAstCache.get(source.cacheKey, source.mtime);
     if (cached) {
       sourceFile = cached;
     } else {
-      sourceFile = ts.createSourceFile(filePath, normalizedContent, ts.ScriptTarget.Latest, true);
-      globalAstCache.set(filePath, mtime, sourceFile);
+      sourceFile = ts.createSourceFile(parserPath, normalizedContent, ts.ScriptTarget.Latest, true);
+      globalAstCache.set(source.cacheKey, source.mtime, sourceFile);
     }
   } else {
-    sourceFile = ts.createSourceFile(filePath || "temp.ts", normalizedContent, ts.ScriptTarget.Latest, true);
+    sourceFile = ts.createSourceFile(parserPath, normalizedContent, ts.ScriptTarget.Latest, true);
   }
 
   // Skeletal is intentionally a declaration outline, not merely aggressive
   // compression. The previous implementation often returned almost the entire
   // file when functions were short or declarations were not object literals.
   if (level === "skeletal") {
-    return buildSkeletalOutline(sourceFile, normalizedContent, filePath);
+    return buildSkeletalOutline(sourceFile, normalizedContent, source.displayPath);
   }
 
   const omissionsToApply: { start: number; end: number; lines: string; reason: string; risk: "low" | "medium" | "high" }[] = [];
@@ -265,8 +272,16 @@ export function compressAST(
   };
 }
 
-function buildSkeletalOutline(sourceFile: ts.SourceFile, original: string, filePath?: string): CompressionResult {
-  const lines: string[] = [`// Skeletal outline${filePath ? `: ${filePath}` : ""}`];
+function sanitizeDisplayPath(displayPath?: string): string | undefined {
+  if (!displayPath) return undefined;
+  const normalized = displayPath.replace(/\\/g, "/");
+  if (normalized.startsWith("/") || /^[a-zA-Z]:\//.test(normalized) || normalized.split("/").includes("..")) return undefined;
+  return normalized.replace(/^\.\/+/, "");
+}
+
+function buildSkeletalOutline(sourceFile: ts.SourceFile, original: string, displayPath?: string): CompressionResult {
+  const publicPath = sanitizeDisplayPath(displayPath);
+  const lines: string[] = [publicPath ? `// Skeletal outline: ${publicPath}` : "// Skeletal outline"];
   const omissions: Omission[] = [];
 
   for (const statement of sourceFile.statements) {
