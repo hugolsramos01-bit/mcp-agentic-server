@@ -40,6 +40,7 @@
     "bench:agent": "npm run build && node perf/agent-loop.mjs",
     "bench:server": "npm run build && node perf/server-hot-path.mjs",
     "test:runtime": "node scripts/test-runtime-mcp.mjs",
+    "test:runtime:built": "npm run build && node scripts/test-runtime-mcp.mjs",
     "bench:regions": "npm run build && node perf/code-regions.mjs"
   },
   "keywords": [

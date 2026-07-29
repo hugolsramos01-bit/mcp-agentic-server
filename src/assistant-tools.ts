@@ -76,18 +76,28 @@ export interface ReadManySkippedItem {
   reason: string;
 }
 
-function safeReadFailureReason(error: unknown): ReadManySkipCode {
-  const code =
+interface SafeReadFailure {
+  code: ReadManySkipCode;
+  reason: string;
+}
+
+function safeReadFailure(error: unknown): SafeReadFailure {
+  const systemCode =
     typeof error === "object" && error !== null && "code" in error
       ? String((error as any).code)
       : undefined;
 
-  switch (code) {
-    case "ENOENT": return "file_not_found";
-    case "EISDIR": return "path_is_directory";
+  switch (systemCode) {
+    case "ENOENT":
+    case "ENOTDIR":
+      return { code: "file_not_found", reason: "File was not found." };
+    case "EISDIR":
+      return { code: "path_is_directory", reason: "Requested path is a directory." };
     case "EACCES":
-    case "EPERM": return "permission_denied";
-    default: return "path_resolution_failed";
+    case "EPERM":
+      return { code: "permission_denied", reason: "Permission was denied." };
+    default:
+      return { code: "path_resolution_failed", reason: "Path could not be resolved safely." };
   }
 }
 
@@ -181,7 +191,8 @@ export async function readManyTool(input: ReadManyInput, cwd: string, allowedRoo
       const resolved = resolveFile(item);
       files.push({ item, resolved });
     } catch (e: any) {
-      skipped.push({ path: item.path, code: safeReadFailureReason(e), reason: String(e.message || e) });
+      const failure = safeReadFailure(e);
+      skipped.push({ path: item.path, ...failure });
     }
   }
 
@@ -262,7 +273,7 @@ export async function readManyTool(input: ReadManyInput, cwd: string, allowedRoo
         content,
       });
     } catch (e: any) {
-      skipped.push({ path: p, code: "read_failed", reason: String(e.message || e) });
+      skipped.push({ path: p, code: "read_failed", reason: "File could not be read." });
     }
   }
 

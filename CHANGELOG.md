@@ -5,6 +5,14 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.3.1] - 2026-07-29
+
+### Fixed
+- Fixed skeletal compression leakage exposing absolute paths in headers by decoupling `cacheKey` and `displayPath` internally.
+- Implemented robust read failure sanitization via `safeReadFailure` to prevent leakage of internal paths.
+- Included output integrity guarantees for atomic mutation with before/after hashes natively generated in mutation receipts.
+- Decoupled `test:runtime` script from mandatory builds, offering `test:runtime:built` for CI integration.
+
 ## [1.3.0] - 2026-07-28
 
 ### Added

@@ -568,7 +568,6 @@ export async function applyAtomicMutation(options: AtomicMutationOptions): Promi
           afterHash: newHash,
         },
       };
-      console.log("DEBUG applyAtomicMutation currentHash:", currentHash, "newHash:", newHash, "details:", JSON.stringify(mutationResult.details));
     }
     return mutationResult;
   } catch (error: any) {

@@ -132,10 +132,38 @@ async function run() {
     console.log("rm2:", rm2);
     
     assert.strictEqual(
-    rm2.structuredContent?.error?.includes('path_resolution_failed'),
+    rm2.structuredContent?.error?.includes('path_resolution_failed') || rm2.structuredContent?.error?.includes('file_not_found'),
     true,
-    "Structured error should include path_resolution_failed"
+    "Structured error should include failure reason"
   );
+
+    console.log("3.5. read_many: Skeletal Compression");
+    const rmSkeletal = await callTool("read_many", {
+      workspaceId,
+      paths: ["src/auth.ts"],
+      compressionLevel: "skeletal"
+    });
+    const skeletalContent = rmSkeletal.structuredContent?.data?.files[0]?.content;
+    assert(skeletalContent, "Should return content for skeletal compression");
+    assert(!skeletalContent.includes(fixtureRepo), "Skeletal content should not leak absolute path");
+    assert(skeletalContent.includes("src/auth.ts"), "Skeletal content should include relative path");
+
+    console.log("3.6. read_many: Budget-only skips (success)");
+    const rmBudget = await callTool("read_many", {
+      workspaceId,
+      paths: ["src/auth.ts"],
+      maxTokens: 2
+    });
+    assert(rmBudget.isError !== true, "read_many should succeed if only budget_exceeded occurred");
+    assert(rmBudget.structuredContent?.data?.skipped[0]?.code === "budget_exceeded", "Should skip due to budget");
+
+    console.log("3.7. read_many: Mixed failure (error)");
+    const rmMixed = await callTool("read_many", {
+      workspaceId,
+      paths: ["src/auth.ts", "src/missing.ts"],
+      maxTokens: 2
+    }).catch(e => e);
+    assert(rmMixed.isError || rmMixed.code, "read_many should error if zero files read and at least one hard failure");
 
     console.log("4. edit: Success and ifMatch");
     const edit1 = await callTool("edit", {
