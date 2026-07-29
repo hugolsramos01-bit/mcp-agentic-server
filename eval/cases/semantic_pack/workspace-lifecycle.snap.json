@@ -23,8 +23,8 @@
     }
   },
   "git": {
-    "branch": "## fix/task-context-candidate-hygiene...origin/fix/task-context-candidate-hygiene",
-    "status": "## fix/task-context-candidate-hygiene...origin/fix/task-context-candidate-hygiene\n M src/change-intelligence/indexed-path.ts\n M src/change-intelligence/task-context.test.ts\n M src/change-intelligence/task-context.ts\n"
+    "branch": "## feature/risk-adaptive-flow...origin/feature/risk-adaptive-flow",
+    "status": "## feature/risk-adaptive-flow...origin/feature/risk-adaptive-flow\n M eval/cases/grep/known-export.snap.json\n M eval/cases/read/package-json.snap.json\n M eval/cases/read_many/two-files.snap.json\n M eval/cases/semantic_pack/workspace-lifecycle.snap.json\n M eval/cases/suggest_checks/agentic-docs-only.snap.json\n M eval/cases/suggest_checks/agentic-full-workspace.snap.json\n M eval/cases/suggest_checks/agentic-http-change.snap.json\n M eval/cases/suggest_checks/agentic-package-change.snap.json\n M eval/cases/suggest_checks/agentic-self.snap.json\n M eval/cases/suggest_checks/agentic-source-change.snap.json\n M eval/cases/suggest_checks/agentic-ui-change.snap.json\n M eval/cases/task_context/jwt-auth.snap.json\n M eval/cases/task_context/mutation-migration.snap.json\n M eval/cases/task_context/pagination-bug.snap.json\n M src/change-intelligence/task-context.ts\n M src/change-intelligence/types.ts\n?? src/change-intelligence/risk-profile.test.ts\n?? src/change-intelligence/risk-profile.ts\n"
   },
   "routes": [],
   "collections": [],
@@ -341,8 +341,8 @@
     }
   ],
   "tokenBudget": {
-    "used": 1509,
+    "used": 1637,
     "max": 8000,
-    "remaining": 6491
+    "remaining": 6363
   }
 }

@@ -42,6 +42,7 @@ import {
   GoalIntent,
   CandidateAssessment,
 } from "./types.js";
+import { calculateRiskProfile } from "./risk-profile.js";
 import {
   loadAndExtractCodeRegions,
   CodeRegionSkippedError,
@@ -809,6 +810,12 @@ export async function buildTaskContext(
     },
     primaryFiles,
     supportingFiles,
+    riskProfile: calculateRiskProfile({
+      goal: input.goal,
+      taskType: normalized.taskTypeSuggestion ?? "auto",
+      primaryFiles,
+      directDependents,
+    }),
     directDependents,
     applicableInstructions,
     nearbyTestCandidates,

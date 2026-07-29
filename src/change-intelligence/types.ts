@@ -120,6 +120,30 @@ export interface TaskFocusScope {
   unresolved: string[];
 }
 
+export type RiskLevel = "low" | "medium" | "high" | "critical";
+
+export interface RiskFactor {
+  factor:
+    | "fan_out"
+    | "configuration_change"
+    | "broad_focus"
+    | "mass_refactor"
+    | "core_domain"
+    | "untested_changes";
+  description: string;
+  weight: number;
+}
+
+export interface RiskProfile {
+  level: RiskLevel;
+  score: number;
+  factors: RiskFactor[];
+  blastRadius: {
+    affectedFiles: number;
+    dependentsCount: number;
+  };
+}
+
 export interface TaskContextResult {
   version: 1;
   goal: string;
@@ -134,6 +158,8 @@ export interface TaskContextResult {
 
   primaryFiles: TaskFileCandidate[];
   supportingFiles: TaskFileCandidate[];
+  
+  riskProfile: RiskProfile;
   
   directDependents: Array<{
     source: string;
