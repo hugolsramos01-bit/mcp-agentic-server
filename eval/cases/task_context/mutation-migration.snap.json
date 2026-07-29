@@ -5,6 +5,13 @@
   "taskTypeSource": "inferred",
   "effectiveDepth": "balanced",
   "depthSource": "inferred",
+  "focusScope": {
+    "active": false,
+    "exactFiles": [],
+    "directories": [],
+    "matchedFileCount": 253,
+    "unresolved": []
+  },
   "primaryFiles": [
     {
       "path": "src/server/mutation-receipt.ts",
@@ -115,7 +122,7 @@
   "limitations": [],
   "budget": {
     "maxTokens": 6000,
-    "estimatedTokens": 484,
+    "estimatedTokens": 510,
     "truncated": false,
     "omittedCandidates": 0,
     "omittedRegions": 0

@@ -5,6 +5,13 @@
   "taskTypeSource": "inferred",
   "effectiveDepth": "fast",
   "depthSource": "default",
+  "focusScope": {
+    "active": false,
+    "exactFiles": [],
+    "directories": [],
+    "matchedFileCount": 253,
+    "unresolved": []
+  },
   "primaryFiles": [
     {
       "path": "src/oauth-store.ts",
@@ -256,22 +263,6 @@
       "recommendedReadTool": "read_adaptive"
     },
     {
-      "path": "src/tool-contracts.ts",
-      "role": "supporting",
-      "confidence": "medium",
-      "evidence": [
-        {
-          "type": "content_match",
-          "detail": "Contains matching keywords"
-        },
-        {
-          "type": "test_proximity",
-          "detail": "Has nearby tests: src/tool-contracts.test.ts"
-        }
-      ],
-      "recommendedReadTool": "read_adaptive"
-    },
-    {
       "path": "package.json",
       "role": "supporting",
       "confidence": "medium",
@@ -345,6 +336,18 @@
     },
     {
       "path": "scripts/test-http.mjs",
+      "role": "supporting",
+      "confidence": "medium",
+      "evidence": [
+        {
+          "type": "content_match",
+          "detail": "Contains matching keywords"
+        }
+      ],
+      "recommendedReadTool": "read_adaptive"
+    },
+    {
+      "path": "scripts/test-runtime-mcp.mjs",
       "role": "supporting",
       "confidence": "medium",
       "evidence": [
@@ -510,18 +513,6 @@
         }
       ],
       "recommendedReadTool": "read_many"
-    },
-    {
-      "path": "src/tool-contracts.test.ts",
-      "role": "test",
-      "confidence": "low",
-      "evidence": [
-        {
-          "type": "test_proximity",
-          "detail": "Is test for: src/tool-contracts.ts"
-        }
-      ],
-      "recommendedReadTool": "read_many"
     }
   ],
   "directDependents": [],
@@ -580,12 +571,6 @@
       "testPaths": [
         "src/review-checkpoints.test.ts"
       ]
-    },
-    {
-      "sourcePath": "src/tool-contracts.ts",
-      "testPaths": [
-        "src/tool-contracts.test.ts"
-      ]
     }
   ],
   "suggestedNextSteps": [
@@ -614,7 +599,7 @@
   "limitations": [],
   "budget": {
     "maxTokens": 6000,
-    "estimatedTokens": 2473,
+    "estimatedTokens": 2412,
     "truncated": false,
     "omittedCandidates": 0,
     "omittedRegions": 0

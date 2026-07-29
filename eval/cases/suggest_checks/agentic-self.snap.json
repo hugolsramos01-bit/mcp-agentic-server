@@ -185,6 +185,15 @@
       "confidence": "low",
       "mutatesWorkspace": false,
       "estimatedCost": "medium"
+    },
+    {
+      "script": "test:runtime",
+      "command": "npm run test:runtime",
+      "tier": "other",
+      "reason": "Classificação pendente",
+      "confidence": "low",
+      "mutatesWorkspace": false,
+      "estimatedCost": "medium"
     }
   ],
   "limitations": [

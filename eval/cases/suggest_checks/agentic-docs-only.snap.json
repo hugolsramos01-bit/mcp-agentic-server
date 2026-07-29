@@ -70,6 +70,10 @@
       "reason": "Alterações ignoram este tipo de check (ex. apenas documentação)"
     },
     {
+      "script": "test:runtime",
+      "reason": "Alterações ignoram este tipo de check (ex. apenas documentação)"
+    },
+    {
       "script": "typecheck",
       "reason": "Alterações ignoram este tipo de check (ex. apenas documentação)"
     }

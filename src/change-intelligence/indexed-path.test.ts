@@ -19,3 +19,20 @@ test("createIndexedPath extracts correct segments", () => {
   assert.strictEqual(file3.dir, ".");
   assert.strictEqual(file3.nameOnly, "");
 });
+
+test("classifies only actual declaration files as configuration", () => {
+  assert.strictEqual(
+    createIndexedPath("src/valid.ts").kind,
+    "source",
+  );
+
+  assert.strictEqual(
+    createIndexedPath("src/types.d.ts").kind,
+    "configuration",
+  );
+
+  assert.strictEqual(
+    createIndexedPath("src/generated.d.ts").kind,
+    "configuration",
+  );
+});

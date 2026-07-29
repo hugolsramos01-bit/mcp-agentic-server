@@ -36,16 +36,29 @@ async function run() {
   await exec(`git add .`, { cwd: fixtureRepo });
   await exec(`git commit -m "fixture"`, { cwd: fixtureRepo });
 
-  console.log("Packing project...");
-  const { stdout: packOut } = await exec(`npm pack`, { cwd: ROOT });
-  const tarballName = packOut.trim().split("\n").pop().trim();
-  const tarballPath = join(ROOT, tarballName);
+  const suppliedTarball = process.argv[2] ? resolve(process.argv[2]) : undefined;
+  let tarballPath;
+  let shouldDeleteTarball = false;
+
+  if (suppliedTarball) {
+    await stat(suppliedTarball);
+    tarballPath = suppliedTarball;
+    console.log(`Using supplied tarball: ${tarballPath}`);
+  } else {
+    console.log("Packing project...");
+    const { stdout: packOut } = await exec(`npm pack`, { cwd: ROOT });
+    const generatedName = packOut.trim().split("\n").pop().trim();
+    tarballPath = join(ROOT, generatedName);
+    shouldDeleteTarball = true;
+  }
+
+  const tarballLabel = tarballPath.split(/[\\/]/).pop();
 
   const installDir = join(TEMP_DIR, "install-env");
   await mkdir(installDir);
   await writeFile(join(installDir, "package.json"), JSON.stringify({ name: "test-env" }));
 
-  console.log(`Installing ${tarballName}...`);
+  console.log(`Installing ${tarballLabel}...`);
   await exec(`npm install ${tarballPath}`, { cwd: installDir });
 
   const installedCliPath = join(installDir, "node_modules", "mcp-agentic-server", "dist", "cli.js");
@@ -167,7 +180,9 @@ async function run() {
   } finally {
     console.log("Closing MCP client...");
     await transport.close();
-    await rm(tarballPath, { force: true }).catch(() => {});
+    if (shouldDeleteTarball) {
+      await rm(tarballPath, { force: true }).catch(() => {});
+    }
     await rm(TEMP_DIR, { recursive: true, force: true }).catch(() => {});
   }
 }

@@ -17,12 +17,13 @@
       "bench:tools": "npm run build && node perf/tool-latency.mjs",
       "bench:agent": "npm run build && node perf/agent-loop.mjs",
       "bench:server": "npm run build && node perf/server-hot-path.mjs",
+      "test:runtime": "node scripts/test-runtime-mcp.mjs",
       "bench:regions": "npm run build && node perf/code-regions.mjs"
     }
   },
   "git": {
-    "branch": "## fix/p3-output-hygiene",
-    "status": "## fix/p3-output-hygiene\n M eval/cases/read/package-json.snap.json\n M eval/cases/read_many/two-files.snap.json\n M eval/cases/suggest_checks/agentic-docs-only.snap.json\n M eval/cases/suggest_checks/agentic-full-workspace.snap.json\n M eval/cases/suggest_checks/agentic-http-change.snap.json\n M eval/cases/suggest_checks/agentic-package-change.snap.json\n M eval/cases/suggest_checks/agentic-self.snap.json\n M eval/cases/suggest_checks/agentic-source-change.snap.json\n M eval/cases/suggest_checks/agentic-ui-change.snap.json\n M src/assistant-tools.test.ts\n M src/assistant-tools.ts\n M src/change-intelligence/code-region-cache.ts\n M src/change-intelligence/code-regions.ts\n"
+    "branch": "## fix/task-context-directory-focus...origin/fix/task-context-directory-focus [ahead 1]",
+    "status": "## fix/task-context-directory-focus...origin/fix/task-context-directory-focus [ahead 1]\n M .github/workflows/ci.yml\n M eval/cases/read/package-json.snap.json\n M eval/cases/read_many/two-files.snap.json\n M eval/cases/suggest_checks/agentic-docs-only.snap.json\n M eval/cases/suggest_checks/agentic-full-workspace.snap.json\n M eval/cases/suggest_checks/agentic-http-change.snap.json\n M eval/cases/suggest_checks/agentic-package-change.snap.json\n M eval/cases/suggest_checks/agentic-self.snap.json\n M eval/cases/suggest_checks/agentic-source-change.snap.json\n M eval/cases/suggest_checks/agentic-ui-change.snap.json\n M scripts/test-runtime-mcp.mjs\n M src/change-intelligence/indexed-path.ts\n M src/change-intelligence/task-context.test.ts\n?? test-repo/\n?? test-root.ts\n"
   },
   "routes": [],
   "collections": [],
@@ -178,7 +179,7 @@
       ],
       "recommendedReadMode": "skeletal",
       "reason": "Contém termos do objetivo — pode ser relevante",
-      "estimatedTokens": 36329
+      "estimatedTokens": 36317
     },
     {
       "path": "src/server/tool-utils.ts",
@@ -195,7 +196,7 @@
       ],
       "recommendedReadMode": "skeletal",
       "reason": "Contém termos do objetivo — pode ser relevante",
-      "estimatedTokens": 6646
+      "estimatedTokens": 6639
     },
     {
       "path": "src/tool-contracts.ts",
@@ -246,7 +247,7 @@
       ],
       "recommendedReadMode": "skeletal",
       "reason": "Contém termos do objetivo — pode ser relevante",
-      "estimatedTokens": 6065
+      "estimatedTokens": 6376
     },
     {
       "path": "src/ast-tools.ts",
@@ -339,8 +340,8 @@
     }
   ],
   "tokenBudget": {
-    "used": 1547,
+    "used": 1582,
     "max": 8000,
-    "remaining": 6453
+    "remaining": 6418
   }
 }
