@@ -1868,7 +1868,15 @@ function createMcpServer(
         // Leave as string if not valid JSON
       }
 
-      const envelope = {
+      const envelope = response.structuredContent ? {
+        ...response.structuredContent,
+        diagnostics: response.structuredContent.diagnostics ?? extra?.diagnostics ?? [],
+        metrics: {
+          durationMs,
+          truncated: Boolean(response._meta?.truncated || resultText.includes("[truncated]") || resultText.includes("... [truncated")),
+          ...(response.structuredContent.metrics || {})
+        }
+      } : {
         status,
         data: status === "error" && typeof parsedData === "string" ? {} : parsedData,
         error: status === "error" ? (typeof parsedData === "string" ? parsedData : (parsedData.error || parsedData.message || JSON.stringify(parsedData))) : null,

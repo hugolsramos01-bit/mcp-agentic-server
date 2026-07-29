@@ -98,7 +98,9 @@ export function resolveWorkspacePath(
   const exists = missingSegments.length === 0;
 
   if (!allowMissingLeaf && !exists) {
-    throw new Error(`Path does not exist: ${inputPath}`);
+    const err = new Error(`Path does not exist: ${inputPath}`);
+    (err as any).code = "ENOENT";
+    throw err;
   }
 
   return {

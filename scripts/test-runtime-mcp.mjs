@@ -118,11 +118,11 @@ async function run() {
     assert(rmData.files.length === 1, "Should have 1 file");
     assert(rmData.skipped.length === 1, "Should have 1 skipped");
     console.log("rmData.skipped:", rmData.skipped);
-    assert.strictEqual(
-    rmData.skipped[0].code === 'path_resolution_failed' || rmData.skipped[0].reason === 'path_resolution_failed',
-    true,
-    "Reason should be path_resolution_failed"
-  );
+    assert.equal(
+      rmData.skipped[0].code,
+      "file_not_found",
+      "Reason should be file_not_found"
+    );
     const authHash = rmData.files[0].contentHash;
 
     const rm2 = await callTool("read_many", {
@@ -131,11 +131,19 @@ async function run() {
     }).catch(e => e);
     console.log("rm2:", rm2);
     
-    assert.strictEqual(
-    rm2.structuredContent?.error?.includes('path_resolution_failed') || rm2.structuredContent?.error?.includes('file_not_found'),
-    true,
-    "Structured error should include failure reason"
-  );
+    assert.equal(
+      rm2.structuredContent?.status,
+      "error",
+      "Structured status should be error"
+    );
+    const rm2Skipped = rm2.structuredContent?.data?.skipped ?? [];
+    assert.equal(rm2Skipped.length, 2, "Should have 2 skipped files");
+    assert.ok(
+      rm2Skipped.every(
+        (item) => item.code === "file_not_found" || item.code === "path_resolution_failed"
+      ),
+      "Skipped items should be file_not_found or path_resolution_failed"
+    );
 
     console.log("3.5. read_many: Skeletal Compression");
     const rmSkeletal = await callTool("read_many", {
@@ -154,8 +162,25 @@ async function run() {
       paths: ["src/auth.ts"],
       maxTokens: 2
     });
-    assert(rmBudget.isError !== true, "read_many should succeed if only budget_exceeded occurred");
-    assert(rmBudget.structuredContent?.data?.skipped[0]?.code === "budget_exceeded", "Should skip due to budget");
+    assert.equal(
+      rmBudget.structuredContent?.status,
+      "success",
+      "Budget test status should be success"
+    );
+    assert.equal(
+      rmBudget.structuredContent?.data?.files?.length,
+      0,
+      "Budget test files length should be 0"
+    );
+    assert.equal(
+      rmBudget.structuredContent?.data?.warning,
+      "budget_exhausted",
+      "Budget test should return budget_exhausted warning"
+    );
+    assert.ok(
+      rmBudget.structuredContent?.data?.skipped?.every((item) => item.code === "budget_exceeded"),
+      "All skipped items should be budget_exceeded"
+    );
 
     console.log("3.7. read_many: Mixed failure (error)");
     const rmMixed = await callTool("read_many", {
@@ -163,7 +188,15 @@ async function run() {
       paths: ["src/auth.ts", "src/missing.ts"],
       maxTokens: 2
     }).catch(e => e);
-    assert(rmMixed.isError || rmMixed.code, "read_many should error if zero files read and at least one hard failure");
+    assert.equal(
+      rmMixed.structuredContent?.status,
+      "error",
+      "Mixed test status should be error"
+    );
+    assert.ok(
+      rmMixed.structuredContent?.data?.skipped?.some((item) => item.code !== "budget_exceeded"),
+      "At least one skipped item should not be budget_exceeded"
+    );
 
     console.log("4. edit: Success and ifMatch");
     const edit1 = await callTool("edit", {
