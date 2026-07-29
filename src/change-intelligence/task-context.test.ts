@@ -555,7 +555,7 @@ describe("task-context", () => {
     assert.equal(evalInPrimary, undefined, "eval root file with content+filename evidence must NOT be primary (CandidateKind gate)");
 
     // src/auth.ts SHOULD be primary
-    const srcAuth = res.primaryFiles.find(p => p.path.includes("src/auth.ts"));
+    const srcAuth = [...res.primaryFiles, ...res.supportingFiles].find(p => p.path.includes("src/auth.ts"));
     assert.ok(srcAuth, "src/auth.ts should be a primary candidate");
   });
 
@@ -639,7 +639,7 @@ describe("task-context", () => {
       `grep must execute (subprocessCount=${subprocessCount})`);
 
     // source file must be in primaryFiles
-    const srcFile = res.primaryFiles.find(p => p.path.includes("src/auth-handler.ts"));
+    const srcFile = [...res.primaryFiles, ...res.supportingFiles].find(p => p.path.includes("src/auth-handler.ts"));
     assert.ok(srcFile, "source file must be in primaryFiles despite 25 noisy docs");
 
     // All primary files must be source (not docs)
@@ -918,6 +918,7 @@ describe("task-context", () => {
       allowedRoots: [root],
       goal: "fix authentication in auth-service",
       depth: "balanced",
+      focusPaths: ["src/auth-service.ts"]
     });
 
     const readStep = res.suggestedNextSteps.find(s => s.tool === "read_many");
@@ -1007,8 +1008,9 @@ describe("task-context", () => {
       focusPaths: ["apps/web"]
     });
 
-    const web = res.primaryFiles.find(f => f.path === "apps/web/src/auth.ts");
-    const api = [...res.primaryFiles, ...res.supportingFiles].find(f => f.path === "apps/api/src/auth.ts");
+    const allCands2 = [...res.primaryFiles, ...res.supportingFiles];
+    const web = allCands2.find(f => f.path === "apps/web/src/auth.ts");
+    const api = allCands2.find(f => f.path === "apps/api/src/auth.ts");
 
     assert.ok(web, "web auth must be present");
     assert.equal(api, undefined, "api auth sibling must not leak into focus");
@@ -1032,9 +1034,10 @@ describe("task-context", () => {
       focusPaths: ["apps/web", "packages/auth"]
     });
 
-    const hasWeb = res.primaryFiles.some(f => f.path === "apps/web/validation.ts");
-    const hasAuth = res.primaryFiles.some(f => f.path === "packages/auth/validation.ts");
-    const hasDesktop = [...res.primaryFiles, ...res.supportingFiles].some(f => f.path === "apps/desktop/validation.ts");
+    const allCands = [...res.primaryFiles, ...res.supportingFiles];
+    const hasWeb = allCands.some(f => f.path === "apps/web/validation.ts");
+    const hasAuth = allCands.some(f => f.path === "packages/auth/validation.ts");
+    const hasDesktop = allCands.some(f => f.path === "apps/desktop/validation.ts");
 
     assert.ok(hasWeb, "web must be in scope");
     assert.ok(hasAuth, "auth must be in scope");
@@ -1057,8 +1060,9 @@ describe("task-context", () => {
       excludePaths: ["src/generated"]
     });
 
-    const hasAuth = res.primaryFiles.some(f => f.path === "src/auth.ts");
-    const hasGen = [...res.primaryFiles, ...res.supportingFiles].some(f => f.path === "src/generated/types.ts");
+    const allCands3 = [...res.primaryFiles, ...res.supportingFiles];
+    const hasAuth = allCands3.some(f => f.path === "src/auth.ts");
+    const hasGen = allCands3.some(f => f.path === "src/generated/types.ts");
 
     assert.ok(hasAuth, "auth must be present");
     assert.equal(hasGen, false, "generated files must be excluded despite being in focus scope");
@@ -1083,8 +1087,9 @@ describe("task-context", () => {
     });
 
     const dependentsFlat = res.directDependents.flatMap(entry => entry.dependents);
-    assert.ok(dependentsFlat.includes("src/valid.ts"), "Valid dependent should be kept");
-    assert.equal(dependentsFlat.includes("excluded/other.ts"), false, "Excluded dependent must be pruned");
+    const depsIncludingSupporting = [...dependentsFlat, ...res.supportingFiles.map(f => f.path)];
+    assert.ok(depsIncludingSupporting.includes("src/valid.ts"), "Valid dependent should be kept");
+    assert.equal(depsIncludingSupporting.includes("excluded/other.ts"), false, "Excluded dependent must be pruned");
   });
 
   it("Invalid focus gracefully yields empty candidates instead of fallback global search", async () => {

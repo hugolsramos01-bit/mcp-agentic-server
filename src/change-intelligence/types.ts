@@ -14,6 +14,8 @@ export type EvidenceType =
   | "filename_exact"
   | "filename_partial"
   | "content_match"
+  | "content_match_strong"
+  | "content_match_normal"
   | "route"
   | "schema"
   | "import"
@@ -64,6 +66,25 @@ export interface CodeRegion {
   matchedKeywords?: string[];
 }
 
+export type GoalIntent =
+  | "implementation"
+  | "testing"
+  | "configuration"
+  | "documentation"
+  | "investigation";
+
+export interface CandidateAssessment {
+  path: string;
+  kind: CandidateKind;
+  evidence: EvidenceEntry[];
+  score: number;
+  confidence: Confidence;
+  primaryEligible: boolean;
+  autoReadEligible: boolean;
+  eligibilityReasons: string[];
+  rejectionReasons: string[];
+}
+
 export interface TaskFileCandidate {
   path: string;
   role: TaskFileRole;
@@ -71,6 +92,8 @@ export interface TaskFileCandidate {
   evidence: EvidenceEntry[];
   recommendedReadTool: "read" | "read_adaptive" | "read_many";
   codeRegions?: CodeRegion[];
+  selectionReason?: string;
+  autoReadEligible?: boolean;
 }
 
 export type TaskContextDepth = "fast" | "balanced" | "deep";

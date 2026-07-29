@@ -2,12 +2,12 @@ import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import { basename, dirname, isAbsolute, join, normalize, relative, resolve } from "node:path";
 import { normalizeGoal } from "./goal-normalizer.js";
-import { scoreConfidence } from "./evidence.js";
+import { inferConfidence, WEAK_GOAL_KEYWORDS, EVIDENCE_WEIGHTS, KIND_PENALTIES } from "./evidence.js";
 import { findNearbyTests } from "./test-proximity.js";
 import { getWorkspaceFileCacheKey, getWorkspaceFileSnapshot, setWorkspaceFileSnapshot } from "../workspace/workspace-file-cache.js";
 import { IndexedPath, isPrimaryEligibleKind, isDependencySkippedKind, candidateKindPriority } from "./indexed-path.js";
 import { getLimitedSharedDependencies } from "./file-dependencies-internal.js";
-import { TaskContextInput, TaskContextResult, TaskFileCandidate, EvidenceEntry, TaskFileRole, TaskType, TaskContextDepth, CandidateKind } from "./types.js";
+import { TaskContextInput, TaskContextResult, TaskFileCandidate, EvidenceEntry, TaskFileRole, TaskType, TaskContextDepth, CandidateKind, GoalIntent, CandidateAssessment } from "./types.js";
 import { loadAndExtractCodeRegions, CodeRegionSkippedError } from "./code-region-cache.js";
 import type { ToolResponse } from "../pi-tools.js";
 import { NOOP_PERFORMANCE_RECORDER } from "../performance/performance-recorder.js";
@@ -94,6 +94,16 @@ function resolveAndValidatePath(
 }
 
 // ─── Core ─────────────────────────────────────────────────────────────
+
+
+function inferGoalIntent(goal: string, type: TaskType, focusPaths: string[]): GoalIntent {
+  const g = goal.toLowerCase();
+  if (g.includes("test") || (type === "auto" && g.includes("test"))) return "testing";
+  if (g.includes("config") || g.includes("eslint") || g.includes("tsconfig")) return "configuration";
+  if (g.includes("doc") || g.includes("readme")) return "documentation";
+  if (g.includes("investigat") || g.includes("why") || g.includes("explain")) return "investigation";
+  return "implementation";
+}
 
 export async function buildTaskContext(input: TaskContextInput): Promise<TaskContextResult> {
   const {
@@ -377,7 +387,7 @@ export async function buildTaskContext(input: TaskContextInput): Promise<TaskCon
     const types = new Set(evidences.map(e => e.type));
     if (types.has("focus_path")) hasExactFocusPath = true;
     if (types.has("extracted_path")) hasExactExtractedPath = true;
-    if (scoreConfidence(evidences) === "high" && isPrimaryEligibleKind(getKind(path))) {
+    if (inferConfidence(evidences) === "high" && isPrimaryEligibleKind(getKind(path))) {
       currentHighCandidates.push({ path, evidences });
     }
   }
@@ -469,51 +479,80 @@ export async function buildTaskContext(input: TaskContextInput): Promise<TaskCon
   pTestDiscovery.end();
 
   // 11. Initial assignment of confidence & sorting deterministically
-  const confidenceScore: Record<string, number> = { high: 3, medium: 2, low: 1 };
+  const intent = inferGoalIntent(input.goal, normalized.taskTypeSuggestion ?? "auto", Array.from(focusScope.exactFiles));
 
-  const allCandidates: TaskFileCandidate[] = Array.from(candidatesMap.entries()).map(([path, evidences]) => {
-    const confidence = scoreConfidence(evidences);
+  const assessments: CandidateAssessment[] = Array.from(candidatesMap.entries()).map(([path, evidence]) => {
     const kind = getKind(path);
-
-    // Allow explicit override: focus_path/extracted_path can promote any kind
-    const explicitlyTargeted = evidences.some(e =>
-      e.type === "focus_path" || e.type === "extracted_path"
-    );
-
-    let role: TaskFileRole = "supporting";
-    if (kind === "test") {
-      role = "test"; // always supporting, no matter the confidence
-    } else if (confidence === "high" && (isPrimaryEligibleKind(kind) || explicitlyTargeted)) {
-      role = "primary";
+    const confidence = inferConfidence(evidence);
+    
+    // Calcular score determinístico
+    let score = 0;
+    for (const e of evidence) {
+      score += EVIDENCE_WEIGHTS[e.type as keyof typeof EVIDENCE_WEIGHTS] || 0;
     }
-    // Everything else (evaluation, snapshot, generated, documentation)
-    // stays as "supporting" even with high confidence, UNLESS explicitly targeted
+    score -= KIND_PENALTIES[kind] || 0;
 
-    const recommendedReadTool: "read" | "read_adaptive" | "read_many" =
-      confidence === "high" ? "read" :
-      confidence === "medium" ? "read_adaptive" :
-      "read_many";
+    const explicitlyFocused = evidence.some(e => e.type === "focus_path" || e.type === "extracted_path");
+    
+    // Elegibilidade
+    let primaryEligible = isPrimaryEligibleKind(kind) || explicitlyFocused;
+    if (kind === "test") primaryEligible = false;
+    if (intent === "testing" && kind === "test") primaryEligible = true;
+    if (intent === "configuration" && kind === "configuration") primaryEligible = true;
 
-    return { path, role, confidence, evidence: evidences, recommendedReadTool };
+    // autoReadEligible logic
+    let autoReadEligible = true;
+    if (kind === "generated") autoReadEligible = false;
+    if (path.endsWith("package-lock.json") || path.endsWith("yarn.lock") || path.endsWith("pnpm-lock.yaml") || path.endsWith("bun.lock") || path.endsWith("bun.lockb")) {
+      autoReadEligible = false;
+    }
+    if (explicitlyFocused) autoReadEligible = true;
+
+    const eligibilityReasons: string[] = [];
+    if (primaryEligible) eligibilityReasons.push("primary_eligible");
+    if (!autoReadEligible) eligibilityReasons.push("auto_read_blocked");
+    
+    return {
+      path, kind, evidence, score, confidence, primaryEligible, autoReadEligible,
+      eligibilityReasons, rejectionReasons: []
+    };
   });
 
-  allCandidates.sort((a, b) => {
-    const cs = confidenceScore[b.confidence] - confidenceScore[a.confidence];
-    if (cs !== 0) return cs;
-    const es = b.evidence.length - a.evidence.length;
-    if (es !== 0) return es;
+  // Sort candidates
+  assessments.sort((a, b) => {
+    // 1. score
+    if (b.score !== a.score) return b.score - a.score;
+    // 2. kind priority
+    const kpA = candidateKindPriority(a.kind);
+    const kpB = candidateKindPriority(b.kind);
+    if (kpA !== kpB) return kpA - kpB;
+    // 3. strong evidence count
+    const strongA = a.evidence.filter(e => EVIDENCE_WEIGHTS[e.type as keyof typeof EVIDENCE_WEIGHTS] >= 35).length;
+    const strongB = b.evidence.filter(e => EVIDENCE_WEIGHTS[e.type as keyof typeof EVIDENCE_WEIGHTS] >= 35).length;
+    if (strongA !== strongB) return strongB - strongA;
+    // 4. path
     return a.path.localeCompare(b.path);
   });
 
-  // Tests go to supporting; primary and non-test high-confidence go to primary
   const primaryFiles: TaskFileCandidate[] = [];
   const supportingFiles: TaskFileCandidate[] = [];
-  for (const c of allCandidates) {
-    if (c.role === "primary") {
-      primaryFiles.push(c);
-    } else {
-      supportingFiles.push(c); // test, supporting, or configuration
-    }
+  for (const a of assessments) {
+    const role: TaskFileRole = a.primaryEligible && a.confidence === "high" ? "primary" : (a.kind === "test" ? "test" : "supporting");
+    const recommendedReadTool = a.confidence === "high" ? "read" : a.confidence === "medium" ? "read_adaptive" : "read_many";
+    const selectionReason = a.evidence.map(e => e.type).join(", ");
+
+    const candidate: TaskFileCandidate = {
+      path: a.path,
+      role,
+      confidence: a.confidence,
+      evidence: a.evidence,
+      recommendedReadTool,
+      selectionReason,
+      autoReadEligible: a.autoReadEligible
+    };
+
+    if (role === "primary") primaryFiles.push(candidate);
+    else supportingFiles.push(candidate);
   }
 
   // 11.5 Extract code regions for primary files adaptively
@@ -667,18 +706,21 @@ function buildSuggestedNextSteps(result: TaskContextResult, anchorKeywords: stri
       arguments: { items: allItems },
       reason: "Read the strongest implementation candidates and their relevant regions."
     });
-  } else if (result.supportingFiles.length > 0) {
-    steps.push({
-      tool: "read_adaptive",
-      arguments: { path: result.supportingFiles[0].path },
-      reason: "No high-confidence primary file was found; inspect the strongest supporting candidate."
-    });
   } else {
-    steps.push({
-      tool: "grep",
-      arguments: { pattern: anchorKeywords.slice(0, 3).join("|") },
-      reason: "No reliable file candidate was found; search for the normalized goal terms."
-    });
+    const fallbackCandidates = result.supportingFiles.filter(c => c.autoReadEligible !== false);
+    if (fallbackCandidates.length > 0) {
+      steps.push({
+        tool: "read_adaptive",
+        arguments: { path: fallbackCandidates[0].path },
+        reason: "No high-confidence primary file was found; inspect the strongest supporting candidate."
+      });
+    } else {
+      steps.push({
+        tool: "grep",
+        arguments: { pattern: anchorKeywords.slice(0, 3).join("|") },
+        reason: "No reliable file candidate was found; search for the normalized goal terms."
+      });
+    }
   }
 
   return steps;
