@@ -23,7 +23,7 @@ describe("Mutation Receipt Logic", () => {
     await execFileAsync("git", ["add", "."], { cwd: root });
     
     const files: MutationReceiptInput[] = [
-      { path: "index.ts", operation: "update", additions: 5, removals: 2, afterHash: "a1b2c3d4" }
+      { path: "index.ts", operation: "update", additions: 5, removals: 2, beforeHash: "oldhash123", afterHash: "a1b2c3d4" }
     ];
     
     const receipt = await generateMutationReceipt(root, files);
@@ -33,6 +33,7 @@ describe("Mutation Receipt Logic", () => {
     assert.equal(receipt.files[0].path, "index.ts");
     assert.equal(receipt.files[0].operation, "update");
     assert.equal(receipt.files[0].additions, 5);
+    assert.equal(receipt.files[0].beforeHash, "sha256:oldhash123");
     assert.equal(receipt.files[0].afterHash, "sha256:a1b2c3d4");
     assert.ok(receipt.files[0].nearbyTestCandidates.includes("index.test.ts"));
   });
