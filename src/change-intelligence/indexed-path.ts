@@ -17,9 +17,24 @@ const GENERATED_DIRECTORIES = /(?:^|[/\\])(?:coverage|reports|artifacts|\.nyc_ou
 const GENERATED_EXTENSIONS = /\.(?:log|lcov)$/i;
 
 const LOCK_FILES = new Set([
-  "package-lock.json", "yarn.lock", "pnpm-lock.yaml", "bun.lock", "bun.lockb",
-  ".terraform.lock.hcl", "Gemfile.lock",
+  "package-lock.json",
+  "yarn.lock",
+  "pnpm-lock.yaml",
+  "bun.lock",
+  "bun.lockb",
+  ".terraform.lock.hcl",
+  "gemfile.lock",
 ]);
+
+export function isLockFile(path: string): boolean {
+  const baseFile = path
+    .replace(/\\/g, "/")
+    .split("/")
+    .pop()
+    ?.toLowerCase() ?? "";
+
+  return LOCK_FILES.has(baseFile);
+}
 
 const CONFIG_EXT_PATTERNS = /\.(?:config\.(?:ts|js|json|mjs|cjs)|d\.ts)$/i;
 const DOC_DIR_PATTERNS = /(?:^|[/\\])docs?(?:[/\\]|$)/i;
@@ -39,7 +54,7 @@ export function classifyCandidateKind(path: string): CandidateKind {
   
   // Lockfiles (treated as configuration but will be autoReadEligible: false later)
   const baseFile = lower.split("/").pop() ?? "";
-  if (LOCK_FILES.has(baseFile)) return "configuration";
+  if (isLockFile(path)) return "configuration";
 
   // Evaluation test inputs/outputs
   if (EVAL_DIR_PATTERNS.test(lower)) return "evaluation";

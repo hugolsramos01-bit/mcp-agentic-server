@@ -12,8 +12,158 @@
     "matchedFileCount": 251,
     "unresolved": []
   },
-  "primaryFiles": [],
+  "primaryFiles": [
+    {
+      "path": "src/oauth-store.ts",
+      "role": "primary",
+      "confidence": "high",
+      "evidence": [
+        {
+          "type": "filename_partial",
+          "detail": "Basename contains keyword: auth"
+        },
+        {
+          "type": "filename_exact",
+          "detail": "Basename segment matches keyword: oauth"
+        },
+        {
+          "type": "content_match",
+          "detail": "Contains matching keywords"
+        },
+        {
+          "type": "test_proximity",
+          "detail": "Has nearby tests: src/oauth-store.test.ts"
+        }
+      ],
+      "recommendedReadTool": "read",
+      "selectionReason": "filename_partial, filename_exact, content_match, test_proximity",
+      "autoReadEligible": true,
+      "codeRegions": [
+        {
+          "name": "SqliteOAuthStore",
+          "kind": "class",
+          "startLine": 40,
+          "endLine": 188,
+          "matchedKeywords": [
+            "auth",
+            "oauth",
+            "token",
+            "client"
+          ]
+        },
+        {
+          "name": "SqliteOAuthClientsStore",
+          "kind": "class",
+          "startLine": 190,
+          "endLine": 205,
+          "matchedKeywords": [
+            "auth",
+            "oauth",
+            "client"
+          ]
+        },
+        {
+          "name": "registerClient",
+          "qualifiedName": "SqliteOAuthStore.registerClient",
+          "kind": "method",
+          "startLine": 56,
+          "endLine": 79,
+          "matchedKeywords": [
+            "auth",
+            "oauth",
+            "token",
+            "client"
+          ]
+        },
+        {
+          "name": "saveAccessToken",
+          "qualifiedName": "SqliteOAuthStore.saveAccessToken",
+          "kind": "method",
+          "startLine": 81,
+          "endLine": 99,
+          "matchedKeywords": [
+            "auth",
+            "oauth",
+            "token",
+            "client"
+          ]
+        }
+      ]
+    },
+    {
+      "path": "src/oauth-provider.ts",
+      "role": "primary",
+      "confidence": "high",
+      "evidence": [
+        {
+          "type": "filename_partial",
+          "detail": "Basename contains keyword: auth"
+        },
+        {
+          "type": "filename_exact",
+          "detail": "Basename segment matches keyword: oauth"
+        },
+        {
+          "type": "content_match",
+          "detail": "Contains matching keywords"
+        }
+      ],
+      "recommendedReadTool": "read",
+      "selectionReason": "filename_partial, filename_exact, content_match",
+      "autoReadEligible": true
+    }
+  ],
   "supportingFiles": [
+    {
+      "path": "src/oauth-store.test.ts",
+      "role": "test",
+      "confidence": "medium",
+      "evidence": [
+        {
+          "type": "filename_partial",
+          "detail": "Basename contains keyword: auth"
+        },
+        {
+          "type": "filename_exact",
+          "detail": "Basename segment matches keyword: oauth"
+        },
+        {
+          "type": "test_proximity",
+          "detail": "Is test for: src/oauth-store.ts"
+        }
+      ],
+      "recommendedReadTool": "read_adaptive",
+      "selectionReason": "filename_partial, filename_exact, test_proximity",
+      "autoReadEligible": true
+    },
+    {
+      "path": "scripts/debug-token.mjs",
+      "role": "supporting",
+      "confidence": "medium",
+      "evidence": [
+        {
+          "type": "filename_exact",
+          "detail": "Basename segment matches keyword: token"
+        }
+      ],
+      "recommendedReadTool": "read_adaptive",
+      "selectionReason": "filename_exact",
+      "autoReadEligible": true
+    },
+    {
+      "path": "src/change-session.ts",
+      "role": "supporting",
+      "confidence": "medium",
+      "evidence": [
+        {
+          "type": "filename_exact",
+          "detail": "Basename segment matches keyword: session"
+        }
+      ],
+      "recommendedReadTool": "read_adaptive",
+      "selectionReason": "filename_exact",
+      "autoReadEligible": true
+    },
     {
       "path": "src/db/client.ts",
       "role": "supporting",
@@ -29,13 +179,13 @@
       "autoReadEligible": true
     },
     {
-      "path": "src/oauth-store.ts",
+      "path": "src/process-sessions.ts",
       "role": "supporting",
       "confidence": "medium",
       "evidence": [
         {
           "type": "filename_partial",
-          "detail": "Basename segment matches keyword: oauth"
+          "detail": "Basename contains keyword: session"
         },
         {
           "type": "content_match",
@@ -43,7 +193,7 @@
         },
         {
           "type": "test_proximity",
-          "detail": "Has nearby tests: src/oauth-store.test.ts"
+          "detail": "Has nearby tests: src/process-sessions.test.ts"
         }
       ],
       "recommendedReadTool": "read_adaptive",
@@ -51,67 +201,39 @@
       "autoReadEligible": true
     },
     {
-      "path": "scripts/debug-token.mjs",
+      "path": "eval/cases/task_context/jwt-auth.input.json",
       "role": "supporting",
       "confidence": "medium",
       "evidence": [
         {
-          "type": "filename_partial",
-          "detail": "Basename segment matches keyword: token"
-        }
-      ],
-      "recommendedReadTool": "read_adaptive",
-      "selectionReason": "filename_partial",
-      "autoReadEligible": true
-    },
-    {
-      "path": "src/change-session.ts",
-      "role": "supporting",
-      "confidence": "medium",
-      "evidence": [
-        {
-          "type": "filename_partial",
-          "detail": "Basename segment matches keyword: session"
-        }
-      ],
-      "recommendedReadTool": "read_adaptive",
-      "selectionReason": "filename_partial",
-      "autoReadEligible": true
-    },
-    {
-      "path": "src/oauth-provider.ts",
-      "role": "supporting",
-      "confidence": "medium",
-      "evidence": [
-        {
-          "type": "filename_partial",
-          "detail": "Basename segment matches keyword: oauth"
+          "type": "filename_exact",
+          "detail": "Basename segment matches keyword: jwt"
         },
         {
-          "type": "content_match",
-          "detail": "Contains matching keywords"
+          "type": "filename_exact",
+          "detail": "Basename segment matches keyword: auth"
         }
       ],
       "recommendedReadTool": "read_adaptive",
-      "selectionReason": "filename_partial, content_match",
+      "selectionReason": "filename_exact, filename_exact",
       "autoReadEligible": true
     },
     {
-      "path": "src/oauth-store.test.ts",
-      "role": "test",
+      "path": "eval/cases/task_context/jwt-auth.snap.json",
+      "role": "supporting",
       "confidence": "medium",
       "evidence": [
         {
-          "type": "filename_partial",
-          "detail": "Basename segment matches keyword: oauth"
+          "type": "filename_exact",
+          "detail": "Basename segment matches keyword: jwt"
         },
         {
-          "type": "test_proximity",
-          "detail": "Is test for: src/oauth-store.ts"
+          "type": "filename_exact",
+          "detail": "Basename segment matches keyword: auth"
         }
       ],
       "recommendedReadTool": "read_adaptive",
-      "selectionReason": "filename_partial, test_proximity",
+      "selectionReason": "filename_exact, filename_exact",
       "autoReadEligible": true
     },
     {
@@ -198,24 +320,6 @@
         {
           "type": "test_proximity",
           "detail": "Has nearby tests: src/diagnostics/log-compressor.test.ts"
-        }
-      ],
-      "recommendedReadTool": "read_adaptive",
-      "selectionReason": "content_match, test_proximity",
-      "autoReadEligible": true
-    },
-    {
-      "path": "src/process-sessions.ts",
-      "role": "supporting",
-      "confidence": "medium",
-      "evidence": [
-        {
-          "type": "content_match",
-          "detail": "Contains matching keywords"
-        },
-        {
-          "type": "test_proximity",
-          "detail": "Has nearby tests: src/process-sessions.test.ts"
         }
       ],
       "recommendedReadTool": "read_adaptive",
@@ -395,6 +499,38 @@
       "autoReadEligible": true
     },
     {
+      "path": "examples/agents/opencode-explorer.md",
+      "role": "supporting",
+      "confidence": "medium",
+      "evidence": [
+        {
+          "type": "filename_partial",
+          "detail": "Basename contains keyword: open"
+        }
+      ],
+      "recommendedReadTool": "read_adaptive",
+      "selectionReason": "filename_partial",
+      "autoReadEligible": true
+    },
+    {
+      "path": "src/process-sessions.test.ts",
+      "role": "test",
+      "confidence": "medium",
+      "evidence": [
+        {
+          "type": "filename_partial",
+          "detail": "Basename contains keyword: session"
+        },
+        {
+          "type": "test_proximity",
+          "detail": "Is test for: src/process-sessions.ts"
+        }
+      ],
+      "recommendedReadTool": "read_adaptive",
+      "selectionReason": "filename_partial, test_proximity",
+      "autoReadEligible": true
+    },
+    {
       "path": "src/change-intelligence/goal-normalizer.test.ts",
       "role": "test",
       "confidence": "medium",
@@ -465,20 +601,6 @@
       "autoReadEligible": true
     },
     {
-      "path": "src/process-sessions.test.ts",
-      "role": "test",
-      "confidence": "medium",
-      "evidence": [
-        {
-          "type": "test_proximity",
-          "detail": "Is test for: src/process-sessions.ts"
-        }
-      ],
-      "recommendedReadTool": "read_adaptive",
-      "selectionReason": "test_proximity",
-      "autoReadEligible": true
-    },
-    {
       "path": "src/review-checkpoints.test.ts",
       "role": "test",
       "confidence": "medium",
@@ -490,42 +612,6 @@
       ],
       "recommendedReadTool": "read_adaptive",
       "selectionReason": "test_proximity",
-      "autoReadEligible": true
-    },
-    {
-      "path": "eval/cases/task_context/jwt-auth.input.json",
-      "role": "supporting",
-      "confidence": "medium",
-      "evidence": [
-        {
-          "type": "filename_partial",
-          "detail": "Basename segment matches keyword: jwt"
-        },
-        {
-          "type": "filename_partial",
-          "detail": "Basename segment matches keyword: auth"
-        }
-      ],
-      "recommendedReadTool": "read_adaptive",
-      "selectionReason": "filename_partial, filename_partial",
-      "autoReadEligible": true
-    },
-    {
-      "path": "eval/cases/task_context/jwt-auth.snap.json",
-      "role": "supporting",
-      "confidence": "medium",
-      "evidence": [
-        {
-          "type": "filename_partial",
-          "detail": "Basename segment matches keyword: jwt"
-        },
-        {
-          "type": "filename_partial",
-          "detail": "Basename segment matches keyword: auth"
-        }
-      ],
-      "recommendedReadTool": "read_adaptive",
-      "selectionReason": "filename_partial, filename_partial",
       "autoReadEligible": true
     }
   ],
@@ -542,6 +628,12 @@
       "sourcePath": "src/oauth-store.ts",
       "testPaths": [
         "src/oauth-store.test.ts"
+      ]
+    },
+    {
+      "sourcePath": "src/process-sessions.ts",
+      "testPaths": [
+        "src/process-sessions.test.ts"
       ]
     },
     {
@@ -575,12 +667,6 @@
       ]
     },
     {
-      "sourcePath": "src/process-sessions.ts",
-      "testPaths": [
-        "src/process-sessions.test.ts"
-      ]
-    },
-    {
       "sourcePath": "src/review-checkpoints.ts",
       "testPaths": [
         "src/review-checkpoints.test.ts"
@@ -589,17 +675,31 @@
   ],
   "suggestedNextSteps": [
     {
-      "tool": "read_adaptive",
+      "tool": "read_many",
       "arguments": {
-        "path": "src/db/client.ts"
+        "items": [
+          {
+            "path": "src/oauth-store.ts",
+            "startLine": 40,
+            "endLine": 188
+          },
+          {
+            "path": "src/oauth-store.ts",
+            "startLine": 190,
+            "endLine": 205
+          },
+          {
+            "path": "src/oauth-provider.ts"
+          }
+        ]
       },
-      "reason": "No high-confidence primary file was found; inspect the strongest supporting candidate."
+      "reason": "Read the strongest implementation candidates and their relevant regions."
     }
   ],
   "limitations": [],
   "budget": {
     "maxTokens": 6000,
-    "estimatedTokens": 2790,
+    "estimatedTokens": 3136,
     "truncated": false,
     "omittedCandidates": 0,
     "omittedRegions": 0

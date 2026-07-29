@@ -24,7 +24,7 @@
   },
   "git": {
     "branch": "## fix/task-context-candidate-hygiene...origin/fix/task-context-candidate-hygiene",
-    "status": "## fix/task-context-candidate-hygiene...origin/fix/task-context-candidate-hygiene\n M eval/cases/read/package-json.snap.json\n M eval/cases/read_many/two-files.snap.json\n M eval/cases/suggest_checks/agentic-docs-only.snap.json\n M eval/cases/suggest_checks/agentic-full-workspace.snap.json\n M eval/cases/suggest_checks/agentic-http-change.snap.json\n M eval/cases/suggest_checks/agentic-package-change.snap.json\n M eval/cases/suggest_checks/agentic-self.snap.json\n M eval/cases/suggest_checks/agentic-source-change.snap.json\n M eval/cases/suggest_checks/agentic-ui-change.snap.json\n M src/analysis-regression.test.ts\n M src/change-intelligence/evidence.ts\n M src/change-intelligence/task-context.test.ts\n M src/change-intelligence/task-context.ts\n M src/change-intelligence/types.ts\n"
+    "status": "## fix/task-context-candidate-hygiene...origin/fix/task-context-candidate-hygiene\n M src/change-intelligence/indexed-path.ts\n M src/change-intelligence/task-context.test.ts\n M src/change-intelligence/task-context.ts\n"
   },
   "routes": [],
   "collections": [],
@@ -341,8 +341,8 @@
     }
   ],
   "tokenBudget": {
-    "used": 1605,
+    "used": 1509,
     "max": 8000,
-    "remaining": 6395
+    "remaining": 6491
   }
 }

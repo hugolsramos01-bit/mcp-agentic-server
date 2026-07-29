@@ -769,6 +769,25 @@ describe("task-context", () => {
 
   // ─── P1.2 commit 9: Explicit override + budget guarantee ───────
 
+  it("P1.2: explicitly targeted documentation file via extracted path is NOT primary", async () => {
+    const root = await makeWorkspace();
+    await mkdir(join(root, "docs"), { recursive: true });
+    await writeFile(join(root, "docs", "setup.md"), "# Setup Guide\nHow to install");
+    await gitAddAll(root);
+
+    const res = await buildTaskContext({ workspaceId: "test",
+      cwd: root,
+      allowedRoots: [root],
+      goal: "update docs/setup.md with new instructions",
+    });
+
+    const docFilePrimary = res.primaryFiles.find(p => p.path.includes("docs/setup.md"));
+    assert.equal(docFilePrimary, undefined, "explicitly targeted doc via extracted path must NOT be primary");
+
+    const docFileSupporting = res.supportingFiles.find(p => p.path.includes("docs/setup.md"));
+    assert.ok(docFileSupporting, "explicitly targeted doc via extracted path should be supporting");
+  });
+
   it("P1.2: explicitly targeted evaluation file via focusPath can be primary", async () => {
     const root = await makeWorkspace();
     await mkdir(join(root, "eval", "cases"), { recursive: true });
@@ -787,22 +806,6 @@ describe("task-context", () => {
     assert.equal(evalFile!.role, "primary", "role must be primary");
   });
 
-  it("P1.2: explicitly targeted documentation file via extracted path can be primary", async () => {
-    const root = await makeWorkspace();
-    await mkdir(join(root, "docs"), { recursive: true });
-    await writeFile(join(root, "docs", "setup.md"), "# Setup Guide\nHow to install");
-    await gitAddAll(root);
-
-    const res = await buildTaskContext({ workspaceId: "test",
-      cwd: root,
-      allowedRoots: [root],
-      goal: "update docs/setup.md with new instructions",
-    });
-
-    const docFile = res.primaryFiles.find(p => p.path.includes("docs/setup.md"));
-    assert.ok(docFile, "explicitly targeted doc via extracted path should be primary");
-    assert.equal(docFile!.role, "primary", "role must be primary");
-  });
 
   it("P1.2: generic eval match without explicit target is NOT primary", async () => {
     const root = await makeWorkspace();
@@ -1122,6 +1125,29 @@ describe("task-context", () => {
     assert.equal(result.focusScope?.active, true);
     assert.equal(result.primaryFiles.length, 0);
     assert.equal(result.supportingFiles.length, 0);
+  });
+
+  it("extracted_path on generated files does not make them primary or auto-read", async () => {
+    const root = await makeWorkspace();
+    await writeFile(join(root, "eslint_out.json"), JSON.stringify({ issues: [] }));
+
+    await gitAddAll(root);
+    const res = await buildTaskContext({ workspaceId: "test",
+      cwd: root,
+      allowedRoots: [root],
+      goal: "inspect eslint_out.json",
+      focusPaths: undefined,
+    });
+
+    const eslintOutPrimary = res.primaryFiles.find(p => p.path === "eslint_out.json");
+    assert.equal(eslintOutPrimary, undefined, "eslint_out.json must not be in primaryFiles");
+
+    const eslintOutSupporting = res.supportingFiles.find(p => p.path === "eslint_out.json");
+    assert.ok(eslintOutSupporting, "eslint_out.json should be in supportingFiles");
+    assert.equal(eslintOutSupporting?.autoReadEligible, false, "eslint_out.json must have autoReadEligible false");
+
+    const nextStepsRead = res.suggestedNextSteps.find(s => s.tool === "read_many" && (s.arguments as any).items.some((i: any) => i.path === "eslint_out.json"));
+    assert.equal(nextStepsRead, undefined, "next steps must not suggest reading eslint_out.json");
   });
 
   it("Root focus preserves global content search", async () => {
