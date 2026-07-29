@@ -65,4 +65,4 @@ jobs:
 
       - name: Packaged MCP Runtime Test
         if: matrix.os != 'macos-latest'
-        run: npm run test:runtime
+        run: npm run test:runtime:built

@@ -61,18 +61,43 @@ export interface ReadManyInput {
   maxTokens?: number;
 }
 
-function safeReadFailureReason(error: unknown): string {
-  const code =
+export type ReadManySkipCode =
+  | "budget_exceeded"
+  | "file_not_found"
+  | "path_is_directory"
+  | "permission_denied"
+  | "invalid_range"
+  | "path_resolution_failed"
+  | "read_failed";
+
+export interface ReadManySkippedItem {
+  path: string;
+  code: ReadManySkipCode;
+  reason: string;
+}
+
+interface SafeReadFailure {
+  code: ReadManySkipCode;
+  reason: string;
+}
+
+function safeReadFailure(error: unknown): SafeReadFailure {
+  const systemCode =
     typeof error === "object" && error !== null && "code" in error
       ? String((error as any).code)
       : undefined;
 
-  switch (code) {
-    case "ENOENT": return "file_not_found";
-    case "EISDIR": return "path_is_directory";
+  switch (systemCode) {
+    case "ENOENT":
+    case "ENOTDIR":
+      return { code: "file_not_found", reason: "File was not found." };
+    case "EISDIR":
+      return { code: "path_is_directory", reason: "Requested path is a directory." };
     case "EACCES":
-    case "EPERM": return "permission_denied";
-    default: return "path_resolution_failed";
+    case "EPERM":
+      return { code: "permission_denied", reason: "Permission was denied." };
+    default:
+      return { code: "path_resolution_failed", reason: "Path could not be resolved safely." };
   }
 }
 
@@ -159,14 +184,15 @@ export async function readManyTool(input: ReadManyInput, cwd: string, allowedRoo
   // ── Resolve paths (keep insertion order for items) ──
   type FileEntry = { item: ReadManyItem; resolved: ResolvedFile };
   const files: FileEntry[] = [];
-  const skipped: { path: string; reason: string }[] = [];
+  const skipped: ReadManySkippedItem[] = [];
 
   for (const item of items) {
     try {
       const resolved = resolveFile(item);
       files.push({ item, resolved });
     } catch (e: any) {
-      skipped.push({ path: item.path, reason: safeReadFailureReason(e) });
+      const failure = safeReadFailure(e);
+      skipped.push({ path: item.path, ...failure });
     }
   }
 
@@ -183,7 +209,7 @@ export async function readManyTool(input: ReadManyInput, cwd: string, allowedRoo
     const hasStart = startLine !== undefined;
     const hasEnd = endLine !== undefined;
     if (hasStart !== hasEnd) {
-      skipped.push({ path: p, reason: "range requires both startLine and endLine" });
+      skipped.push({ path: p, code: "invalid_range", reason: "range requires both startLine and endLine" });
       continue;
     }
 
@@ -197,15 +223,15 @@ export async function readManyTool(input: ReadManyInput, cwd: string, allowedRoo
         const sl = startLine as number;
         const el = endLine as number;
         if (sl <= 0 || el <= 0) {
-          skipped.push({ path: p, reason: `range startLine/endLine must be >= 1 (got ${sl}..${el})` });
+          skipped.push({ path: p, code: "invalid_range", reason: `range startLine/endLine must be >= 1 (got ${sl}..${el})` });
           continue;
         }
         if (sl > el) {
-          skipped.push({ path: p, reason: `startLine (${sl}) must be <= endLine (${el})` });
+          skipped.push({ path: p, code: "invalid_range", reason: `startLine (${sl}) must be <= endLine (${el})` });
           continue;
         }
         if (sl > cached.lines.length) {
-          skipped.push({ path: p, reason: `startLine (${sl}) exceeds file length (${cached.lines.length} lines)` });
+          skipped.push({ path: p, code: "invalid_range", reason: `startLine (${sl}) exceeds file length (${cached.lines.length} lines)` });
           continue;
         }
       }
@@ -219,7 +245,11 @@ export async function readManyTool(input: ReadManyInput, cwd: string, allowedRoo
       } else if (input.compressionLevel && input.compressionLevel !== "none") {
         const { compressAST } = await import("./context-engine/compressors.js");
         const rawContent = cached.rawBytes.toString("utf8");
-        const compressed = compressAST(rawContent, input.compressionLevel, undefined, file.resolved.fullPath, cached.mtimeNs / 1_000_000);
+        const compressed = compressAST(rawContent, input.compressionLevel, undefined, {
+          cacheKey: file.resolved.fullPath,
+          displayPath: file.item.path,
+          mtime: cached.mtimeNs / 1_000_000
+        });
         content = compressed.output;
       } else {
         content = cached.rawBytes.toString("utf8");
@@ -227,7 +257,7 @@ export async function readManyTool(input: ReadManyInput, cwd: string, allowedRoo
 
       const estimatedTokens = Math.ceil(content.length / 4);
       if (totalTokens + estimatedTokens > maxTokens) {
-        skipped.push({ path: p, reason: `exceeds remaining budget of ~${Math.max(0, maxTokens - totalTokens)} tokens (estimated ~${estimatedTokens})` });
+        skipped.push({ path: p, code: "budget_exceeded", reason: `exceeds remaining budget of ~${Math.max(0, maxTokens - totalTokens)} tokens (estimated ~${estimatedTokens})` });
         continue;
       }
 
@@ -243,32 +273,45 @@ export async function readManyTool(input: ReadManyInput, cwd: string, allowedRoo
         content,
       });
     } catch (e: any) {
-      skipped.push({ path: p, reason: safeReadFailureReason(e) });
+      skipped.push({ path: p, code: "read_failed", reason: "File could not be read." });
     }
   }
 
-  const allFailed = items.length > 0 && resultFiles.length === 0;
+  const hasResults = resultFiles.length > 0;
+  const hasHardFailures = skipped.some(item => item.code !== "budget_exceeded");
+  const budgetOnlyExhaustion = !hasResults && skipped.length > 0 && !hasHardFailures;
+  const isError = !hasResults && hasHardFailures;
+
+  const finalWarning = budgetOnlyExhaustion
+    ? "budget_exhausted"
+    : (bloatWarning ? bloatWarning.trim() : undefined);
 
   const envelope = {
-    status: allFailed ? "error" : "success",
+    status: isError ? "error" : "success",
     data: {
       files: resultFiles,
       skipped,
-      warning: bloatWarning ? bloatWarning.trim() : undefined,
+      warning: finalWarning,
     },
-    error: allFailed ? "read_many could not read any requested item" : null,
-    diagnostics: allFailed
+    error: isError ? "read_many could not read any requested item" : null,
+    diagnostics: isError
       ? [{
           code: "all_items_failed",
           requestedItems: items.length,
           skippedItems: skipped.length,
         }]
+      : budgetOnlyExhaustion
+      ? [{
+          code: "budget_exhausted",
+          requestedItems: items.length,
+          returnedItems: 0,
+        }]
       : []
   };
 
   return {
-    isError: allFailed,
-    content: [{ type: "text", text: allFailed ? "read_many failed. Errors:\n" + JSON.stringify(skipped, null, 2) : JSON.stringify(envelope.data, null, 2) }],
+    isError: isError,
+    content: [{ type: "text", text: isError ? "read_many failed. Errors:\n" + JSON.stringify(skipped, null, 2) : JSON.stringify(envelope.data, null, 2) }],
     structuredContent: envelope
   };
 }

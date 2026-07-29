@@ -34,6 +34,9 @@ jobs:
           npm test
           npm run build
 
+      - name: Packaged MCP runtime test
+        run: npm run test:runtime:built
+
       - name: Pack and smoke-test the published artifact
         run: |
           PACKAGE_TGZ=$(npm pack --json | node scripts/pack-name.mjs)

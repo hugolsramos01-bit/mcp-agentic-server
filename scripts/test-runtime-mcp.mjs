@@ -118,7 +118,11 @@ async function run() {
     assert(rmData.files.length === 1, "Should have 1 file");
     assert(rmData.skipped.length === 1, "Should have 1 skipped");
     console.log("rmData.skipped:", rmData.skipped);
-    assert(rmData.skipped[0].reason === "path_resolution_failed", "Reason should be path_resolution_failed");
+    assert.equal(
+      rmData.skipped[0].code,
+      "file_not_found",
+      "Reason should be file_not_found"
+    );
     const authHash = rmData.files[0].contentHash;
 
     const rm2 = await callTool("read_many", {
@@ -127,7 +131,72 @@ async function run() {
     }).catch(e => e);
     console.log("rm2:", rm2);
     
-    assert(rm2.code || rm2.isError, "read_many should return error when all files fail");
+    assert.equal(
+      rm2.structuredContent?.status,
+      "error",
+      "Structured status should be error"
+    );
+    const rm2Skipped = rm2.structuredContent?.data?.skipped ?? [];
+    assert.equal(rm2Skipped.length, 2, "Should have 2 skipped files");
+    assert.ok(
+      rm2Skipped.every(
+        (item) => item.code === "file_not_found" || item.code === "path_resolution_failed"
+      ),
+      "Skipped items should be file_not_found or path_resolution_failed"
+    );
+
+    console.log("3.5. read_many: Skeletal Compression");
+    const rmSkeletal = await callTool("read_many", {
+      workspaceId,
+      paths: ["src/auth.ts"],
+      compressionLevel: "skeletal"
+    });
+    const skeletalContent = rmSkeletal.structuredContent?.data?.files[0]?.content;
+    assert(skeletalContent, "Should return content for skeletal compression");
+    assert(!skeletalContent.includes(fixtureRepo), "Skeletal content should not leak absolute path");
+    assert(skeletalContent.includes("src/auth.ts"), "Skeletal content should include relative path");
+
+    console.log("3.6. read_many: Budget-only skips (success)");
+    const rmBudget = await callTool("read_many", {
+      workspaceId,
+      paths: ["src/auth.ts"],
+      maxTokens: 2
+    });
+    assert.equal(
+      rmBudget.structuredContent?.status,
+      "success",
+      "Budget test status should be success"
+    );
+    assert.equal(
+      rmBudget.structuredContent?.data?.files?.length,
+      0,
+      "Budget test files length should be 0"
+    );
+    assert.equal(
+      rmBudget.structuredContent?.data?.warning,
+      "budget_exhausted",
+      "Budget test should return budget_exhausted warning"
+    );
+    assert.ok(
+      rmBudget.structuredContent?.data?.skipped?.every((item) => item.code === "budget_exceeded"),
+      "All skipped items should be budget_exceeded"
+    );
+
+    console.log("3.7. read_many: Mixed failure (error)");
+    const rmMixed = await callTool("read_many", {
+      workspaceId,
+      paths: ["src/auth.ts", "src/missing.ts"],
+      maxTokens: 2
+    }).catch(e => e);
+    assert.equal(
+      rmMixed.structuredContent?.status,
+      "error",
+      "Mixed test status should be error"
+    );
+    assert.ok(
+      rmMixed.structuredContent?.data?.skipped?.some((item) => item.code !== "budget_exceeded"),
+      "At least one skipped item should not be budget_exceeded"
+    );
 
     console.log("4. edit: Success and ifMatch");
     const edit1 = await callTool("edit", {
@@ -139,16 +208,26 @@ async function run() {
     
     assert(!edit1.isError, "Edit should succeed");
     
+    const editReceipt = edit1.structuredContent?.data?.mutationReceipt?.files?.[0] || edit1.structuredContent?.mutationReceipt?.files?.[0];
+    console.log("edit1.structuredContent:", JSON.stringify(edit1.structuredContent, null, 2));
+    if (!editReceipt) {
+      throw new Error("editReceipt is missing");
+    }
+    assert.equal(editReceipt.beforeHash, authHash, "edit beforeHash should match authHash");
+    assert.ok(editReceipt.afterHash?.startsWith("sha256:"), "edit afterHash should be present");
+    assert.notEqual(editReceipt.beforeHash, editReceipt.afterHash, "edit beforeHash and afterHash should differ");
+    
     const edit2 = await callTool("edit", {
       workspaceId,
       path: "src/auth.ts",
       edits: [{ oldText: "export const auth = false;", newText: "export const auth = true;" }],
       ifMatch: authHash // old hash
     }).catch(e => {
-       // if MCP SDK parses the error envelop, it might throw an RPC error
-       return { isError: true, message: e.message };
+       return { isError: true, message: e.message, structuredContent: e.data };
     });
     assert(edit2.isError || edit2.code, "Edit should fail with file_version_conflict");
+    const edit2Content = edit2.structuredContent?.data || edit2.structuredContent;
+    assert(edit2Content?.mutationApplied === false, "mutationApplied should be false on conflict");
 
     console.log("5. write: file_version_conflict");
     const write1 = await callTool("write", {
@@ -158,6 +237,9 @@ async function run() {
       ifMatch: null
     });
     assert(!write1.isError, "Write new file should succeed");
+    const writeReceipt = write1.structuredContent?.data?.mutationReceipt?.files?.[0] || write1.structuredContent?.mutationReceipt?.files?.[0];
+    assert.equal(writeReceipt.beforeHash, null, "write add beforeHash should be null");
+    assert.ok(writeReceipt.afterHash?.startsWith("sha256:"), "write add afterHash should be present");
 
     const write2 = await callTool("write", {
       workspaceId,
@@ -167,6 +249,17 @@ async function run() {
     }).catch(e => ({ isError: true }));
     assert(write2.isError, "Write existing file with ifMatch=null should fail");
 
+    const write3 = await callTool("write", {
+      workspaceId,
+      path: "src/new.ts",
+      content: "export const n = 3;",
+      ifMatch: writeReceipt.afterHash
+    });
+    assert(!write3.isError, "Write existing file with correct ifMatch should succeed");
+    const write3Receipt = write3.structuredContent?.data?.mutationReceipt?.files?.[0] || write3.structuredContent?.mutationReceipt?.files?.[0];
+    assert.equal(write3Receipt.beforeHash, writeReceipt.afterHash, "write update beforeHash should match previous afterHash");
+    assert.ok(write3Receipt.afterHash?.startsWith("sha256:"), "write update afterHash should be present");
+
     console.log("6. apply_patch");
     const patchStr = `*** Begin Patch\n*** Update File: src/other.ts\n@@\n-export const other = true;\n+export const other = false;\n*** End Patch`;
     const patch1 = await callTool("apply_patch", {
@@ -175,6 +268,31 @@ async function run() {
       ifMatch: { "src/other.ts": "sha256:0c6965a238463ceed4ca45d99772dc3c88308e970691ec051732e4d7094d28e0" }
     });
     assert(!patch1.isError, "Patch should succeed");
+    const patchReceipt = patch1.structuredContent?.data?.mutationReceipt?.files?.[0] || patch1.structuredContent?.mutationReceipt?.files?.[0];
+    assert.equal(patchReceipt.beforeHash, "sha256:0c6965a238463ceed4ca45d99772dc3c88308e970691ec051732e4d7094d28e0", "apply_patch update beforeHash should match");
+    assert.ok(patchReceipt.afterHash?.startsWith("sha256:"), "apply_patch update afterHash should be present");
+
+    const addPatchStr = `*** Begin Patch\n*** Add File: src/added.ts\n+export const added = true;\n*** End Patch`;
+    const patch2 = await callTool("apply_patch", {
+      workspaceId,
+      patch: addPatchStr,
+      ifMatch: { "src/added.ts": null }
+    });
+    assert(!patch2.isError, "Patch add should succeed");
+    const patch2Receipt = patch2.structuredContent?.data?.mutationReceipt?.files?.[0] || patch2.structuredContent?.mutationReceipt?.files?.[0];
+    assert.equal(patch2Receipt.beforeHash, null, "apply_patch add beforeHash should be null");
+    assert.ok(patch2Receipt.afterHash?.startsWith("sha256:"), "apply_patch add afterHash should be present");
+
+    const deletePatchStr = `*** Begin Patch\n*** Delete File: src/added.ts\n*** End Patch`;
+    const patch3 = await callTool("apply_patch", {
+      workspaceId,
+      patch: deletePatchStr,
+      ifMatch: { "src/added.ts": patch2Receipt.afterHash }
+    });
+    assert(!patch3.isError, "Patch delete should succeed");
+    const patch3Receipt = patch3.structuredContent?.data?.mutationReceipt?.files?.[0] || patch3.structuredContent?.mutationReceipt?.files?.[0];
+    assert.equal(patch3Receipt.beforeHash, patch2Receipt.afterHash, "apply_patch delete beforeHash should match previous");
+    assert.equal(patch3Receipt.afterHash, null, "apply_patch delete afterHash should be null");
 
     console.log("All tests passed successfully.");
   } finally {
