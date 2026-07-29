@@ -10,7 +10,7 @@
       "smoke:package": "node scripts/smoke-package.mjs",
       "test:http": "node scripts/test-http.mjs",
       "start": "node dist/cli.js serve",
-      "test": "tsx src/regression.test.ts && tsx src/config.test.ts && tsx src/analysis-regression.test.ts && tsx src/ast-tools.test.ts && tsx src/import-resolver.test.ts && tsx src/diagnostics/log-compressor.test.ts && tsx src/ui/card-types.test.ts && tsx src/ui/patch-display.test.ts && tsx src/apply-patch.test.ts && tsx src/process-platform.test.ts && tsx src/process-sessions.test.ts && tsx src/process-runner/process-runner.test.ts && tsx src/local-agent-runtime.test.ts && tsx src/local-agent-adapters.test.ts && tsx src/local-agent-availability.test.ts && tsx src/local-agent-profiles.test.ts && tsx src/local-agent-targets.test.ts && tsx src/local-agent-store.test.ts && tsx src/roots.test.ts && tsx src/git.test.ts && tsx src/skills.test.ts && tsx src/workspaces.test.ts && tsx src/checkpoint-tools.test.ts && tsx src/review-checkpoints.test.ts && tsx src/native-dependency-verifier.test.ts && tsx src/oauth-store.test.ts && tsx src/cli.test.ts && tsx src/security/security-regression.test.ts && tsx src/check-classifier.test.ts && tsx src/tool-contracts.test.ts && tsx src/server/mutation-receipt.test.ts && tsx src/server/transport-registry.test.ts && tsx src/performance/performance-recorder.test.ts && tsx src/change-intelligence/goal-normalizer.test.ts && tsx src/change-intelligence/test-proximity.test.ts && tsx src/change-intelligence/indexed-path.test.ts && tsx src/change-intelligence/task-context.test.ts && tsx src/change-intelligence/code-regions.test.ts && tsx src/change-intelligence/code-region-cache.test.ts && tsx src/assistant-tools.test.ts",
+      "test": "tsx src/regression.test.ts && tsx src/config.test.ts && tsx src/analysis-regression.test.ts && tsx src/ast-tools.test.ts && tsx src/import-resolver.test.ts && tsx src/diagnostics/log-compressor.test.ts && tsx src/ui/card-types.test.ts && tsx src/ui/patch-display.test.ts && tsx src/apply-patch.test.ts && tsx src/process-platform.test.ts && tsx src/process-sessions.test.ts && tsx src/process-runner/process-runner.test.ts && tsx src/local-agent-runtime.test.ts && tsx src/local-agent-adapters.test.ts && tsx src/local-agent-availability.test.ts && tsx src/local-agent-profiles.test.ts && tsx src/local-agent-targets.test.ts && tsx src/local-agent-store.test.ts && tsx src/roots.test.ts && tsx src/git.test.ts && tsx src/skills.test.ts && tsx src/workspaces.test.ts && tsx src/checkpoint-tools.test.ts && tsx src/review-checkpoints.test.ts && tsx src/native-dependency-verifier.test.ts && tsx src/oauth-store.test.ts && tsx src/cli.test.ts && tsx src/security/security-regression.test.ts && tsx src/check-classifier.test.ts && tsx src/tool-contracts.test.ts && tsx src/server/mutation-receipt.test.ts && tsx src/server/transport-registry.test.ts && tsx src/performance/performance-recorder.test.ts && tsx src/change-intelligence/goal-normalizer.test.ts && tsx src/change-intelligence/test-proximity.test.ts && tsx src/change-intelligence/indexed-path.test.ts && tsx src/change-intelligence/risk-profile.test.ts && tsx src/change-intelligence/task-context.test.ts && tsx src/change-intelligence/code-regions.test.ts && tsx src/change-intelligence/code-region-cache.test.ts && tsx src/assistant-tools.test.ts",
       "typecheck": "tsc -p tsconfig.json --noEmit",
       "eval": "node eval/run.mjs",
       "eval:update": "node eval/run.mjs --update",
@@ -24,7 +24,7 @@
   },
   "git": {
     "branch": "## feature/risk-adaptive-flow...origin/feature/risk-adaptive-flow",
-    "status": "## feature/risk-adaptive-flow...origin/feature/risk-adaptive-flow\n M eval/cases/grep/known-export.snap.json\n M eval/cases/read/package-json.snap.json\n M eval/cases/read_many/two-files.snap.json\n M eval/cases/semantic_pack/workspace-lifecycle.snap.json\n M eval/cases/suggest_checks/agentic-docs-only.snap.json\n M eval/cases/suggest_checks/agentic-full-workspace.snap.json\n M eval/cases/suggest_checks/agentic-http-change.snap.json\n M eval/cases/suggest_checks/agentic-package-change.snap.json\n M eval/cases/suggest_checks/agentic-self.snap.json\n M eval/cases/suggest_checks/agentic-source-change.snap.json\n M eval/cases/suggest_checks/agentic-ui-change.snap.json\n M eval/cases/task_context/jwt-auth.snap.json\n M eval/cases/task_context/mutation-migration.snap.json\n M eval/cases/task_context/pagination-bug.snap.json\n M src/change-intelligence/task-context.ts\n M src/change-intelligence/types.ts\n?? src/change-intelligence/risk-profile.test.ts\n?? src/change-intelligence/risk-profile.ts\n"
+    "status": "## feature/risk-adaptive-flow...origin/feature/risk-adaptive-flow\n M eval/cases/read/package-json.snap.json\n M eval/cases/read_many/two-files.snap.json\n M eval/cases/semantic_pack/workspace-lifecycle.snap.json\n M eval/cases/task_context/jwt-auth.snap.json\n M eval/cases/task_context/mutation-migration.snap.json\n M eval/cases/task_context/pagination-bug.snap.json\n M package.json\n M scripts/test-runtime-mcp.mjs\n M src/change-intelligence/risk-profile.test.ts\n M src/change-intelligence/risk-profile.ts\n M src/change-intelligence/task-context.test.ts\n M src/change-intelligence/task-context.ts\n M src/change-intelligence/types.ts\n"
   },
   "routes": [],
   "collections": [],
@@ -341,8 +341,8 @@
     }
   ],
   "tokenBudget": {
-    "used": 1637,
+    "used": 1586,
     "max": 8000,
-    "remaining": 6363
+    "remaining": 6414
   }
 }

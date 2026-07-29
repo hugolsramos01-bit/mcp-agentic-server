@@ -122,26 +122,64 @@ export interface TaskFocusScope {
 
 export type RiskLevel = "low" | "medium" | "high" | "critical";
 
+export type RiskAssessmentConfidence = "low" | "medium" | "high";
+
+export type RiskFactorCode =
+  | "fan_out"
+  | "configuration_scope"
+  | "broad_focus"
+  | "multi_primary_scope"
+  | "refactor_scope"
+  | "test_proximity_gap";
+
 export interface RiskFactor {
-  factor:
-    | "fan_out"
-    | "configuration_change"
-    | "broad_focus"
-    | "mass_refactor"
-    | "core_domain"
-    | "untested_changes";
-  description: string;
+  code: RiskFactorCode;
   weight: number;
+  reason: string;
+  evidence?: {
+    count?: number;
+    paths?: string[];
+  };
 }
 
 export interface RiskProfile {
+  version: 1;
+  basis: "pre_budget";
   level: RiskLevel;
   score: number;
+  confidence: RiskAssessmentConfidence;
   factors: RiskFactor[];
   blastRadius: {
-    affectedFiles: number;
-    dependentsCount: number;
+    primaryCandidates: number;
+    uniqueDirectDependents: number;
+    estimatedAffectedFiles: number;
+    focusMatchedFiles: number;
   };
+  coverage: {
+    dependencyAnalysis: "not_run" | "partial" | "available";
+  };
+}
+
+export interface DirectDependentEntry {
+  source: string;
+  dependents: string[];
+  confidence: Confidence;
+  limitations: string[];
+}
+
+export interface NearbyTestCandidate {
+  sourcePath: string;
+  testPaths: string[];
+}
+
+export interface RiskProfileInput {
+  taskType: TaskType;
+  goalIntent: GoalIntent;
+  effectiveDepth: TaskContextDepth;
+  focusScope: TaskFocusScope;
+  assessments: readonly CandidateAssessment[];
+  directDependents: readonly DirectDependentEntry[];
+  nearbyTestCandidates: readonly NearbyTestCandidate[];
 }
 
 export interface TaskContextResult {
@@ -161,12 +199,7 @@ export interface TaskContextResult {
   
   riskProfile: RiskProfile;
   
-  directDependents: Array<{
-    source: string;
-    dependents: string[];
-    confidence: Confidence;
-    limitations: string[];
-  }>;
+  directDependents: DirectDependentEntry[];
   
   applicableInstructions: Array<{
     path: string;
@@ -174,10 +207,7 @@ export interface TaskContextResult {
     reason: string;
   }>;
   
-  nearbyTestCandidates: Array<{
-    sourcePath: string;
-    testPaths: string[];
-  }>;
+  nearbyTestCandidates: NearbyTestCandidate[];
   
   suggestedNextSteps: Array<{
     tool: string;

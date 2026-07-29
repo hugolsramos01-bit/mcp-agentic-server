@@ -74,6 +74,21 @@
       "autoReadEligible": true
     }
   ],
+  "riskProfile": {
+    "level": "low",
+    "score": 15,
+    "factors": [
+      {
+        "factor": "fan_out",
+        "description": "Changes affect multiple dependent files.",
+        "weight": 15
+      }
+    ],
+    "blastRadius": {
+      "affectedFiles": 1,
+      "dependentsCount": 3
+    }
+  },
   "directDependents": [
     {
       "source": "src/server/mutation-receipt.ts",
@@ -126,7 +141,7 @@
   "limitations": [],
   "budget": {
     "maxTokens": 6000,
-    "estimatedTokens": 545,
+    "estimatedTokens": 594,
     "truncated": false,
     "omittedCandidates": 0,
     "omittedRegions": 0

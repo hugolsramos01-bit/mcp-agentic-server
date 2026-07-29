@@ -102,9 +102,14 @@ async function run() {
       excludePaths: ["excluded"]
     });
     
-    const tc1Text = JSON.stringify(tc1.structuredContent || tc1);
+    const tc1Text = JSON.stringify(tc1);
     assert(!tc1Text.includes("excluded/secret.ts"), "Excluded file should not be present");
     assert(tc1Text.includes("tests/auth.test.ts"), "Tests should be in context since they depend on focused files");
+    
+    const tc1Data = tc1.structuredContent?.data?.envelope || tc1.structuredContent?.envelope || tc1.structuredContent?.result || tc1.structuredContent?.data || tc1.structuredContent;
+    assert.equal(tc1Data.riskProfile.version, 1, "riskProfile.version must be 1");
+    assert.ok(["low", "medium", "high", "critical"].includes(tc1Data.riskProfile.level), "riskProfile.level must be valid");
+    assert.equal(tc1Data.riskProfile.basis, "pre_budget", "riskProfile.basis must be pre_budget");
 
     console.log("3. read_many: Success and Errors");
     const rm1 = await callTool("read_many", {

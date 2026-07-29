@@ -867,7 +867,7 @@ describe("task-context", () => {
 
     // Use focusPath to guarantee this file is detected as a primary candidate.
     // Tight budget to force region trimming (but within minimum envelope).
-    const tightTokens = 350;
+    const tightTokens = 450;
     const res = await buildTaskContext({
       workspaceId: "test",
       cwd: root,
