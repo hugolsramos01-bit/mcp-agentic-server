@@ -11,10 +11,12 @@ import { readWorkspaceKnowledge } from "./knowledge-tools.js";
 import { normalizeGoal } from "./change-intelligence/goal-normalizer.js";
 import { getWorkspaceGitEligibility } from "./git.js";
 import { classifyPackageScripts, type ClassifiedCheck } from "./check-classifier.js";
-import { getGitChangedPaths, selectTargetedChecks, type SuggestChecksOptions } from "./check-selector.js";
+import { type SuggestChecksOptions } from "./check-selector.js";
 import { buildTaskContext } from "./change-intelligence/task-context.js";
 import { planVerification } from "./change-intelligence/verification-planner.js";
+import { buildVerificationEvidence } from "./change-intelligence/verification-evidence.js";
 import type { VerificationEvidence } from "./change-intelligence/types.js";
+import { getGitChangedPaths as getRobustGitChangedPaths } from "./change-intelligence/git-change-paths.js";
 
 const execFileAsync = promisify(execFile);
 
@@ -505,39 +507,56 @@ export async function suggestChecksTool(cwd: string, options: SuggestChecksOptio
 
   const classified = classifyPackageScripts(scripts, packageManager);
 
-  let changedPaths: string[] = [];
-  if (options.paths && options.paths.length > 0) {
-    changedPaths = options.paths;
-  } else {
+  // Fallback to options.paths alias if changedPaths is missing
+  let changedPaths = options.changedPaths || options.paths || [];
+
+  if (changedPaths.length === 0 && !options.goal) {
     try {
-      changedPaths = await getGitChangedPaths(cwd);
+      changedPaths = await getRobustGitChangedPaths(cwd);
     } catch (e) {
       // ignore
     }
   }
 
-  const taskContext = await buildTaskContext({
+  const evidence = await buildVerificationEvidence({
     cwd,
-    allowedRoots: [cwd],
-    goal: "Verify workspace integrity",
-    type: "auto",
-    focusPaths: changedPaths.length > 0 ? changedPaths : [],
+    packageManager,
+    changedPaths,
+    goal: options.goal,
+    taskType: options.taskType,
+    focusPaths: options.focusPaths,
+    availableChecks: classified
   });
 
-  const dependenciesInstalled = existsSync(join(cwd, "node_modules"));
-
-  const evidence: VerificationEvidence = {
-    riskProfile: taskContext.riskProfile,
-    taskType: taskContext.taskType,
-    changedPaths: changedPaths,
-    candidatePaths: taskContext.candidatePaths,
-    nearbyTests: taskContext.nearbyTests,
-    dependentPaths: taskContext.dependentPaths,
-    availableChecks: classified,
-    environment: { dependenciesInstalled }
-  };
+  if (!evidence) {
+    return {
+      content: [{
+        type: "text",
+        text: JSON.stringify({
+          packageManager,
+          plan: {
+            version: 1,
+            mode: "advisory",
+            basis: "discovery",
+            riskLevel: "low",
+            riskConfidence: "low",
+            policyLevel: "low",
+            recommendations: [],
+            limitations: [
+              "No changed paths detected and no planning goal provided.",
+              "Cannot recommend checks without an actual change set or a discovery goal."
+            ]
+          }
+        }, null, 2)
+      }]
+    };
+  }
 
   const plan = planVerification(evidence);
+
+  if (options.scope || options.level) {
+    plan.limitations.push("The legacy 'level' and 'scope' options are deprecated; the verification policy was derived from the RiskProfile.");
+  }
 
   return {
     content: [{

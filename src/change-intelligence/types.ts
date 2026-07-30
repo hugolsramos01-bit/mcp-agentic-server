@@ -269,6 +269,8 @@ export interface VerificationPlan {
   riskConfidence:
     RiskAssessmentConfidence;
 
+  policyLevel: RiskLevel;
+
   recommendations:
     VerificationRecommendation[];
 

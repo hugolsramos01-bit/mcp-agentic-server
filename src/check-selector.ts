@@ -1,11 +1,18 @@
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import type { ClassifiedCheck } from "./check-classifier.js";
+import type { TaskType } from "./change-intelligence/types.js";
 
 const execFileAsync = promisify(execFile);
 
 export interface SuggestChecksOptions {
-  paths?: string[];
+  changedPaths?: string[];
+  paths?: string[]; // Legacy alias
+  goal?: string;
+  taskType?: TaskType;
+  focusPaths?: string[];
+  
+  // Legacy fields
   scope?: "changed" | "workspace";
   level?: "minimal" | "recommended" | "full";
 }
@@ -56,9 +63,10 @@ export function normalizePaths(paths: string[]): string[] {
   return Array.from(result);
 }
 
+// LEGACY EXPORTS BELOW - DO NOT USE FOR NEW CODE
 export async function getGitChangedPaths(cwd: string): Promise<string[]> {
   try {
-    const { stdout } = await execFileAsync("git", ["status", "--porcelain"], { cwd });
+    const { stdout } = await execFileAsync("git", ["status", "--porcelain=v1", "--no-renames"], { cwd });
     const paths = stdout
       .split("\n")
       .map(line => line.trim())

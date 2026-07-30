@@ -92,6 +92,64 @@ test("Configuração sensível critical recomenda smoke/package antes de release
   assert.strictEqual(smokeRecc?.stage, "before_release");
 });
 
+test("Critical risk without sensitive configuration does not recommend smoke tests automatically", () => {
+  const evidence: VerificationEvidence = {
+    riskProfile: createMockProfile("critical", "high", []),
+    taskType: "feature",
+    changedPaths: ["src/critical-file.ts"],
+    candidatePaths: [],
+    nearbyTests: [],
+    dependentPaths: [],
+    availableChecks: mockChecks,
+    environment: { dependenciesInstalled: true }
+  };
+  const plan = planVerification(evidence);
+  
+  const smokeRecc = plan.recommendations.find(r => r.script === "smoke:package");
+  assert.strictEqual(smokeRecc, undefined);
+});
+
+test("Documentation-only changes produce empty plan with low policy level", () => {
+  const evidence: VerificationEvidence = {
+    riskProfile: createMockProfile("critical", "high"),
+    taskType: "docs",
+    changedPaths: ["README.md", "docs/architecture.md"],
+    candidatePaths: [],
+    nearbyTests: [],
+    dependentPaths: [],
+    availableChecks: mockChecks,
+    environment: { dependenciesInstalled: true }
+  };
+  const plan = planVerification(evidence);
+  
+  assert.strictEqual(plan.policyLevel, "low");
+  assert.strictEqual(plan.recommendations.length, 0);
+  assert.ok(plan.limitations.some(l => l.includes("Only documentation files are in scope")));
+});
+
+test("Limits multiple checks of the same tier", () => {
+  const extraStaticChecks: ClassifiedCheck[] = [
+    ...mockChecks,
+    { script: "stylelint", command: "npm run stylelint", tier: "static_analysis", reason: "", confidence: "medium", mutatesWorkspace: false, estimatedCost: "low" },
+    { script: "format:check", command: "npm run format:check", tier: "static_analysis", reason: "", confidence: "low", mutatesWorkspace: false, estimatedCost: "low" },
+  ];
+  
+  const evidence: VerificationEvidence = {
+    riskProfile: createMockProfile("high", "high"),
+    taskType: "feature",
+    changedPaths: ["src/core.ts"],
+    candidatePaths: [],
+    nearbyTests: [],
+    dependentPaths: [],
+    availableChecks: extraStaticChecks,
+    environment: { dependenciesInstalled: true }
+  };
+  
+  const plan = planVerification(evidence);
+  const staticCount = plan.recommendations.filter(r => r.tier === "static_analysis").length;
+  assert.strictEqual(staticCount, 2); // Max 2 static analyses
+});
+
 test("level: low com confidence: low usa política medium sem alterar o nível original", () => {
   const evidence: VerificationEvidence = {
     riskProfile: createMockProfile("low", "low"),
