@@ -184,7 +184,7 @@ The risk and verification pipeline enforces strict, deterministic planning.
   workspaceId: string;
   changedPaths?: string[]; // Actual paths changed
   goal?: string;           // Optional goal for discovery
-  taskType?: TaskType;     // "refactor", "bugfix", "feature", etc.
+  taskType?: "auto" | "bug_fix" | "feature" | "refactor" | "security_review" | "migration" | "frontend" | "release";
   focusPaths?: string[];   // Specific files to focus on
 
   // Legacy compatibility transition (deprecated)
