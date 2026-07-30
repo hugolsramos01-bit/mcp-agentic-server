@@ -1,6 +1,6 @@
 import { classifyCandidateKind } from "./indexed-path.js";
-import type { ClassifiedCheck } from "../check-classifier.js";
-import type { RiskLevel, VerificationEvidence, VerificationPlan, VerificationRecommendation, VerificationStage, CheckTier } from "./types.js";
+import type { ClassifiedCheck, CheckTier } from "../check-classifier.js";
+import type { RiskLevel, VerificationEvidence, VerificationPlan, VerificationRecommendation, VerificationStage } from "./types.js";
 
 const SCRIPT_PRIORITY = [
   "typecheck",
@@ -31,7 +31,7 @@ function sortChecks(checks: ClassifiedCheck[]): ClassifiedCheck[] {
     }
     // 2. Cost (lower is better, meaning higher priority number)
     if (COST_PRIORITY[a.estimatedCost] !== COST_PRIORITY[b.estimatedCost]) {
-      return COST_PRIORITY[a.estimatedCost] - COST_PRIORITY[b.estimatedCost]; // high cost = 1, low cost = 3. 3-1 > 0
+      return COST_PRIORITY[b.estimatedCost] - COST_PRIORITY[a.estimatedCost];
     }
     // 3. Known Preference
     const idxA = SCRIPT_PRIORITY.indexOf(a.script);
@@ -82,7 +82,7 @@ export function planVerification(evidence: VerificationEvidence): VerificationPl
   // Rule: mutatesWorkspace checks are excluded
   const safeChecks = availableChecks.filter(check => !check.mutatesWorkspace);
 
-  const recommendations: VerificationRecommendation[] = [];
+  const recommendations: (VerificationRecommendation & { _selectionRank?: number })[] = [];
   const limitations: string[] = [];
 
   if (environment.dependenciesInstalled === false) {
@@ -134,7 +134,8 @@ export function planVerification(evidence: VerificationEvidence): VerificationPl
           reason,
           riskFactors: riskProfile.factors.map(f => f.code),
           estimatedCost: check.estimatedCost,
-          confidence: check.confidence
+          confidence: check.confidence,
+          _selectionRank: recommendations.length // Preserve insertion order!
         });
         currentCounts[capKey]++;
       }
@@ -213,13 +214,15 @@ export function planVerification(evidence: VerificationEvidence): VerificationPl
   }
 
   // Ensure deterministic order
-  recommendations.sort((a, b) => {
-    const stageOrder = { initial: 0, after_initial_success: 1, before_release: 2 };
+  recommendations.sort((a: any, b: any) => {
+    const stageOrder: Record<string, number> = { initial: 0, after_initial_success: 1, before_release: 2 };
     if (stageOrder[a.stage] !== stageOrder[b.stage]) {
       return stageOrder[a.stage] - stageOrder[b.stage];
     }
-    return a.script.localeCompare(b.script);
+    return a._selectionRank - b._selectionRank;
   });
+
+  recommendations.forEach((r: any) => delete r._selectionRank);
 
   return {
     version: 1,

@@ -51,7 +51,7 @@ test("Um source isolado, risco low e teste próximo não recomenda build", () =>
   };
   const plan = planVerification(evidence);
   assert.strictEqual(plan.basis, "actual_changes");
-  assert.deepStrictEqual(plan.recommendations.map(r => r.script), ["lint", "typecheck", "test:unit"]); // Unit tests because nearby tests
+  assert.deepStrictEqual(plan.recommendations.map(r => r.script), ["typecheck", "lint", "test:unit"]); // Unit tests because nearby tests
   assert.strictEqual(plan.recommendations.every(r => r.script !== "build"), true);
 });
 
@@ -77,7 +77,7 @@ test("Risco high por fan-out recomenda static analysis, testes e build", () => {
 test("Configuração sensível critical recomenda smoke/package antes de release", () => {
   const evidence: VerificationEvidence = {
     riskProfile: createMockProfile("critical", "high", [{ code: "configuration_scope", reason: "", weight: 40 }]),
-    taskType: "configuration",
+    taskType: "auto",
     changedPaths: ["package.json"],
     candidatePaths: [],
     nearbyTests: [],
@@ -112,7 +112,7 @@ test("Critical risk without sensitive configuration does not recommend smoke tes
 test("Documentation-only changes produce empty plan with low policy level", () => {
   const evidence: VerificationEvidence = {
     riskProfile: createMockProfile("critical", "high"),
-    taskType: "docs",
+    taskType: "auto",
     changedPaths: ["README.md", "docs/architecture.md"],
     candidatePaths: [],
     nearbyTests: [],

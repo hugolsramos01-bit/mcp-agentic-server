@@ -2,13 +2,12 @@ import { existsSync } from "node:fs";
 import { join } from "node:path";
 import { 
   VerificationEvidence, 
-  ClassifiedCheck, 
   TaskType, 
-  PackageManager,
   CandidateAssessment,
   DirectDependentEntry,
   RiskProfileInput
 } from "./types.js";
+import type { ClassifiedCheck, PackageManager } from "../check-classifier.js";
 import { buildTaskContext } from "./task-context.js";
 import { classifyCandidateKind } from "./indexed-path.js";
 import { findNearbyTests } from "./test-proximity.js";
@@ -67,19 +66,29 @@ export async function buildVerificationEvidence(
     }));
 
     // Find nearby tests manually for the changed source files
-    const nearbyTests = await findNearbyTests(cwd, changedPaths);
+    const { git } = await import("../git.js");
+    const lsFilesResult = await git(cwd, ["ls-files", "-z"]);
+    const allTrackedFiles = lsFilesResult.stdout.split("\0").filter(Boolean);
+    const fileSet: ReadonlySet<string> = new Set(allTrackedFiles);
+    
+    const nearbyTests = changedPaths.map(sourcePath => ({
+      sourcePath,
+      testPaths: findNearbyTests(sourcePath, allTrackedFiles, fileSet)
+    }));
 
     // Get dependents to calculate fan-out
     const dependentsResults = await getLimitedSharedDependencies(cwd, changedPaths);
     const directDependents = dependentsResults as DirectDependentEntry[];
 
     const riskInput: RiskProfileInput = {
-      taskType: taskType || "chore",
+      taskType: taskType || "auto",
       effectiveDepth: "balanced",
       focusScope: {
         active: focusPaths !== undefined && focusPaths.length > 0,
         matchedFileCount: changedPaths.length,
-        rejectedFileCount: 0
+        exactFiles: [],
+        directories: [],
+        unresolved: []
       },
       assessments,
       directDependents,
@@ -90,10 +99,10 @@ export async function buildVerificationEvidence(
 
     return {
       riskProfile,
-      taskType: taskType || "chore",
+      taskType: taskType || "auto",
       changedPaths,
       candidatePaths: [], // Candidates are mostly for discovery
-      nearbyTests: nearbyTests.map(n => n.path),
+      nearbyTests: nearbyTests.flatMap(n => n.testPaths),
       dependentPaths: Array.from(new Set(directDependents.flatMap((d) => d.dependents))),
       availableChecks,
       environment: {
@@ -104,25 +113,23 @@ export async function buildVerificationEvidence(
 
   // 2. Discovery route (no changedPaths, but goal exists)
   if (goal) {
-    const ctx = await buildTaskContext({
-      cwd,
-      goal,
-      taskType,
-      focusPaths,
-      budget: { 
-        tokens: 100000,
-        candidates: 20,
-        dependencyDepth: "balanced"
-      }
+    const taskContext = await buildTaskContext({
+      type: "auto",
+      maxTokens: 8192,
+      depth: "balanced",
+      workspaceId: "legacy",
+      allowedRoots: [cwd],
+      goal: goal,
+      cwd
     });
 
     return {
-      riskProfile: ctx.riskProfile,
-      taskType: ctx.taskType,
-      changedPaths: [],
-      candidatePaths: ctx.candidates.map(c => c.path),
-      nearbyTests: ctx.nearbyTests.map(t => t.path),
-      dependentPaths: Array.from(new Set(ctx.directDependents.flatMap(d => d.dependents))),
+      riskProfile: taskContext.riskProfile,
+      taskType: taskContext.taskType,
+      changedPaths: [], // It's discovery based
+      candidatePaths: [...taskContext.primaryFiles, ...taskContext.supportingFiles].map(f => f.path),
+      nearbyTests: taskContext.nearbyTestCandidates.flatMap(n => n.testPaths),
+      dependentPaths: Array.from(new Set(taskContext.directDependents.flatMap(d => d.dependents))),
       availableChecks,
       environment: {
         dependenciesInstalled,

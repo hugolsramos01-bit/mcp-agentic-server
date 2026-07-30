@@ -510,7 +510,9 @@ export async function suggestChecksTool(cwd: string, options: SuggestChecksOptio
   // Fallback to options.paths alias if changedPaths is missing
   let changedPaths = options.changedPaths || options.paths || [];
 
-  if (changedPaths.length === 0 && !options.goal) {
+  let goal = options.goal;
+  
+  if (changedPaths.length === 0) {
     try {
       changedPaths = await getRobustGitChangedPaths(cwd);
     } catch (e) {
@@ -518,11 +520,16 @@ export async function suggestChecksTool(cwd: string, options: SuggestChecksOptio
     }
   }
 
+  // Preserve legacy scope: "workspace"
+  if (changedPaths.length === 0 && !goal && options.scope === "workspace") {
+    goal = "Verify workspace integrity";
+  }
+
   const evidence = await buildVerificationEvidence({
     cwd,
     packageManager,
     changedPaths,
-    goal: options.goal,
+    goal,
     taskType: options.taskType,
     focusPaths: options.focusPaths,
     availableChecks: classified
