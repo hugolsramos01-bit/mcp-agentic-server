@@ -1,96 +1,16 @@
 {
   "packageManager": "npm",
-  "selectionMode": "targeted",
-  "changeSource": "provided_paths",
-  "level": "recommended",
-  "changedPaths": [
-    "README.md",
-    "docs/architecture.md"
-  ],
-  "recommended": [],
-  "deferred": [
-    {
-      "script": "bench:agent",
-      "reason": "Alterações ignoram este tipo de check (ex. apenas documentação)"
-    },
-    {
-      "script": "bench:regions",
-      "reason": "Alterações ignoram este tipo de check (ex. apenas documentação)"
-    },
-    {
-      "script": "bench:server",
-      "reason": "Alterações ignoram este tipo de check (ex. apenas documentação)"
-    },
-    {
-      "script": "bench:tools",
-      "reason": "Alterações ignoram este tipo de check (ex. apenas documentação)"
-    },
-    {
-      "script": "build",
-      "reason": "Alterações ignoram este tipo de check (ex. apenas documentação)"
-    },
-    {
-      "script": "build:app",
-      "reason": "Alterações ignoram este tipo de check (ex. apenas documentação)"
-    },
-    {
-      "script": "clean",
-      "reason": "Alterações ignoram este tipo de check (ex. apenas documentação)"
-    },
-    {
-      "script": "dev",
-      "reason": "Alterações ignoram este tipo de check (ex. apenas documentação)"
-    },
-    {
-      "script": "eval",
-      "reason": "Alterações ignoram este tipo de check (ex. apenas documentação)"
-    },
-    {
-      "script": "eval:update",
-      "reason": "Alterações ignoram este tipo de check (ex. apenas documentação)"
-    },
-    {
-      "script": "postinstall",
-      "reason": "Alterações ignoram este tipo de check (ex. apenas documentação)"
-    },
-    {
-      "script": "smoke:package",
-      "reason": "Alterações ignoram este tipo de check (ex. apenas documentação)"
-    },
-    {
-      "script": "start",
-      "reason": "Alterações ignoram este tipo de check (ex. apenas documentação)"
-    },
-    {
-      "script": "test",
-      "reason": "Alterações ignoram este tipo de check (ex. apenas documentação)"
-    },
-    {
-      "script": "test:http",
-      "reason": "Alterações ignoram este tipo de check (ex. apenas documentação)"
-    },
-    {
-      "script": "test:runtime",
-      "reason": "Alterações ignoram este tipo de check (ex. apenas documentação)"
-    },
-    {
-      "script": "test:runtime:built",
-      "reason": "Alterações ignoram este tipo de check (ex. apenas documentação)"
-    },
-    {
-      "script": "typecheck",
-      "reason": "Alterações ignoram este tipo de check (ex. apenas documentação)"
-    }
-  ],
-  "stages": {
-    "initial": [],
-    "afterInitialSuccess": [],
-    "beforeRelease": [
-      "build",
-      "build:app",
-      "smoke:package",
-      "test:http"
+  "plan": {
+    "version": 1,
+    "mode": "advisory",
+    "basis": "actual_changes",
+    "riskLevel": "high",
+    "riskConfidence": "high",
+    "policyLevel": "low",
+    "recommendations": [],
+    "limitations": [
+      "Only documentation files are in scope; no code verification checks were recommended.",
+      "The legacy 'level' and 'scope' options are deprecated; the verification policy was derived from the RiskProfile."
     ]
-  },
-  "limitations": []
+  }
 }

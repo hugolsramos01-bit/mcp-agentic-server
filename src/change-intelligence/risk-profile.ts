@@ -178,7 +178,7 @@ export function calculateRiskProfile(input: RiskProfileInput): RiskProfile {
     
   let hasMissingProximity = false;
   for (const src of sourcePaths) {
-    const hasNearby = input.nearbyTestCandidates.some((t) => t.sourcePath === src);
+    const hasNearby = input.nearbyTestCandidates.some((t) => t.sourcePath === src && t.testPaths.length > 0);
     if (!hasNearby) {
       hasMissingProximity = true;
       break;

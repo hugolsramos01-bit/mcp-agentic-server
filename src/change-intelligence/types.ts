@@ -232,3 +232,66 @@ export interface TaskContextResult {
     omittedRegions?: number;
   };
 }
+
+import type { ClassifiedCheck, CheckTier, CostLevel, ConfidenceLevel } from "../check-classifier.js";
+
+export type VerificationStage =
+  | "initial"
+  | "after_initial_success"
+  | "before_release";
+
+export interface VerificationRecommendation {
+  script: string;
+  command: string;
+  tier: CheckTier;
+  stage: VerificationStage;
+
+  priority:
+    | "recommended"
+    | "strongly_recommended";
+
+  reason: string;
+  riskFactors: RiskFactorCode[];
+
+  estimatedCost: CostLevel;
+  confidence: ConfidenceLevel;
+}
+
+export interface VerificationPlan {
+  version: 1;
+  mode: "advisory";
+
+  basis:
+    | "actual_changes"
+    | "discovery";
+
+  riskLevel: RiskLevel;
+  riskConfidence:
+    RiskAssessmentConfidence;
+
+  policyLevel: RiskLevel;
+
+  recommendations:
+    VerificationRecommendation[];
+
+  limitations: string[];
+}
+
+export interface VerificationEvidence {
+  riskProfile: RiskProfile;
+  taskType: TaskType;
+
+  changedPaths: string[];
+  candidatePaths: string[];
+
+  nearbyTests: string[];
+  dependentPaths: string[];
+
+  availableChecks:
+    ClassifiedCheck[];
+
+  environment: {
+    dependenciesInstalled:
+      boolean | "unknown";
+  };
+}

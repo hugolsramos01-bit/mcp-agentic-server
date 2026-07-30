@@ -2158,9 +2158,14 @@ function createMcpServer(
         description: TOOL_CONTRACTS.suggestChecks.description,
         inputSchema: { 
           workspaceId: z.string().describe("Workspace ID"),
-          paths: z.array(z.string()).optional().describe("Arquivos que foram alterados ou estão no escopo da tarefa"),
-          scope: z.enum(["changed", "workspace"]).optional().describe("Escopo da verificação: 'changed' (padrão) para foco local, 'workspace' para validação geral"),
-          level: z.enum(["minimal", "recommended", "full"]).optional().describe("Nível de agressividade das verificações")
+          changedPaths: z.array(z.string()).optional().describe("Arquivos comprovadamente alterados"),
+          goal: z.string().optional().describe("Objetivo da mudança, se aplicável (Discovery mode)"),
+          taskType: z.enum(["auto", "bug_fix", "feature", "refactor", "security_review", "migration", "frontend", "release"]).optional().describe("Tipo de tarefa"),
+          focusPaths: z.array(z.string()).optional().describe("Arquivos foco informados explicitamente"),
+          
+          paths: z.array(z.string()).optional().describe("[LEGACY] Alias for changedPaths"),
+          scope: z.enum(["changed", "workspace"]).optional().describe("[LEGACY] Escopo da verificação"),
+          level: z.enum(["minimal", "recommended", "full"]).optional().describe("[LEGACY] Nível de agressividade")
         },
         outputSchema: resultOutputSchema(),
         ...toolWidgetDescriptorMeta(config, "read"),
