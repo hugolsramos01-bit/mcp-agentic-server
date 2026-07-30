@@ -12,6 +12,9 @@ import { normalizeGoal } from "./change-intelligence/goal-normalizer.js";
 import { getWorkspaceGitEligibility } from "./git.js";
 import { classifyPackageScripts, type ClassifiedCheck } from "./check-classifier.js";
 import { getGitChangedPaths, selectTargetedChecks, type SuggestChecksOptions } from "./check-selector.js";
+import { buildTaskContext } from "./change-intelligence/task-context.js";
+import { planVerification } from "./change-intelligence/verification-planner.js";
+import type { VerificationEvidence } from "./change-intelligence/types.js";
 
 const execFileAsync = promisify(execFile);
 
@@ -502,96 +505,46 @@ export async function suggestChecksTool(cwd: string, options: SuggestChecksOptio
 
   const classified = classifyPackageScripts(scripts, packageManager);
 
-  // If we have explicit paths or implicitly want changed paths
-  if (options.paths || options.scope === "changed" || (!options.paths && !options.scope)) {
-    let changedPaths: string[] = [];
-    let changeSource: "provided_paths" | "git_status" = "provided_paths";
-
-    if (options.paths && options.paths.length > 0) {
-      changedPaths = options.paths;
-    } else {
-      try {
-        changedPaths = await getGitChangedPaths(cwd);
-        changeSource = "git_status";
-      } catch (e) {
-        return {
-          content: [{
-            type: "text",
-            text: JSON.stringify({ error: "Failed to detect git changes. Ensure you are in a git repository or explicitly provide paths." })
-          }]
-        };
-      }
+  let changedPaths: string[] = [];
+  if (options.paths && options.paths.length > 0) {
+    changedPaths = options.paths;
+  } else {
+    try {
+      changedPaths = await getGitChangedPaths(cwd);
+    } catch (e) {
+      // ignore
     }
-
-    const targetedResult = selectTargetedChecks(classified, options, changeSource, changedPaths);
-    return {
-      content: [{
-        type: "text",
-        text: JSON.stringify({
-          packageManager,
-          ...targetedResult
-        }, null, 2)
-      }]
-    };
   }
 
-  // Fallback to workspace scope (full pipeline)
-  // Group by tier
-  const tiers: Record<string, { label: string; checks: ClassifiedCheck[] }> = {
-    static_analysis: { label: "Static Analysis", checks: [] },
-    unit_tests: { label: "Unit Tests", checks: [] },
-    general_tests: { label: "Test Suite", checks: [] },
-    build: { label: "Build", checks: [] },
-    integration_tests: { label: "Integration Tests", checks: [] },
-    smoke_tests: { label: "Smoke Tests", checks: [] },
-    e2e_tests: { label: "E2E Tests", checks: [] },
+  const taskContext = await buildTaskContext({
+    cwd,
+    allowedRoots: [cwd],
+    goal: "Verify workspace integrity",
+    type: "auto",
+    focusPaths: changedPaths.length > 0 ? changedPaths : [],
+  });
+
+  const dependenciesInstalled = existsSync(join(cwd, "node_modules"));
+
+  const evidence: VerificationEvidence = {
+    riskProfile: taskContext.riskProfile,
+    taskType: taskContext.taskType,
+    changedPaths: changedPaths,
+    candidatePaths: taskContext.candidatePaths,
+    nearbyTests: taskContext.nearbyTests,
+    dependentPaths: taskContext.dependentPaths,
+    availableChecks: classified,
+    environment: { dependenciesInstalled }
   };
 
-  const unclassified: ClassifiedCheck[] = [];
-
-  for (const check of classified) {
-    if (check.tier === "other" || check.mutatesWorkspace) {
-      unclassified.push(check);
-    } else {
-      if (!tiers[check.tier]) {
-        tiers[check.tier] = { label: check.tier, checks: [] };
-      }
-      tiers[check.tier].checks.push(check);
-    }
-  }
-
-  const pipeline = Object.entries(tiers)
-    .filter(([_, data]) => data.checks.length > 0)
-    .map(([tier, data]) => ({
-      tier,
-      label: data.label,
-      checks: data.checks
-    }));
-
-  // Create recommended order array based on natural progression
-  const tierOrder = ["static_analysis", "unit_tests", "general_tests", "build", "integration_tests", "smoke_tests", "e2e_tests"];
-  const recommendedOrder = [];
-  for (const tierName of tierOrder) {
-    const tierData = tiers[tierName];
-    if (tierData) {
-      for (const check of tierData.checks) {
-        recommendedOrder.push(check.script);
-      }
-    }
-  }
+  const plan = planVerification(evidence);
 
   return {
     content: [{
       type: "text",
       text: JSON.stringify({
-        selectionMode: "workspace",
         packageManager,
-        pipeline,
-        recommendedOrder,
-        unclassified,
-        limitations: [
-          "A classificação usa nomes e comandos dos scripts; ela ainda não considera os arquivos alterados"
-        ]
+        plan
       }, null, 2)
     }]
   };
