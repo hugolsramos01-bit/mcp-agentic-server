@@ -7,7 +7,7 @@ import {
   RiskProfileInput,
   DirectDependentEntry,
 } from "./types.js";
-import { isLockFile, classifyCandidateKind } from "./indexed-path.js";
+import { isLockFile } from "./indexed-path.js";
 
 const FACTOR_ORDER: readonly RiskFactorCode[] = [
   "configuration_scope",
@@ -48,11 +48,11 @@ function riskLevelFromScore(score: number): RiskLevel {
 export function calculateRiskProfile(input: RiskProfileInput): RiskProfile {
   const factors: RiskFactor[] = [];
   
-  const primaryPaths = new Set(
-    input.assessments
-      .filter((c) => c.primaryEligible && c.confidence === "high")
-      .map((c) => c.path)
+  const primaryAssessments = input.assessments.filter(
+    (c) => c.primaryEligible && c.confidence === "high"
   );
+
+  const primaryPaths = new Set(primaryAssessments.map((c) => c.path));
   
   const dependentPaths = collectUniqueDependents(input.directDependents);
   
@@ -60,8 +60,8 @@ export function calculateRiskProfile(input: RiskProfileInput): RiskProfile {
   let hasCommonConfig = false;
   let hasSensitiveConfig = false;
   
-  const configPaths = input.assessments
-    .filter((c) => c.primaryEligible && (c.kind === "configuration" || isLockFile(c.path)))
+  const configPaths = primaryAssessments
+    .filter((c) => c.kind === "configuration" || isLockFile(c.path))
     .map((c) => c.path);
     
   for (const path of configPaths) {
@@ -79,19 +79,23 @@ export function calculateRiskProfile(input: RiskProfileInput): RiskProfile {
     }
   }
 
+  const configEvidencePaths = [...new Set(configPaths)]
+    .sort((a, b) => a.localeCompare(b))
+    .slice(0, 3);
+
   if (hasSensitiveConfig) {
     factors.push({
       code: "configuration_scope",
       weight: 40,
       reason: "Involves sensitive configuration or lockfiles.",
-      evidence: { paths: configPaths.slice(0, 3).sort() },
+      evidence: { paths: configEvidencePaths },
     });
   } else if (hasCommonConfig) {
     factors.push({
       code: "configuration_scope",
-      weight: 15,
+      weight: 20,
       reason: "Involves common configuration files.",
-      evidence: { paths: configPaths.slice(0, 3).sort() },
+      evidence: { paths: configEvidencePaths },
     });
   }
 
@@ -124,26 +128,28 @@ export function calculateRiskProfile(input: RiskProfileInput): RiskProfile {
   }
 
   // 4. broad_focus
-  const matched = input.focusScope.matchedFileCount;
-  if (matched > 100) {
-    factors.push({
-      code: "broad_focus",
-      weight: 30,
-      reason: "Focus scope matches more than 100 files.",
-      evidence: { count: matched },
-    });
-  } else if (matched > 20) {
-    factors.push({
-      code: "broad_focus",
-      weight: 15,
-      reason: "Focus scope matches more than 20 files.",
-      evidence: { count: matched },
-    });
+  if (input.focusScope.active) {
+    const matched = input.focusScope.matchedFileCount;
+    if (matched > 100) {
+      factors.push({
+        code: "broad_focus",
+        weight: 30,
+        reason: "Focus scope matches more than 100 files.",
+        evidence: { count: matched },
+      });
+    } else if (matched > 20) {
+      factors.push({
+        code: "broad_focus",
+        weight: 15,
+        reason: "Focus scope matches more than 20 files.",
+        evidence: { count: matched },
+      });
+    }
   }
 
   // 5. test_proximity_gap
-  const sourcePaths = input.assessments
-    .filter((c) => c.primaryEligible && c.kind === "source")
+  const sourcePaths = primaryAssessments
+    .filter((c) => c.kind === "source")
     .map((c) => c.path);
     
   let hasMissingProximity = false;
@@ -212,7 +218,7 @@ export function calculateRiskProfile(input: RiskProfileInput): RiskProfile {
       primaryCandidates: primaryPaths.size,
       uniqueDirectDependents: depsCount,
       estimatedAffectedFiles: new Set([...primaryPaths, ...dependentPaths]).size,
-      focusMatchedFiles: matched,
+      focusMatchedFiles: input.focusScope.matchedFileCount,
     },
     coverage: {
       dependencyAnalysis,

@@ -812,7 +812,6 @@ export async function buildTaskContext(
     supportingFiles,
     riskProfile: calculateRiskProfile({
       taskType: normalized.taskTypeSuggestion ?? "auto",
-      goalIntent: intent,
       effectiveDepth,
       focusScope: {
         active: focusScope.active,

@@ -616,12 +616,26 @@
     }
   ],
   "riskProfile": {
+    "version": 1,
+    "basis": "pre_budget",
     "level": "low",
-    "score": 0,
-    "factors": [],
+    "score": 10,
+    "confidence": "low",
+    "factors": [
+      {
+        "code": "test_proximity_gap",
+        "weight": 10,
+        "reason": "Some primary source files lack nearby test evidence."
+      }
+    ],
     "blastRadius": {
-      "affectedFiles": 2,
-      "dependentsCount": 0
+      "primaryCandidates": 2,
+      "uniqueDirectDependents": 0,
+      "estimatedAffectedFiles": 2,
+      "focusMatchedFiles": 253
+    },
+    "coverage": {
+      "dependencyAnalysis": "not_run"
     }
   },
   "directDependents": [],
@@ -708,7 +722,7 @@
   "limitations": [],
   "budget": {
     "maxTokens": 6000,
-    "estimatedTokens": 3163,
+    "estimatedTokens": 3229,
     "truncated": false,
     "omittedCandidates": 0,
     "omittedRegions": 0

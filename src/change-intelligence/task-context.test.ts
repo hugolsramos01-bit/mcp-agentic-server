@@ -158,6 +158,31 @@ describe("task-context", () => {
     assert.ok(res.budget.estimatedTokens <= res.budget.maxTokens, "estimatedTokens must be within budget");
   });
 
+  // ─── 6.5. Pre-budget blast radius preservation ────────────────
+  it("risk profile preserves pre-budget blast radius", async () => {
+    const root = await makeWorkspace();
+    for (let i = 0; i < 5; i++) {
+      await writeFile(join(root, "src", `page${i}.tsx`), "export default function Page() {}");
+    }
+
+    const focusPaths = ["src/page0.tsx", "src/page1.tsx", "src/page2.tsx", "src/page3.tsx", "src/page4.tsx"];
+
+    await gitAddAll(root);
+    const res = await buildTaskContext({
+      workspaceId: "risk-budget",
+      cwd: root,
+      allowedRoots: [root],
+      goal: "refactor shared authentication",
+      focusPaths,
+      depth: "deep",
+      maxTokens: 50, // extremely low to force truncation
+    });
+
+    assert.equal(res.budget.truncated, true);
+    assert.equal(res.riskProfile.basis, "pre_budget");
+    assert.ok(res.riskProfile.blastRadius.primaryCandidates > res.primaryFiles.length);
+  });
+
   // ─── 7. No truncation when within budget ─────────────────────
   it("budget.truncated is false when within default budget", async () => {
     const root = await makeWorkspace();

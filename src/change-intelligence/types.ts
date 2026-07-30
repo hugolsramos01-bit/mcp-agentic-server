@@ -174,7 +174,6 @@ export interface NearbyTestCandidate {
 
 export interface RiskProfileInput {
   taskType: TaskType;
-  goalIntent: GoalIntent;
   effectiveDepth: TaskContextDepth;
   focusScope: TaskFocusScope;
   assessments: readonly CandidateAssessment[];

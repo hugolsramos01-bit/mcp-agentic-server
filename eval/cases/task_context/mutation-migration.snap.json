@@ -75,18 +75,29 @@
     }
   ],
   "riskProfile": {
+    "version": 1,
+    "basis": "pre_budget",
     "level": "low",
-    "score": 15,
+    "score": 10,
+    "confidence": "high",
     "factors": [
       {
-        "factor": "fan_out",
-        "description": "Changes affect multiple dependent files.",
-        "weight": 15
+        "code": "fan_out",
+        "weight": 10,
+        "reason": "3 to 5 unique dependent files.",
+        "evidence": {
+          "count": 3
+        }
       }
     ],
     "blastRadius": {
-      "affectedFiles": 1,
-      "dependentsCount": 3
+      "primaryCandidates": 1,
+      "uniqueDirectDependents": 3,
+      "estimatedAffectedFiles": 4,
+      "focusMatchedFiles": 253
+    },
+    "coverage": {
+      "dependencyAnalysis": "available"
     }
   },
   "directDependents": [
@@ -141,7 +152,7 @@
   "limitations": [],
   "budget": {
     "maxTokens": 6000,
-    "estimatedTokens": 594,
+    "estimatedTokens": 636,
     "truncated": false,
     "omittedCandidates": 0,
     "omittedRegions": 0

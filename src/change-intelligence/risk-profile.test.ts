@@ -1,18 +1,25 @@
 import { test, describe } from "node:test";
 import * as assert from "node:assert";
 import { calculateRiskProfile } from "./risk-profile.js";
-import { CandidateAssessment, RiskProfileInput, DirectDependentEntry, NearbyTestCandidate, TaskFocusScope } from "./types.js";
+import { CandidateAssessment, CandidateKind, Confidence, RiskProfileInput, DirectDependentEntry, NearbyTestCandidate, TaskFocusScope } from "./types.js";
 
 const mockFocus: TaskFocusScope = { active: false, exactFiles: [], directories: [], matchedFileCount: 0, unresolved: [] };
 
-function mockAssessment(path: string, confidence: "low"|"medium"|"high" = "high", primaryEligible: boolean = true): CandidateAssessment {
+function mockAssessment(
+  path: string,
+  options: {
+    kind?: CandidateKind;
+    confidence?: Confidence;
+    primaryEligible?: boolean;
+  } = {}
+): CandidateAssessment {
   return {
     path,
-    kind: path.endsWith(".json") || path.endsWith(".lock") || path.endsWith(".js") ? "configuration" : "source",
+    kind: options.kind || (path.endsWith(".json") || path.endsWith(".lock") || path.endsWith(".js") ? "configuration" : "source"),
     evidence: [],
     score: 10,
-    confidence,
-    primaryEligible,
+    confidence: options.confidence || "high",
+    primaryEligible: options.primaryEligible !== false,
     autoReadEligible: true,
     eligibilityReasons: [],
     rejectionReasons: [],
@@ -23,7 +30,6 @@ describe("calculateRiskProfile", () => {
   test("1 source, sem dependentes -> low", () => {
     const input: RiskProfileInput = {
       taskType: "feature",
-      goalIntent: "implementation",
       effectiveDepth: "balanced",
       focusScope: mockFocus,
       assessments: [mockAssessment("src/app.ts")],
@@ -37,7 +43,6 @@ describe("calculateRiskProfile", () => {
   test("package.json -> high", () => {
     const input: RiskProfileInput = {
       taskType: "feature",
-      goalIntent: "implementation",
       effectiveDepth: "balanced",
       focusScope: mockFocus,
       assessments: [mockAssessment("package.json")],
@@ -49,10 +54,9 @@ describe("calculateRiskProfile", () => {
     assert.ok(risk.factors.some(f => f.code === "configuration_scope" && f.weight === 40));
   });
 
-  test("eslint.config.js isolado -> medium, não high automático", () => {
+  test("eslint.config.js isolado -> medium", () => {
     const input: RiskProfileInput = {
       taskType: "feature",
-      goalIntent: "implementation",
       effectiveDepth: "balanced",
       focusScope: mockFocus,
       assessments: [mockAssessment("eslint.config.js")],
@@ -60,14 +64,13 @@ describe("calculateRiskProfile", () => {
       nearbyTestCandidates: [],
     };
     const risk = calculateRiskProfile(input);
-    assert.equal(risk.level, "low");
-    assert.ok(risk.factors.some(f => f.code === "configuration_scope" && f.weight === 15));
+    assert.equal(risk.level, "medium");
+    assert.ok(risk.factors.some(f => f.code === "configuration_scope" && f.weight === 20));
   });
 
   test("11 dependentes únicos -> high", () => {
     const input: RiskProfileInput = {
       taskType: "feature",
-      goalIntent: "implementation",
       effectiveDepth: "balanced",
       focusScope: mockFocus,
       assessments: [mockAssessment("src/app.ts")],
@@ -84,7 +87,6 @@ describe("calculateRiskProfile", () => {
   test("dependentes duplicados contados uma vez", () => {
     const input: RiskProfileInput = {
       taskType: "feature",
-      goalIntent: "implementation",
       effectiveDepth: "balanced",
       focusScope: mockFocus,
       assessments: [mockAssessment("src/app.ts"), mockAssessment("src/utils.ts")],
@@ -104,7 +106,6 @@ describe("calculateRiskProfile", () => {
   test("config sensível + 11 dependentes -> critical", () => {
     const input: RiskProfileInput = {
       taskType: "feature",
-      goalIntent: "implementation",
       effectiveDepth: "balanced",
       focusScope: mockFocus,
       assessments: [mockAssessment("package.json"), mockAssessment("src/app.ts")],
@@ -121,9 +122,8 @@ describe("calculateRiskProfile", () => {
   test("root focus com 100 arquivos -> high ou combinação crítica", () => {
     const input: RiskProfileInput = {
       taskType: "feature",
-      goalIntent: "implementation",
       effectiveDepth: "balanced",
-      focusScope: { ...mockFocus, matchedFileCount: 105 },
+      focusScope: { ...mockFocus, active: true, matchedFileCount: 105 },
       assessments: [mockAssessment("src/app.ts")],
       directDependents: [],
       nearbyTestCandidates: [],
@@ -136,7 +136,6 @@ describe("calculateRiskProfile", () => {
   test("depth fast sem dependentes -> level calculado, confidence low, dependencyAnalysis not_run", () => {
     const input: RiskProfileInput = {
       taskType: "feature",
-      goalIntent: "implementation",
       effectiveDepth: "fast",
       focusScope: mockFocus,
       assessments: [mockAssessment("src/app.ts")],
@@ -152,7 +151,6 @@ describe("calculateRiskProfile", () => {
   test("balanced com mais de 3 primários -> dependencyAnalysis partial", () => {
     const input: RiskProfileInput = {
       taskType: "feature",
-      goalIntent: "implementation",
       effectiveDepth: "balanced",
       focusScope: mockFocus,
       assessments: [
@@ -169,7 +167,6 @@ describe("calculateRiskProfile", () => {
   test("mesmo input em ordens diferentes -> resultado idêntico", () => {
     const factors1 = calculateRiskProfile({
       taskType: "feature",
-      goalIntent: "implementation",
       effectiveDepth: "balanced",
       focusScope: mockFocus,
       assessments: [mockAssessment("package.json"), mockAssessment("src/app.ts")],
@@ -179,7 +176,6 @@ describe("calculateRiskProfile", () => {
 
     const factors2 = calculateRiskProfile({
       taskType: "feature",
-      goalIntent: "implementation",
       effectiveDepth: "balanced",
       focusScope: mockFocus,
       assessments: [mockAssessment("src/app.ts"), mockAssessment("package.json")], // reordered
@@ -191,5 +187,47 @@ describe("calculateRiskProfile", () => {
     // configuration_scope should be before test_proximity_gap
     assert.equal(factors1[0].code, "configuration_scope");
     assert.equal(factors1[1].code, "test_proximity_gap");
+  });
+
+  test("evidence.paths determinista para múltiplas configs", () => {
+    // 5 config files in scrambled order
+    const configs = [
+      "webpack.config.js",
+      "tsconfig.json",
+      "jest.config.js",
+      "eslint.config.js",
+      "prettierrc.json"
+    ];
+    
+    // We reverse the array to create a different input order
+    const reversedConfigs = [...configs].reverse();
+    
+    const factors1 = calculateRiskProfile({
+      taskType: "feature",
+      effectiveDepth: "balanced",
+      focusScope: mockFocus,
+      assessments: configs.map((c) => mockAssessment(c, { kind: "configuration" })),
+      directDependents: [],
+      nearbyTestCandidates: [],
+    }).factors;
+
+    const factors2 = calculateRiskProfile({
+      taskType: "feature",
+      effectiveDepth: "balanced",
+      focusScope: mockFocus,
+      assessments: reversedConfigs.map((c) => mockAssessment(c, { kind: "configuration" })),
+      directDependents: [],
+      nearbyTestCandidates: [],
+    }).factors;
+
+    assert.deepEqual(factors1, factors2);
+    const configFactor = factors1.find((f) => f.code === "configuration_scope");
+    assert.ok(configFactor);
+    // The top 3 sorted should be: eslint.config.js, jest.config.js, prettierrc.json
+    assert.deepEqual(configFactor.evidence?.paths, [
+      "eslint.config.js",
+      "jest.config.js",
+      "prettierrc.json"
+    ]);
   });
 });

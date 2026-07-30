@@ -24,7 +24,7 @@
   },
   "git": {
     "branch": "## feature/risk-adaptive-flow...origin/feature/risk-adaptive-flow",
-    "status": "## feature/risk-adaptive-flow...origin/feature/risk-adaptive-flow\n M eval/cases/read/package-json.snap.json\n M eval/cases/read_many/two-files.snap.json\n M eval/cases/semantic_pack/workspace-lifecycle.snap.json\n M eval/cases/task_context/jwt-auth.snap.json\n M eval/cases/task_context/mutation-migration.snap.json\n M eval/cases/task_context/pagination-bug.snap.json\n M package.json\n M scripts/test-runtime-mcp.mjs\n M src/change-intelligence/risk-profile.test.ts\n M src/change-intelligence/risk-profile.ts\n M src/change-intelligence/task-context.test.ts\n M src/change-intelligence/task-context.ts\n M src/change-intelligence/types.ts\n"
+    "status": "## feature/risk-adaptive-flow...origin/feature/risk-adaptive-flow\n M scripts/test-runtime-mcp.mjs\n M src/change-intelligence/risk-profile.test.ts\n M src/change-intelligence/risk-profile.ts\n M src/change-intelligence/task-context.test.ts\n M src/change-intelligence/task-context.ts\n M src/change-intelligence/types.ts\n"
   },
   "routes": [],
   "collections": [],
@@ -341,8 +341,8 @@
     }
   ],
   "tokenBudget": {
-    "used": 1586,
+    "used": 1532,
     "max": 8000,
-    "remaining": 6414
+    "remaining": 6468
   }
 }
