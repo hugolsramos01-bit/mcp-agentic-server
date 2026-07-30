@@ -1,106 +1,58 @@
 {
   "packageManager": "npm",
-  "selectionMode": "targeted",
-  "changeSource": "provided_paths",
-  "level": "recommended",
-  "changedPaths": [
-    "src/index.ts"
-  ],
-  "recommended": [
-    {
-      "script": "typecheck",
-      "command": "npm run typecheck",
-      "tier": "static_analysis",
-      "reason": "Valida tipos estatisticamente sem gerar artefatos",
-      "confidence": "low",
-      "mutatesWorkspace": false,
-      "estimatedCost": "low",
-      "priority": 1,
-      "evidence": [
-        {
-          "rule": "typescript_extension",
-          "path": "src/index.ts"
-        }
-      ]
-    }
-  ],
-  "deferred": [
-    {
-      "script": "bench:agent",
-      "reason": "Nenhum sinal detectou relação com os arquivos alterados"
-    },
-    {
-      "script": "bench:regions",
-      "reason": "Nenhum sinal detectou relação com os arquivos alterados"
-    },
-    {
-      "script": "bench:server",
-      "reason": "Nenhum sinal detectou relação com os arquivos alterados"
-    },
-    {
-      "script": "bench:tools",
-      "reason": "Nenhum sinal detectou relação com os arquivos alterados"
-    },
-    {
-      "script": "build",
-      "reason": "Nenhum sinal detectou relação com os arquivos alterados"
-    },
-    {
-      "script": "build:app",
-      "reason": "Nenhum sinal detectou relação com os arquivos alterados"
-    },
-    {
-      "script": "clean",
-      "reason": "Nenhum sinal detectou relação com os arquivos alterados"
-    },
-    {
-      "script": "dev",
-      "reason": "Nenhum sinal detectou relação com os arquivos alterados"
-    },
-    {
-      "script": "eval",
-      "reason": "Nenhum sinal detectou relação com os arquivos alterados"
-    },
-    {
-      "script": "eval:update",
-      "reason": "Nenhum sinal detectou relação com os arquivos alterados"
-    },
-    {
-      "script": "postinstall",
-      "reason": "Nenhum sinal detectou relação com os arquivos alterados"
-    },
-    {
-      "script": "smoke:package",
-      "reason": "Nenhum sinal detectou relação com os arquivos alterados"
-    },
-    {
-      "script": "start",
-      "reason": "Nenhum sinal detectou relação com os arquivos alterados"
-    },
-    {
-      "script": "test",
-      "reason": "Nenhum sinal detectou relação com os arquivos alterados"
-    },
-    {
-      "script": "test:http",
-      "reason": "Nenhum sinal detectou relação com os arquivos alterados"
-    },
-    {
-      "script": "test:runtime",
-      "reason": "Nenhum sinal detectou relação com os arquivos alterados"
-    }
-  ],
-  "stages": {
-    "initial": [
-      "typecheck"
+  "plan": {
+    "version": 1,
+    "mode": "advisory",
+    "basis": "actual_changes",
+    "riskLevel": "high",
+    "riskConfidence": "medium",
+    "policyLevel": "high",
+    "recommendations": [
+      {
+        "script": "typecheck",
+        "command": "npm run typecheck",
+        "tier": "static_analysis",
+        "stage": "initial",
+        "priority": "strongly_recommended",
+        "reason": "High risk requires strict static analysis.",
+        "riskFactors": [
+          "fan_out",
+          "test_proximity_gap"
+        ],
+        "estimatedCost": "low",
+        "confidence": "high"
+      },
+      {
+        "script": "test",
+        "command": "npm test",
+        "tier": "general_tests",
+        "stage": "after_initial_success",
+        "priority": "strongly_recommended",
+        "reason": "High risk warrants broad regression coverage.",
+        "riskFactors": [
+          "fan_out",
+          "test_proximity_gap"
+        ],
+        "estimatedCost": "medium",
+        "confidence": "medium"
+      },
+      {
+        "script": "build",
+        "command": "npm run build",
+        "tier": "build",
+        "stage": "after_initial_success",
+        "priority": "strongly_recommended",
+        "reason": "High fan-out or broad scope requires building the artifacts.",
+        "riskFactors": [
+          "fan_out",
+          "test_proximity_gap"
+        ],
+        "estimatedCost": "high",
+        "confidence": "high"
+      }
     ],
-    "afterInitialSuccess": [],
-    "beforeRelease": [
-      "build",
-      "build:app",
-      "smoke:package",
-      "test:http"
+    "limitations": [
+      "The legacy 'level' and 'scope' options are deprecated; the verification policy was derived from the RiskProfile."
     ]
-  },
-  "limitations": []
+  }
 }

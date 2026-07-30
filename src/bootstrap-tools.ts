@@ -11,7 +11,12 @@ import { readWorkspaceKnowledge } from "./knowledge-tools.js";
 import { normalizeGoal } from "./change-intelligence/goal-normalizer.js";
 import { getWorkspaceGitEligibility } from "./git.js";
 import { classifyPackageScripts, type ClassifiedCheck } from "./check-classifier.js";
-import { getGitChangedPaths, selectTargetedChecks, type SuggestChecksOptions } from "./check-selector.js";
+import { type SuggestChecksOptions } from "./check-selector.js";
+import { buildTaskContext } from "./change-intelligence/task-context.js";
+import { planVerification } from "./change-intelligence/verification-planner.js";
+import { buildVerificationEvidence } from "./change-intelligence/verification-evidence.js";
+import type { VerificationEvidence } from "./change-intelligence/types.js";
+import { getGitChangedPaths as getRobustGitChangedPaths } from "./change-intelligence/git-change-paths.js";
 
 const execFileAsync = promisify(execFile);
 
@@ -502,96 +507,115 @@ export async function suggestChecksTool(cwd: string, options: SuggestChecksOptio
 
   const classified = classifyPackageScripts(scripts, packageManager);
 
-  // If we have explicit paths or implicitly want changed paths
-  if (options.paths || options.scope === "changed" || (!options.paths && !options.scope)) {
-    let changedPaths: string[] = [];
-    let changeSource: "provided_paths" | "git_status" = "provided_paths";
+  // Fallback to options.paths alias if changedPaths is missing
+  let changedPaths = options.changedPaths || options.paths || [];
 
-    if (options.paths && options.paths.length > 0) {
-      changedPaths = options.paths;
-    } else {
-      try {
-        changedPaths = await getGitChangedPaths(cwd);
-        changeSource = "git_status";
-      } catch (e) {
-        return {
-          content: [{
-            type: "text",
-            text: JSON.stringify({ error: "Failed to detect git changes. Ensure you are in a git repository or explicitly provide paths." })
-          }]
-        };
-      }
+  let goal = options.goal;
+  
+  if (changedPaths.length === 0) {
+    try {
+      changedPaths = await getRobustGitChangedPaths(cwd);
+    } catch (e) {
+      // ignore
     }
+  }
 
-    const targetedResult = selectTargetedChecks(classified, options, changeSource, changedPaths);
+  // Preserve legacy scope: "workspace" as an explicit global pipeline bypass
+  if (options.scope === "workspace") {
+    const safeChecks = classified.filter(c => !c.mutatesWorkspace && c.tier !== "other");
+    
+    // Sort safe checks by tier to mimic old pipeline ordering loosely
+    const tierOrder: Record<string, number> = {
+      static_analysis: 1,
+      unit_tests: 2,
+      general_tests: 3,
+      build: 4,
+      integration_tests: 5,
+      smoke_tests: 6,
+      e2e_tests: 7,
+      unknown: 8
+    };
+    safeChecks.sort((a, b) => (tierOrder[a.tier] || 99) - (tierOrder[b.tier] || 99));
+
     return {
       content: [{
         type: "text",
         text: JSON.stringify({
           packageManager,
-          ...targetedResult
+          plan: {
+            version: 1,
+            mode: "advisory",
+            basis: "discovery",
+            riskLevel: "medium",
+            riskConfidence: "low",
+            policyLevel: "medium",
+            recommendations: safeChecks.map(c => ({
+              script: c.script,
+              command: c.command,
+              tier: c.tier,
+              stage: c.tier === "smoke_tests" ? "before_release" : "initial",
+              priority: "strongly_recommended",
+              reason: "Legacy workspace pipeline check",
+              riskFactors: [],
+              estimatedCost: c.estimatedCost,
+              confidence: c.confidence
+            })),
+            limitations: [
+              "Legacy 'scope: workspace' used. Bypassing risk-adaptive planner and returning all safe checks.",
+              "The legacy 'level' and 'scope' options are deprecated."
+            ]
+          }
         }, null, 2)
       }]
     };
   }
 
-  // Fallback to workspace scope (full pipeline)
-  // Group by tier
-  const tiers: Record<string, { label: string; checks: ClassifiedCheck[] }> = {
-    static_analysis: { label: "Static Analysis", checks: [] },
-    unit_tests: { label: "Unit Tests", checks: [] },
-    general_tests: { label: "Test Suite", checks: [] },
-    build: { label: "Build", checks: [] },
-    integration_tests: { label: "Integration Tests", checks: [] },
-    smoke_tests: { label: "Smoke Tests", checks: [] },
-    e2e_tests: { label: "E2E Tests", checks: [] },
-  };
+  const evidence = await buildVerificationEvidence({
+    cwd,
+    packageManager,
+    changedPaths,
+    goal,
+    taskType: options.taskType,
+    focusPaths: options.focusPaths,
+    availableChecks: classified
+  });
 
-  const unclassified: ClassifiedCheck[] = [];
-
-  for (const check of classified) {
-    if (check.tier === "other" || check.mutatesWorkspace) {
-      unclassified.push(check);
-    } else {
-      if (!tiers[check.tier]) {
-        tiers[check.tier] = { label: check.tier, checks: [] };
-      }
-      tiers[check.tier].checks.push(check);
-    }
+  if (!evidence) {
+    return {
+      content: [{
+        type: "text",
+        text: JSON.stringify({
+          packageManager,
+          plan: {
+            version: 1,
+            mode: "advisory",
+            basis: "discovery",
+            riskLevel: "low",
+            riskConfidence: "low",
+            policyLevel: "low",
+            recommendations: [],
+            limitations: [
+              "No changed paths detected and no planning goal provided.",
+              "Cannot recommend checks without an actual change set or a discovery goal."
+            ]
+          }
+        }, null, 2)
+      }]
+    };
   }
 
-  const pipeline = Object.entries(tiers)
-    .filter(([_, data]) => data.checks.length > 0)
-    .map(([tier, data]) => ({
-      tier,
-      label: data.label,
-      checks: data.checks
-    }));
+  const plan = planVerification(evidence);
 
-  // Create recommended order array based on natural progression
-  const tierOrder = ["static_analysis", "unit_tests", "general_tests", "build", "integration_tests", "smoke_tests", "e2e_tests"];
-  const recommendedOrder = [];
-  for (const tierName of tierOrder) {
-    const tierData = tiers[tierName];
-    if (tierData) {
-      for (const check of tierData.checks) {
-        recommendedOrder.push(check.script);
-      }
-    }
+  if (options.scope || options.level) {
+    plan.limitations.push("The legacy 'level' and 'scope' options are deprecated; the verification policy was derived from the RiskProfile.");
   }
 
   return {
     content: [{
       type: "text",
       text: JSON.stringify({
-        selectionMode: "workspace",
         packageManager,
-        pipeline,
-        recommendedOrder,
-        unclassified,
-        limitations: [
-          "A classificação usa nomes e comandos dos scripts; ela ainda não considera os arquivos alterados"
-        ]
+        plan
       }, null, 2)
     }]
   };

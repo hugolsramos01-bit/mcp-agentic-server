@@ -10,20 +10,21 @@
       "smoke:package": "node scripts/smoke-package.mjs",
       "test:http": "node scripts/test-http.mjs",
       "start": "node dist/cli.js serve",
-      "test": "tsx src/regression.test.ts && tsx src/config.test.ts && tsx src/analysis-regression.test.ts && tsx src/ast-tools.test.ts && tsx src/import-resolver.test.ts && tsx src/diagnostics/log-compressor.test.ts && tsx src/ui/card-types.test.ts && tsx src/ui/patch-display.test.ts && tsx src/apply-patch.test.ts && tsx src/process-platform.test.ts && tsx src/process-sessions.test.ts && tsx src/process-runner/process-runner.test.ts && tsx src/local-agent-runtime.test.ts && tsx src/local-agent-adapters.test.ts && tsx src/local-agent-availability.test.ts && tsx src/local-agent-profiles.test.ts && tsx src/local-agent-targets.test.ts && tsx src/local-agent-store.test.ts && tsx src/roots.test.ts && tsx src/git.test.ts && tsx src/skills.test.ts && tsx src/workspaces.test.ts && tsx src/checkpoint-tools.test.ts && tsx src/review-checkpoints.test.ts && tsx src/native-dependency-verifier.test.ts && tsx src/oauth-store.test.ts && tsx src/cli.test.ts && tsx src/security/security-regression.test.ts && tsx src/check-classifier.test.ts && tsx src/tool-contracts.test.ts && tsx src/server/mutation-receipt.test.ts && tsx src/server/transport-registry.test.ts && tsx src/performance/performance-recorder.test.ts && tsx src/change-intelligence/goal-normalizer.test.ts && tsx src/change-intelligence/test-proximity.test.ts && tsx src/change-intelligence/task-context.test.ts && tsx src/change-intelligence/code-regions.test.ts && tsx src/change-intelligence/code-region-cache.test.ts && tsx src/assistant-tools.test.ts",
+      "test": "tsx src/regression.test.ts && tsx src/config.test.ts && tsx src/analysis-regression.test.ts && tsx src/ast-tools.test.ts && tsx src/import-resolver.test.ts && tsx src/diagnostics/log-compressor.test.ts && tsx src/ui/card-types.test.ts && tsx src/ui/patch-display.test.ts && tsx src/apply-patch.test.ts && tsx src/process-platform.test.ts && tsx src/process-sessions.test.ts && tsx src/process-runner/process-runner.test.ts && tsx src/local-agent-runtime.test.ts && tsx src/local-agent-adapters.test.ts && tsx src/local-agent-availability.test.ts && tsx src/local-agent-profiles.test.ts && tsx src/local-agent-targets.test.ts && tsx src/local-agent-store.test.ts && tsx src/roots.test.ts && tsx src/git.test.ts && tsx src/skills.test.ts && tsx src/workspaces.test.ts && tsx src/checkpoint-tools.test.ts && tsx src/review-checkpoints.test.ts && tsx src/native-dependency-verifier.test.ts && tsx src/oauth-store.test.ts && tsx src/cli.test.ts && tsx src/security/security-regression.test.ts && tsx src/check-classifier.test.ts && tsx src/tool-contracts.test.ts && tsx src/server/mutation-receipt.test.ts && tsx src/server/transport-registry.test.ts && tsx src/performance/performance-recorder.test.ts && tsx src/change-intelligence/git-change-paths.test.ts && tsx src/change-intelligence/goal-normalizer.test.ts && tsx src/change-intelligence/test-proximity.test.ts && tsx src/change-intelligence/indexed-path.test.ts && tsx src/change-intelligence/risk-profile.test.ts && tsx src/change-intelligence/task-context.test.ts && tsx src/change-intelligence/code-regions.test.ts && tsx src/change-intelligence/code-region-cache.test.ts && tsx src/change-intelligence/verification-planner.test.ts && tsx src/assistant-tools.test.ts && tsx src/change-intelligence/verification-evidence.test.ts",
       "typecheck": "tsc -p tsconfig.json --noEmit",
       "eval": "node eval/run.mjs",
       "eval:update": "node eval/run.mjs --update",
       "bench:tools": "npm run build && node perf/tool-latency.mjs",
       "bench:agent": "npm run build && node perf/agent-loop.mjs",
       "bench:server": "npm run build && node perf/server-hot-path.mjs",
-      "test:runtime": "node scripts/test-runtime-mcp.mjs",
+      "test:runtime": "npm run build && node scripts/test-runtime-mcp.mjs",
+      "test:runtime:built": "node scripts/test-runtime-mcp.mjs",
       "bench:regions": "npm run build && node perf/code-regions.mjs"
     }
   },
   "git": {
-    "branch": "## fix/task-context-directory-focus...origin/fix/task-context-directory-focus [ahead 1]",
-    "status": "## fix/task-context-directory-focus...origin/fix/task-context-directory-focus [ahead 1]\n M .github/workflows/ci.yml\n M eval/cases/read/package-json.snap.json\n M eval/cases/read_many/two-files.snap.json\n M eval/cases/suggest_checks/agentic-docs-only.snap.json\n M eval/cases/suggest_checks/agentic-full-workspace.snap.json\n M eval/cases/suggest_checks/agentic-http-change.snap.json\n M eval/cases/suggest_checks/agentic-package-change.snap.json\n M eval/cases/suggest_checks/agentic-self.snap.json\n M eval/cases/suggest_checks/agentic-source-change.snap.json\n M eval/cases/suggest_checks/agentic-ui-change.snap.json\n M scripts/test-runtime-mcp.mjs\n M src/change-intelligence/indexed-path.ts\n M src/change-intelligence/task-context.test.ts\n?? test-repo/\n?? test-root.ts\n"
+    "branch": "## feature/risk-adaptive-verification...origin/feature/risk-adaptive-verification",
+    "status": "## feature/risk-adaptive-verification...origin/feature/risk-adaptive-verification\n M eval/cases/read/package-json.snap.json\n M eval/cases/read_many/two-files.snap.json\n M eval/cases/suggest_checks/agentic-full-workspace.snap.json\n M eval/cases/suggest_checks/agentic-self.snap.json\n M package.json\n M src/bootstrap-tools.ts\n M src/change-intelligence/verification-evidence.ts\n"
   },
   "routes": [],
   "collections": [],
@@ -162,7 +163,7 @@
       ],
       "recommendedReadMode": "skeletal",
       "reason": "Contém termos do objetivo — pode ser relevante",
-      "estimatedTokens": 4992
+      "estimatedTokens": 5030
     },
     {
       "path": "src/server.ts",
@@ -179,7 +180,7 @@
       ],
       "recommendedReadMode": "skeletal",
       "reason": "Contém termos do objetivo — pode ser relevante",
-      "estimatedTokens": 36317
+      "estimatedTokens": 36637
     },
     {
       "path": "src/server/tool-utils.ts",
@@ -196,7 +197,7 @@
       ],
       "recommendedReadMode": "skeletal",
       "reason": "Contém termos do objetivo — pode ser relevante",
-      "estimatedTokens": 6639
+      "estimatedTokens": 6718
     },
     {
       "path": "src/tool-contracts.ts",
@@ -247,7 +248,7 @@
       ],
       "recommendedReadMode": "skeletal",
       "reason": "Contém termos do objetivo — pode ser relevante",
-      "estimatedTokens": 6376
+      "estimatedTokens": 6708
     },
     {
       "path": "src/ast-tools.ts",
@@ -281,7 +282,7 @@
       ],
       "recommendedReadMode": "skeletal",
       "reason": "Contém termos do objetivo — pode ser relevante",
-      "estimatedTokens": 6255
+      "estimatedTokens": 6427
     },
     {
       "path": "src/change-intelligence/code-region-cache.ts",
@@ -340,8 +341,8 @@
     }
   ],
   "tokenBudget": {
-    "used": 1582,
+    "used": 1574,
     "max": 8000,
-    "remaining": 6418
+    "remaining": 6426
   }
 }

@@ -30,6 +30,8 @@
         }
       ],
       "recommendedReadTool": "read",
+      "selectionReason": "focus_path, test_proximity",
+      "autoReadEligible": true,
       "codeRegions": [
         {
           "name": "isReviewTool",
@@ -68,16 +70,37 @@
     {
       "path": "src/ui/card-types.test.ts",
       "role": "test",
-      "confidence": "low",
+      "confidence": "medium",
       "evidence": [
         {
           "type": "test_proximity",
           "detail": "Is test for: src/ui/card-types.ts"
         }
       ],
-      "recommendedReadTool": "read_many"
+      "recommendedReadTool": "read_adaptive",
+      "selectionReason": "test_proximity",
+      "autoReadEligible": true
     }
   ],
+  "riskProfile": {
+    "version": 1,
+    "basis": "pre_budget",
+    "level": "low",
+    "score": 0,
+    "confidence": "low",
+    "factors": [],
+    "blastRadius": {
+      "primaryCandidates": 1,
+      "observedUniqueDirectDependents": 0,
+      "directDependentsLowerBound": 0,
+      "dependencyDataTruncated": false,
+      "estimatedAffectedFiles": 1,
+      "focusMatchedFiles": 1
+    },
+    "coverage": {
+      "dependencyAnalysis": "not_run"
+    }
+  },
   "directDependents": [],
   "applicableInstructions": [
     {
@@ -117,7 +140,7 @@
   "limitations": [],
   "budget": {
     "maxTokens": 6000,
-    "estimatedTokens": 439,
+    "estimatedTokens": 557,
     "truncated": false,
     "omittedCandidates": 0,
     "omittedRegions": 0

@@ -1,14 +1,52 @@
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
-import { basename, dirname, isAbsolute, join, normalize, relative, resolve } from "node:path";
+import {
+  basename,
+  dirname,
+  isAbsolute,
+  join,
+  normalize,
+  relative,
+  resolve,
+} from "node:path";
 import { normalizeGoal } from "./goal-normalizer.js";
-import { scoreConfidence } from "./evidence.js";
+import {
+  inferConfidence,
+  WEAK_GOAL_KEYWORDS,
+  EVIDENCE_WEIGHTS,
+  KIND_PENALTIES,
+} from "./evidence.js";
 import { findNearbyTests } from "./test-proximity.js";
-import { getWorkspaceFileCacheKey, getWorkspaceFileSnapshot, setWorkspaceFileSnapshot } from "../workspace/workspace-file-cache.js";
-import { IndexedPath, isPrimaryEligibleKind, isDependencySkippedKind, candidateKindPriority } from "./indexed-path.js";
+import {
+  getWorkspaceFileCacheKey,
+  getWorkspaceFileSnapshot,
+  setWorkspaceFileSnapshot,
+} from "../workspace/workspace-file-cache.js";
+import {
+  IndexedPath,
+  isPrimaryEligibleKind,
+  isDependencySkippedKind,
+  candidateKindPriority,
+  isLockFile,
+} from "./indexed-path.js";
 import { getLimitedSharedDependencies } from "./file-dependencies-internal.js";
-import { TaskContextInput, TaskContextResult, TaskFileCandidate, EvidenceEntry, TaskFileRole, TaskType, TaskContextDepth, CandidateKind } from "./types.js";
-import { loadAndExtractCodeRegions, CodeRegionSkippedError } from "./code-region-cache.js";
+import {
+  TaskContextInput,
+  TaskContextResult,
+  TaskFileCandidate,
+  EvidenceEntry,
+  TaskFileRole,
+  TaskType,
+  TaskContextDepth,
+  CandidateKind,
+  GoalIntent,
+  CandidateAssessment,
+} from "./types.js";
+import { calculateRiskProfile } from "./risk-profile.js";
+import {
+  loadAndExtractCodeRegions,
+  CodeRegionSkippedError,
+} from "./code-region-cache.js";
 import type { ToolResponse } from "../pi-tools.js";
 import { NOOP_PERFORMANCE_RECORDER } from "../performance/performance-recorder.js";
 
@@ -44,7 +82,9 @@ function matchesDirectoryToken(segment: string, keyword: string): boolean {
 }
 
 function dirMatchesKeyword(dir: string, kw: string): boolean {
-  return dir.split(/[\\/]+/).some(s => matchesDirectoryToken(s.toLowerCase(), kw));
+  return dir
+    .split(/[\\/]+/)
+    .some((s) => matchesDirectoryToken(s.toLowerCase(), kw));
 }
 
 // ─── Path validation ───────────────────────────────────────────────────
@@ -57,7 +97,7 @@ function resolveAndValidatePath(
   rawPath: string,
   cwd: string,
   allowedRoots: string[],
-  limitations: string[]
+  limitations: string[],
 ): string | null {
   // Reject empty
   if (!rawPath || rawPath.trim() === "") return null;
@@ -68,9 +108,11 @@ function resolveAndValidatePath(
   // Reject absolute paths not under any allowed root
   if (isAbsolute(normalized)) {
     const abs = normalize(normalized);
-    const allowed = allowedRoots.some(r => abs.startsWith(normalize(r)));
+    const allowed = allowedRoots.some((r) => abs.startsWith(normalize(r)));
     if (!allowed) {
-      limitations.push(`Rejected absolute path outside allowedRoots: ${rawPath}`);
+      limitations.push(
+        `Rejected absolute path outside allowedRoots: ${rawPath}`,
+      );
       return null;
     }
     // Convert to relative
@@ -95,7 +137,31 @@ function resolveAndValidatePath(
 
 // ─── Core ─────────────────────────────────────────────────────────────
 
-export async function buildTaskContext(input: TaskContextInput): Promise<TaskContextResult> {
+function inferGoalIntent(
+  goal: string,
+  type: TaskType,
+  focusPaths: string[],
+): GoalIntent {
+  const g = goal.toLowerCase();
+  const tokens = new Set(g.match(/[a-z0-9_]+/g) ?? []);
+
+  const testingIntent =
+    ["test", "tests", "testing", "spec", "specs"].some((token) =>
+      tokens.has(token),
+    ) || focusPaths.some((path) => /\.(?:test|spec)\./i.test(path));
+
+  if (testingIntent || (type === "auto" && testingIntent)) return "testing";
+  if (g.includes("config") || g.includes("eslint") || g.includes("tsconfig"))
+    return "configuration";
+  if (g.includes("doc") || g.includes("readme")) return "documentation";
+  if (g.includes("investigat") || g.includes("why") || g.includes("explain"))
+    return "investigation";
+  return "implementation";
+}
+
+export async function buildTaskContext(
+  input: TaskContextInput,
+): Promise<TaskContextResult> {
   const {
     cwd,
     allowedRoots,
@@ -139,15 +205,18 @@ export async function buildTaskContext(input: TaskContextInput): Promise<TaskCon
   const pResolve = perf.startPhase("resolvePaths");
   const focusWasRequested = focusPaths.length > 0;
   const safeFocusPaths = focusPaths
-    .map(fp => resolveAndValidatePath(fp, cwd, allowedRoots, limitations))
+    .map((fp) => resolveAndValidatePath(fp, cwd, allowedRoots, limitations))
     .filter((fp): fp is string => fp !== null);
 
   const safeExcludePaths = excludePaths
-    .map(ep => resolveAndValidatePath(ep, cwd, allowedRoots, limitations))
+    .map((ep) => resolveAndValidatePath(ep, cwd, allowedRoots, limitations))
     .filter((ep): ep is string => ep !== null);
 
   function normalizeScopePath(path: string): string {
-    const normalized = path.replace(/\\/g, "/").replace(/^\.\/+/, "").replace(/\/+$/, "");
+    const normalized = path
+      .replace(/\\/g, "/")
+      .replace(/^\.\/+/, "")
+      .replace(/\/+$/, "");
     return normalized === "." ? "" : normalized;
   }
 
@@ -182,7 +251,7 @@ export async function buildTaskContext(input: TaskContextInput): Promise<TaskCon
       }
 
       const prefix = `${path}/`;
-      if (allFiles.some(file => file.startsWith(prefix))) {
+      if (allFiles.some((file) => file.startsWith(prefix))) {
         directoryPrefixes.push(path);
         continue;
       }
@@ -198,19 +267,25 @@ export async function buildTaskContext(input: TaskContextInput): Promise<TaskCon
     };
   }
 
-  function isInsideFocusScope(path: string, scope: ResolvedFocusScope): boolean {
+  function isInsideFocusScope(
+    path: string,
+    scope: ResolvedFocusScope,
+  ): boolean {
     if (!scope.active) return true;
     const normalized = normalizeScopePath(path);
     if (scope.exactFiles.has(normalized)) return true;
-    return scope.directoryPrefixes.some(prefix => prefix === "" || normalized.startsWith(`${prefix}/`));
+    return scope.directoryPrefixes.some(
+      (prefix) => prefix === "" || normalized.startsWith(`${prefix}/`),
+    );
   }
-
 
   function isPathExcluded(path: string): boolean {
     const normalizedPath = normalizeScopePath(path);
-    return safeExcludePaths.some(excluded => {
+    return safeExcludePaths.some((excluded) => {
       const prefix = normalizeScopePath(excluded);
-      return normalizedPath === prefix || normalizedPath.startsWith(`${prefix}/`);
+      return (
+        normalizedPath === prefix || normalizedPath.startsWith(`${prefix}/`)
+      );
     });
   }
 
@@ -221,34 +296,42 @@ export async function buildTaskContext(input: TaskContextInput): Promise<TaskCon
   let allFiles: string[] = [];
   let allFileSet: ReadonlySet<string> | undefined;
   let indexedPaths: readonly IndexedPath[] = [];
-  
+
   const cacheKey = getWorkspaceFileCacheKey(input.workspaceId, cwd);
   const snapshot = getWorkspaceFileSnapshot(cacheKey);
 
   if (snapshot) {
     perf.increment("cacheHits");
-    allFiles = snapshot.files.filter(f => !isPathExcluded(f));
-    allFileSet = safeExcludePaths.length === 0 ? snapshot.fileSet : new Set(allFiles);
-    indexedPaths = snapshot.indexedPaths.filter(p => !isPathExcluded(p.path));
+    allFiles = snapshot.files.filter((f) => !isPathExcluded(f));
+    allFileSet =
+      safeExcludePaths.length === 0 ? snapshot.fileSet : new Set(allFiles);
+    indexedPaths = snapshot.indexedPaths.filter((p) => !isPathExcluded(p.path));
   } else {
     perf.increment("cacheMisses");
     try {
       perf.increment("subprocessCount");
       const { stdout } = await execFileAsync(
-        "git", ["ls-files", "--cached", "--others", "--exclude-standard"],
-        { cwd, timeout: 8000, maxBuffer: 10 * 1024 * 1024 }
+        "git",
+        ["ls-files", "--cached", "--others", "--exclude-standard"],
+        { cwd, timeout: 8000, maxBuffer: 10 * 1024 * 1024 },
       );
-      const rawFiles = stdout.split("\n")
-        .map(f => f.trim().replace(/\\/g, "/"))
-        .filter(f => f.length > 0);
-        
+      const rawFiles = stdout
+        .split("\n")
+        .map((f) => f.trim().replace(/\\/g, "/"))
+        .filter((f) => f.length > 0);
+
       const newSnapshot = setWorkspaceFileSnapshot(cacheKey, rawFiles);
-      allFiles = newSnapshot.files.filter(f => !isPathExcluded(f));
+      allFiles = newSnapshot.files.filter((f) => !isPathExcluded(f));
       // Filter fileSet by excludePaths for accurate O(1) lookups
-      allFileSet = safeExcludePaths.length === 0 ? newSnapshot.fileSet : new Set(allFiles);
-      indexedPaths = newSnapshot.indexedPaths.filter(p => !isPathExcluded(p.path));
+      allFileSet =
+        safeExcludePaths.length === 0 ? newSnapshot.fileSet : new Set(allFiles);
+      indexedPaths = newSnapshot.indexedPaths.filter(
+        (p) => !isPathExcluded(p.path),
+      );
     } catch {
-      limitations.push("git ls-files unavailable; filename and content matching disabled");
+      limitations.push(
+        "git ls-files unavailable; filename and content matching disabled",
+      );
     }
   }
   pLoadFileList.end();
@@ -257,39 +340,50 @@ export async function buildTaskContext(input: TaskContextInput): Promise<TaskCon
     safeFocusPaths,
     allFiles,
     allFileSet ?? new Set(allFiles),
-    focusWasRequested
+    focusWasRequested,
   );
 
   for (const unresolved of focusScope.unresolved) {
     limitations.push(`Focus path was not found: ${unresolved}`);
   }
 
-  const discoveryFiles = allFiles.filter(file => isInsideFocusScope(file, focusScope));
-  const discoveryIndexedPaths = indexedPaths.filter(indexed => isInsideFocusScope(indexed.path, focusScope));
-
-
+  const discoveryFiles = allFiles.filter((file) =>
+    isInsideFocusScope(file, focusScope),
+  );
+  const discoveryIndexedPaths = indexedPaths.filter((indexed) =>
+    isInsideFocusScope(indexed.path, focusScope),
+  );
 
   // 4. Detect workspace instruction files
   const pPathMatching = perf.startPhase("pathMatching");
-  const applicableInstructions: TaskContextResult["applicableInstructions"] = allFiles
-    .filter(f =>
-      f.endsWith("AGENTS.md") ||
-      f.endsWith("CLAUDE.md") ||
-      f.endsWith(".cursorrules") ||
-      f.includes(".agentic/") ||
-      f.includes(".agents/")
-    )
-    .map(f => ({
-      path: f,
-      scope: (f.includes(".agentic/") || f.includes(".agents/")) ? "workspace" : "global",
-      reason: "Instruction file detected in workspace"
-    }));
+  const applicableInstructions: TaskContextResult["applicableInstructions"] =
+    allFiles
+      .filter(
+        (f) =>
+          f.endsWith("AGENTS.md") ||
+          f.endsWith("CLAUDE.md") ||
+          f.endsWith(".cursorrules") ||
+          f.includes(".agentic/") ||
+          f.includes(".agents/"),
+      )
+      .map((f) => ({
+        path: f,
+        scope:
+          f.includes(".agentic/") || f.includes(".agents/")
+            ? "workspace"
+            : "global",
+        reason: "Instruction file detected in workspace",
+      }));
 
   // Override if caller provided explicit instruction files
   if (input.instructionFiles && input.instructionFiles.length > 0) {
     applicableInstructions.length = 0;
     for (const inst of input.instructionFiles) {
-      applicableInstructions.push({ path: inst, scope: "workspace", reason: "Provided by caller" });
+      applicableInstructions.push({
+        path: inst,
+        scope: "workspace",
+        reason: "Provided by caller",
+      });
     }
   }
 
@@ -308,30 +402,42 @@ export async function buildTaskContext(input: TaskContextInput): Promise<TaskCon
 
   type EvidenceScope = "discovery" | "supporting";
 
-  function addEvidence(path: string, ev: EvidenceEntry, scope: EvidenceScope = "discovery") {
+  function addEvidence(
+    path: string,
+    ev: EvidenceEntry,
+    scope: EvidenceScope = "discovery",
+  ) {
     if (isPathExcluded(path)) return; // respect excludePaths for all additions
-    
+
     if (scope === "discovery" && !isInsideFocusScope(path, focusScope)) {
       return;
     }
 
     if (!candidatesMap.has(path)) candidatesMap.set(path, []);
     const existing = candidatesMap.get(path)!;
-    if (!existing.some(e => e.type === ev.type && e.detail === ev.detail)) {
+    if (!existing.some((e) => e.type === ev.type && e.detail === ev.detail)) {
       existing.push(ev);
     }
   }
 
   // 6. Focus paths (explicitly provided)
   for (const file of focusScope.exactFiles) {
-    addEvidence(file, { type: "focus_path", detail: "Provided directly in focusPaths" }, "discovery");
+    addEvidence(
+      file,
+      { type: "focus_path", detail: "Provided directly in focusPaths" },
+      "discovery",
+    );
   }
 
   // 7. Paths extracted from goal text
   for (const ep of normalized.extractedPaths) {
-    const match = discoveryFiles.find(f => f === ep || f.endsWith(ep));
+    const match = discoveryFiles.find((f) => f === ep || f.endsWith(ep));
     if (match) {
-      addEvidence(match, { type: "extracted_path", detail: "Extracted from goal text" }, "discovery");
+      addEvidence(
+        match,
+        { type: "extracted_path", detail: "Extracted from goal text" },
+        "discovery",
+      );
     }
   }
 
@@ -344,24 +450,44 @@ export async function buildTaskContext(input: TaskContextInput): Promise<TaskCon
 
         // Filename: exact segment match
         if (matchesFilenameSegment(file.nameOnly, kw)) {
-          const type = file.nameOnly === kw ? "filename_exact" : "filename_partial";
-          addEvidence(file.path, { type, detail: `Basename segment matches keyword: ${kw}` });
+          addEvidence(file.path, {
+            type: "filename_exact",
+            detail: `Basename segment matches keyword: ${kw}`,
+          });
+        } else if (file.nameOnly.includes(kw)) {
+          addEvidence(file.path, {
+            type: "filename_partial",
+            detail: `Basename contains keyword: ${kw}`,
+          });
         }
 
         // Route match: index/page/route files whose directory matches the keyword
         const lowerBase = file.base.toLowerCase();
         if (
-          (lowerBase === "page.tsx" || lowerBase === "route.ts" ||
-           lowerBase === "index.ts" || lowerBase === "index.js" ||
-           lowerBase === "page.ts" || lowerBase === "route.tsx") &&
+          (lowerBase === "page.tsx" ||
+            lowerBase === "route.ts" ||
+            lowerBase === "index.ts" ||
+            lowerBase === "index.js" ||
+            lowerBase === "page.ts" ||
+            lowerBase === "route.tsx") &&
           dirMatchesKeyword(file.dir, kw)
         ) {
-          addEvidence(file.path, { type: "route", detail: `Route file in directory matching keyword: ${kw}` });
+          addEvidence(file.path, {
+            type: "route",
+            detail: `Route file in directory matching keyword: ${kw}`,
+          });
         }
 
         // Schema match: basename contains "schema" and dir or name matches keyword
-        if (file.nameOnly.includes("schema") && (matchesFilenameSegment(file.nameOnly, kw) || dirMatchesKeyword(file.dir, kw))) {
-          addEvidence(file.path, { type: "schema", detail: `Schema file matching keyword: ${kw}` });
+        if (
+          file.nameOnly.includes("schema") &&
+          (matchesFilenameSegment(file.nameOnly, kw) ||
+            dirMatchesKeyword(file.dir, kw))
+        ) {
+          addEvidence(file.path, {
+            type: "schema",
+            detail: `Schema file matching keyword: ${kw}`,
+          });
         }
       }
     }
@@ -371,13 +497,16 @@ export async function buildTaskContext(input: TaskContextInput): Promise<TaskCon
   // 9. Content grep — unified single subprocess
   let hasExactFocusPath = false;
   let hasExactExtractedPath = false;
-  
+
   const currentHighCandidates = [];
   for (const [path, evidences] of candidatesMap.entries()) {
-    const types = new Set(evidences.map(e => e.type));
+    const types = new Set(evidences.map((e) => e.type));
     if (types.has("focus_path")) hasExactFocusPath = true;
     if (types.has("extracted_path")) hasExactExtractedPath = true;
-    if (scoreConfidence(evidences) === "high" && isPrimaryEligibleKind(getKind(path))) {
+    if (
+      inferConfidence(evidences) === "high" &&
+      isPrimaryEligibleKind(getKind(path))
+    ) {
       currentHighCandidates.push({ path, evidences });
     }
   }
@@ -391,32 +520,36 @@ export async function buildTaskContext(input: TaskContextInput): Promise<TaskCon
   const directContextSufficient =
     !hasDirectoryFocus &&
     (hasExactFocusPath ||
-    hasExactExtractedPath ||
-    hasUniqueHighConfidenceIndexedCandidate);
+      hasExactExtractedPath ||
+      hasUniqueHighConfidenceIndexedCandidate);
 
   const shouldRunContentSearch =
-    !directContextSufficient &&
-    anchorKeywords.some(kw => kw.length >= 4);
+    !directContextSufficient && anchorKeywords.some((kw) => kw.length >= 4);
 
   if (shouldRunContentSearch) {
     const pContentSearch = perf.startPhase("contentSearch");
-    const grepKeywords = anchorKeywords.slice(0, 5).filter(kw => kw.length >= 4);
-    
+    const grepKeywords = anchorKeywords
+      .slice(0, 5)
+      .filter((kw) => kw.length >= 4);
+
     if (grepKeywords.length > 0) {
       const grepArgs = ["grep", "-i", "-l", "-F"];
       for (const kw of grepKeywords) {
         grepArgs.push("-e", kw);
       }
-      
+
       const hasRootFocus = focusScope.directoryPrefixes.includes("");
       const scopedPathspecs = [
         ...focusScope.exactFiles,
-        ...focusScope.directoryPrefixes.filter(prefix => prefix !== "")
+        ...focusScope.directoryPrefixes.filter((prefix) => prefix !== ""),
       ];
       const hasResolvedFocus = hasRootFocus || scopedPathspecs.length > 0;
 
       if (focusScope.active && !hasRootFocus && scopedPathspecs.length > 0) {
-        grepArgs.push("--", ...scopedPathspecs.map(path => `:(literal)${path}`));
+        grepArgs.push(
+          "--",
+          ...scopedPathspecs.map((path) => `:(literal)${path}`),
+        );
       }
 
       if (focusScope.active && !hasResolvedFocus) {
@@ -424,26 +557,38 @@ export async function buildTaskContext(input: TaskContextInput): Promise<TaskCon
       } else {
         try {
           perf.increment("subprocessCount");
-          const { stdout } = await execFileAsync(
-            "git", grepArgs,
-            { cwd, timeout: 5000, maxBuffer: 10 * 1024 * 1024 }
-          );
-          const grepFiles = stdout.split("\n")
-            .map(f => f.trim().replace(/\\/g, "/"))
+          const { stdout } = await execFileAsync("git", grepArgs, {
+            cwd,
+            timeout: 5000,
+            maxBuffer: 10 * 1024 * 1024,
+          });
+          const grepFiles = stdout
+            .split("\n")
+            .map((f) => f.trim().replace(/\\/g, "/"))
             .filter(Boolean)
-            .filter(file => isInsideFocusScope(file, focusScope));
-            
+            .filter((file) => isInsideFocusScope(file, focusScope));
+
           // Sort by CandidateKind priority before cap — prefer source/test over docs/eval
           const orderedGrepFiles = grepFiles
-            .map(path => ({ path, kind: getKind(path) }))
-            .sort((a, b) => candidateKindPriority(a.kind) - candidateKindPriority(b.kind));
-            
+            .map((path) => ({ path, kind: getKind(path) }))
+            .sort(
+              (a, b) =>
+                candidateKindPriority(a.kind) - candidateKindPriority(b.kind),
+            );
+
           for (const { path } of orderedGrepFiles.slice(0, 20)) {
-            addEvidence(path, { type: "content_match", detail: `Contains matching keywords` }, "discovery");
+            addEvidence(
+              path,
+              { type: "content_match", detail: `Contains matching keywords` },
+              "discovery",
+            );
           }
         } catch (err: any) {
-          if (err?.code !== 1) { // 1 means no match, normal for grep
-            limitations.push(`unified git grep failed: ${err?.message ?? "unknown error"}`);
+          if (err?.code !== 1) {
+            // 1 means no match, normal for grep
+            limitations.push(
+              `unified git grep failed: ${err?.message ?? "unknown error"}`,
+            );
           }
         }
       }
@@ -454,99 +599,172 @@ export async function buildTaskContext(input: TaskContextInput): Promise<TaskCon
   // 10. Test proximity — discover and add as supporting evidence
   const nearbyTestCandidates: TaskContextResult["nearbyTestCandidates"] = [];
   const pTestDiscovery = perf.startPhase("testProximity");
-    // Use a stable snapshot of candidatesMap keys (don't iterate over newly added test entries)
-    const testDiscoverySources = [...candidatesMap.keys()].filter(path => getKind(path) !== "test");
-    for (const path of testDiscoverySources) {
-      const tests = findNearbyTests(path, allFiles, allFileSet);
-      if (tests.length > 0) {
-        addEvidence(path, { type: "test_proximity", detail: `Has nearby tests: ${tests.join(", ")}` }, "supporting");
-        nearbyTestCandidates.push({ sourcePath: path, testPaths: tests });
-        for (const t of tests) {
-          addEvidence(t, { type: "test_proximity", detail: `Is test for: ${path}` }, "supporting");
-        }
+  // Use a stable snapshot of candidatesMap keys (don't iterate over newly added test entries)
+  const testDiscoverySources = [...candidatesMap.keys()].filter(
+    (path) => getKind(path) !== "test",
+  );
+  for (const path of testDiscoverySources) {
+    const tests = findNearbyTests(path, allFiles, allFileSet);
+    if (tests.length > 0) {
+      addEvidence(
+        path,
+        {
+          type: "test_proximity",
+          detail: `Has nearby tests: ${tests.join(", ")}`,
+        },
+        "supporting",
+      );
+      nearbyTestCandidates.push({ sourcePath: path, testPaths: tests });
+      for (const t of tests) {
+        addEvidence(
+          t,
+          { type: "test_proximity", detail: `Is test for: ${path}` },
+          "supporting",
+        );
       }
     }
+  }
   pTestDiscovery.end();
 
   // 11. Initial assignment of confidence & sorting deterministically
-  const confidenceScore: Record<string, number> = { high: 3, medium: 2, low: 1 };
+  const intent = inferGoalIntent(
+    input.goal,
+    normalized.taskTypeSuggestion ?? "auto",
+    Array.from(focusScope.exactFiles),
+  );
 
-  const allCandidates: TaskFileCandidate[] = Array.from(candidatesMap.entries()).map(([path, evidences]) => {
-    const confidence = scoreConfidence(evidences);
+  const assessments: CandidateAssessment[] = Array.from(
+    candidatesMap.entries(),
+  ).map(([path, evidence]) => {
     const kind = getKind(path);
+    const confidence = inferConfidence(evidence);
 
-    // Allow explicit override: focus_path/extracted_path can promote any kind
-    const explicitlyTargeted = evidences.some(e =>
-      e.type === "focus_path" || e.type === "extracted_path"
-    );
-
-    let role: TaskFileRole = "supporting";
-    if (kind === "test") {
-      role = "test"; // always supporting, no matter the confidence
-    } else if (confidence === "high" && (isPrimaryEligibleKind(kind) || explicitlyTargeted)) {
-      role = "primary";
+    // Calcular score determinístico
+    let score = 0;
+    for (const e of evidence) {
+      score += EVIDENCE_WEIGHTS[e.type as keyof typeof EVIDENCE_WEIGHTS] || 0;
     }
-    // Everything else (evaluation, snapshot, generated, documentation)
-    // stays as "supporting" even with high confidence, UNLESS explicitly targeted
+    score -= KIND_PENALTIES[kind] || 0;
 
-    const recommendedReadTool: "read" | "read_adaptive" | "read_many" =
-      confidence === "high" ? "read" :
-      confidence === "medium" ? "read_adaptive" :
-      "read_many";
+    const explicitlyFocused = evidence.some((e) => e.type === "focus_path");
 
-    return { path, role, confidence, evidence: evidences, recommendedReadTool };
+    // Elegibilidade
+    let primaryEligible = isPrimaryEligibleKind(kind) || explicitlyFocused;
+    if (kind === "test") primaryEligible = false;
+    if (intent === "testing" && kind === "test") primaryEligible = true;
+    if (intent === "configuration" && kind === "configuration")
+      primaryEligible = true;
+
+    // autoReadEligible logic
+    let autoReadEligible = true;
+    if (kind === "generated" || isLockFile(path)) {
+      autoReadEligible = false;
+    }
+    if (explicitlyFocused) autoReadEligible = true;
+
+    const eligibilityReasons: string[] = [];
+    if (primaryEligible) eligibilityReasons.push("primary_eligible");
+    if (!autoReadEligible) eligibilityReasons.push("auto_read_blocked");
+
+    return {
+      path,
+      kind,
+      evidence,
+      score,
+      confidence,
+      primaryEligible,
+      autoReadEligible,
+      eligibilityReasons,
+      rejectionReasons: [],
+    };
   });
 
-  allCandidates.sort((a, b) => {
-    const cs = confidenceScore[b.confidence] - confidenceScore[a.confidence];
-    if (cs !== 0) return cs;
-    const es = b.evidence.length - a.evidence.length;
-    if (es !== 0) return es;
+  // Sort candidates
+  assessments.sort((a, b) => {
+    // 1. score
+    if (b.score !== a.score) return b.score - a.score;
+    // 2. kind priority
+    const kpA = candidateKindPriority(a.kind);
+    const kpB = candidateKindPriority(b.kind);
+    if (kpA !== kpB) return kpA - kpB;
+    // 3. strong evidence count
+    const strongA = a.evidence.filter(
+      (e) => EVIDENCE_WEIGHTS[e.type as keyof typeof EVIDENCE_WEIGHTS] >= 35,
+    ).length;
+    const strongB = b.evidence.filter(
+      (e) => EVIDENCE_WEIGHTS[e.type as keyof typeof EVIDENCE_WEIGHTS] >= 35,
+    ).length;
+    if (strongA !== strongB) return strongB - strongA;
+    // 4. path
     return a.path.localeCompare(b.path);
   });
 
-  // Tests go to supporting; primary and non-test high-confidence go to primary
   const primaryFiles: TaskFileCandidate[] = [];
   const supportingFiles: TaskFileCandidate[] = [];
-  for (const c of allCandidates) {
-    if (c.role === "primary") {
-      primaryFiles.push(c);
-    } else {
-      supportingFiles.push(c); // test, supporting, or configuration
-    }
+  for (const a of assessments) {
+    const role: TaskFileRole =
+      a.primaryEligible && a.confidence === "high"
+        ? "primary"
+        : a.kind === "test"
+          ? "test"
+          : "supporting";
+    const recommendedReadTool =
+      a.confidence === "high"
+        ? "read"
+        : a.confidence === "medium"
+          ? "read_adaptive"
+          : "read_many";
+    const selectionReason = a.evidence.map((e) => e.type).join(", ");
+
+    const candidate: TaskFileCandidate = {
+      path: a.path,
+      role,
+      confidence: a.confidence,
+      evidence: a.evidence,
+      recommendedReadTool,
+      selectionReason,
+      autoReadEligible: a.autoReadEligible,
+    };
+
+    if (role === "primary") primaryFiles.push(candidate);
+    else supportingFiles.push(candidate);
   }
 
   // 11.5 Extract code regions for primary files adaptively
   const depthConfig = {
     fast: { maxFiles: 1, maxRegions: 4 },
     balanced: { maxFiles: 2, maxRegions: 6 },
-    deep: { maxFiles: 3, maxRegions: 8 }
+    deep: { maxFiles: 3, maxRegions: 8 },
   };
   const config = depthConfig[effectiveDepth];
   const regionTargets = primaryFiles
-    .filter(c => c.confidence === "high" && isPrimaryEligibleKind(getKind(c.path)))
+    .filter(
+      (c) => c.confidence === "high" && isPrimaryEligibleKind(getKind(c.path)),
+    )
     .slice(0, config.maxFiles);
 
   if (regionTargets.length > 0) {
     const pCodeRegions = perf.startPhase("codeRegions");
     const regionResults = await Promise.all(
-      regionTargets.map(candidate => 
+      regionTargets.map((candidate) =>
         loadAndExtractCodeRegions({
           workspaceRoot: cwd,
           path: candidate.path,
           anchorKeywords,
-          maxRegions: config.maxRegions
-        }).catch(err => {
+          maxRegions: config.maxRegions,
+        }).catch((err) => {
           if (!(err instanceof CodeRegionSkippedError)) {
-            limitations.push(`Failed to extract code regions for ${candidate.path}: ${err instanceof Error ? err.message : String(err)}`);
+            limitations.push(
+              `Failed to extract code regions for ${candidate.path}: ${err instanceof Error ? err.message : String(err)}`,
+            );
           }
           return null;
-        })
-      )
+        }),
+      ),
     );
     for (const result of regionResults) {
       if (!result) continue;
-      const candidate = primaryFiles.find(f => f.path === result.path);
+      const candidate = primaryFiles.find((f) => f.path === result.path);
       if (candidate && result.codeRegions.length > 0) {
         candidate.codeRegions = result.codeRegions;
       }
@@ -560,19 +778,15 @@ export async function buildTaskContext(input: TaskContextInput): Promise<TaskCon
     const pDependencySearch = perf.startPhase("dependencySearch");
     const primaryEligible = primaryFiles
       .slice(0, 3)
-      .map(c => c.path)
-      .filter(p => isPrimaryEligibleKind(getKind(p)));
-    directDependents = await getLimitedSharedDependencies(
-      cwd,
-      primaryEligible
-    );
+      .map((c) => c.path)
+      .filter((p) => isPrimaryEligibleKind(getKind(p)));
+    directDependents = await getLimitedSharedDependencies(cwd, primaryEligible);
     directDependents = directDependents
-      .filter(entry => !isPathExcluded(entry.source))
-      .map(entry => ({
+      .filter((entry) => !isPathExcluded(entry.source))
+      .map((entry) => ({
         ...entry,
-        dependents: entry.dependents.filter(path => !isPathExcluded(path)),
-      }))
-      .filter(entry => entry.dependents.length > 0);
+        dependents: entry.dependents.filter((path) => !isPathExcluded(path)),
+      }));
     pDependencySearch.end();
   }
 
@@ -595,6 +809,20 @@ export async function buildTaskContext(input: TaskContextInput): Promise<TaskCon
     },
     primaryFiles,
     supportingFiles,
+    riskProfile: calculateRiskProfile({
+      taskType: normalized.taskTypeSuggestion ?? "auto",
+      effectiveDepth,
+      focusScope: {
+        active: focusScope.active,
+        exactFiles: [...focusScope.exactFiles],
+        directories: focusScope.directoryPrefixes,
+        matchedFileCount: discoveryFiles.length,
+        unresolved: focusScope.unresolved,
+      },
+      assessments,
+      directDependents,
+      nearbyTestCandidates,
+    }),
     directDependents,
     applicableInstructions,
     nearbyTestCandidates,
@@ -614,7 +842,11 @@ export async function buildTaskContext(input: TaskContextInput): Promise<TaskCon
   result.suggestedNextSteps = buildSuggestedNextSteps(result, anchorKeywords);
 
   // Final budget measurement — includes suggestedNextSteps. If still over, trim and rebuild.
-  const finalResultWithSteps = enforceFinalContextBudget(result, maxTokens, anchorKeywords);
+  const finalResultWithSteps = enforceFinalContextBudget(
+    result,
+    maxTokens,
+    anchorKeywords,
+  );
 
   pBudget.end();
   return finalResultWithSteps;
@@ -631,7 +863,8 @@ function selectNonOverlappingRegions(
   const selected: import("./types.js").CodeRegion[] = [];
   for (const region of regions) {
     const overlaps = selected.some(
-      cur => region.startLine <= cur.endLine && region.endLine >= cur.startLine,
+      (cur) =>
+        region.startLine <= cur.endLine && region.endLine >= cur.startLine,
     );
     if (!overlaps) {
       selected.push(region);
@@ -641,21 +874,39 @@ function selectNonOverlappingRegions(
   return selected;
 }
 
-function buildSuggestedNextSteps(result: TaskContextResult, anchorKeywords: string[]): TaskContextResult["suggestedNextSteps"] {
+function buildSuggestedNextSteps(
+  result: TaskContextResult,
+  anchorKeywords: string[],
+): TaskContextResult["suggestedNextSteps"] {
   const steps: TaskContextResult["suggestedNextSteps"] = [];
 
-  if (result.primaryFiles.length > 0) {
+  const readablePrimaryFiles = result.primaryFiles.filter(
+    (c) => c.autoReadEligible !== false,
+  );
+
+  if (readablePrimaryFiles.length > 0) {
     const MAX_TOTAL_ITEMS = 5;
     const MAX_REGIONS_PER_FILE = 2;
-    const allItems: Array<{ path: string; startLine?: number; endLine?: number }> = [];
+    const allItems: Array<{
+      path: string;
+      startLine?: number;
+      endLine?: number;
+    }> = [];
 
-    for (const c of result.primaryFiles.slice(0, MAX_TOTAL_ITEMS)) {
+    for (const c of readablePrimaryFiles.slice(0, MAX_TOTAL_ITEMS)) {
       if (allItems.length >= MAX_TOTAL_ITEMS) break;
       if (c.codeRegions && c.codeRegions.length > 0) {
-        const nonOverlapping = selectNonOverlappingRegions(c.codeRegions, MAX_REGIONS_PER_FILE);
+        const nonOverlapping = selectNonOverlappingRegions(
+          c.codeRegions,
+          MAX_REGIONS_PER_FILE,
+        );
         for (const r of nonOverlapping) {
           if (allItems.length >= MAX_TOTAL_ITEMS) break;
-          allItems.push({ path: c.path, startLine: r.startLine, endLine: r.endLine });
+          allItems.push({
+            path: c.path,
+            startLine: r.startLine,
+            endLine: r.endLine,
+          });
         }
       } else {
         allItems.push({ path: c.path });
@@ -665,20 +916,28 @@ function buildSuggestedNextSteps(result: TaskContextResult, anchorKeywords: stri
     steps.push({
       tool: "read_many",
       arguments: { items: allItems },
-      reason: "Read the strongest implementation candidates and their relevant regions."
-    });
-  } else if (result.supportingFiles.length > 0) {
-    steps.push({
-      tool: "read_adaptive",
-      arguments: { path: result.supportingFiles[0].path },
-      reason: "No high-confidence primary file was found; inspect the strongest supporting candidate."
+      reason:
+        "Read the strongest implementation candidates and their relevant regions.",
     });
   } else {
-    steps.push({
-      tool: "grep",
-      arguments: { pattern: anchorKeywords.slice(0, 3).join("|") },
-      reason: "No reliable file candidate was found; search for the normalized goal terms."
-    });
+    const fallbackCandidates = result.supportingFiles.filter(
+      (c) => c.autoReadEligible !== false,
+    );
+    if (fallbackCandidates.length > 0) {
+      steps.push({
+        tool: "read_adaptive",
+        arguments: { path: fallbackCandidates[0].path },
+        reason:
+          "No high-confidence primary file was found; inspect the strongest supporting candidate.",
+      });
+    } else {
+      steps.push({
+        tool: "grep",
+        arguments: { pattern: anchorKeywords.slice(0, 3).join("|") },
+        reason:
+          "No reliable file candidate was found; search for the normalized goal terms.",
+      });
+    }
   }
 
   return steps;
@@ -686,14 +945,18 @@ function buildSuggestedNextSteps(result: TaskContextResult, anchorKeywords: stri
 
 // ─── Budget enforcement by real JSON size ─────────────────────────────
 
-function enforceTaskContextBudget(result: TaskContextResult, maxTokens: number): TaskContextResult {
+function enforceTaskContextBudget(
+  result: TaskContextResult,
+  maxTokens: number,
+): TaskContextResult {
   const measureTokens = () => Math.ceil(JSON.stringify(result).length / 4);
   let currentTokens = measureTokens();
 
   let omittedCandidates = 0;
   let truncated = false;
 
-  const estimateCandidateTokens = (c: any) => Math.ceil(JSON.stringify(c).length / 4);
+  const estimateCandidateTokens = (c: any) =>
+    Math.ceil(JSON.stringify(c).length / 4);
 
   let omittedRegions = 0;
 
@@ -716,7 +979,7 @@ function enforceTaskContextBudget(result: TaskContextResult, maxTokens: number):
           const oldFileTokens = estimateCandidateTokens(file);
           regions.pop();
           const newFileTokens = estimateCandidateTokens(file);
-          currentTokens -= (oldFileTokens - newFileTokens);
+          currentTokens -= oldFileTokens - newFileTokens;
           omittedRegions++;
           truncated = true;
         }
@@ -737,24 +1000,24 @@ function enforceTaskContextBudget(result: TaskContextResult, maxTokens: number):
 
   if (truncated) {
     result.limitations.push(
-      `Budget: omitted ${omittedCandidates} candidate(s) to stay within ${maxTokens} tokens.`
+      `Budget: omitted ${omittedCandidates} candidate(s) to stay within ${maxTokens} tokens.`,
     );
 
     // Clean up references to truncated files
     const retainedPaths = new Set([
-      ...result.primaryFiles.map(file => file.path),
-      ...result.supportingFiles.map(file => file.path),
+      ...result.primaryFiles.map((file) => file.path),
+      ...result.supportingFiles.map((file) => file.path),
     ]);
 
-    result.directDependents = result.directDependents.filter(item =>
-      retainedPaths.has(item.source)
+    result.directDependents = result.directDependents.filter((item) =>
+      retainedPaths.has(item.source),
     );
 
     result.nearbyTestCandidates = result.nearbyTestCandidates
-      .filter(item => retainedPaths.has(item.sourcePath))
-      .map(item => ({
+      .filter((item) => retainedPaths.has(item.sourcePath))
+      .map((item) => ({
         ...item,
-        testPaths: item.testPaths.filter(path => retainedPaths.has(path)),
+        testPaths: item.testPaths.filter((path) => retainedPaths.has(path)),
       }));
   }
 
@@ -773,19 +1036,19 @@ function enforceTaskContextBudget(result: TaskContextResult, maxTokens: number):
 
 function cleanDerivedStructures(result: TaskContextResult): void {
   const retainedPaths = new Set([
-    ...result.primaryFiles.map(file => file.path),
-    ...result.supportingFiles.map(file => file.path),
+    ...result.primaryFiles.map((file) => file.path),
+    ...result.supportingFiles.map((file) => file.path),
   ]);
 
-  result.directDependents = result.directDependents.filter(item =>
-    retainedPaths.has(item.source)
+  result.directDependents = result.directDependents.filter((item) =>
+    retainedPaths.has(item.source),
   );
 
   result.nearbyTestCandidates = result.nearbyTestCandidates
-    .filter(item => retainedPaths.has(item.sourcePath))
-    .map(item => ({
+    .filter((item) => retainedPaths.has(item.sourcePath))
+    .map((item) => ({
       ...item,
-      testPaths: item.testPaths.filter(path => retainedPaths.has(path)),
+      testPaths: item.testPaths.filter((path) => retainedPaths.has(path)),
     }));
 }
 
@@ -794,11 +1057,9 @@ function enforceFinalContextBudget(
   maxTokens: number,
   anchorKeywords: string[],
 ): TaskContextResult {
-  const measureTokens = () =>
-    Math.ceil(JSON.stringify(result).length / 4);
+  const measureTokens = () => Math.ceil(JSON.stringify(result).length / 4);
 
-  const initialOmitted =
-    result.budget.omittedCandidates;
+  const initialOmitted = result.budget.omittedCandidates;
 
   let omittedCandidates = initialOmitted;
   let exactTokens = measureTokens();
@@ -806,7 +1067,7 @@ function enforceFinalContextBudget(
 
   // Helper: true if any primary file still has codeRegions that can be trimmed
   const hasCodeRegions = () =>
-    result.primaryFiles.some(f => (f.codeRegions?.length ?? 0) > 0);
+    result.primaryFiles.some((f) => (f.codeRegions?.length ?? 0) > 0);
 
   // Helper: remove the lowest-priority region across all primary files
   const removeLowestPriorityRegion = (): boolean => {
@@ -814,7 +1075,8 @@ function enforceFinalContextBudget(
       const file = result.primaryFiles[i];
       if (file.codeRegions && file.codeRegions.length > 0) {
         file.codeRegions.pop();
-        if (result.budget.omittedRegions === undefined) result.budget.omittedRegions = 0;
+        if (result.budget.omittedRegions === undefined)
+          result.budget.omittedRegions = 0;
         result.budget.omittedRegions++;
         if (file.codeRegions.length === 0) delete file.codeRegions;
         return true;
@@ -825,11 +1087,9 @@ function enforceFinalContextBudget(
 
   while (
     exactTokens > maxTokens &&
-    (
-      hasCodeRegions() ||
+    (hasCodeRegions() ||
       result.supportingFiles.length > 0 ||
-      result.primaryFiles.length > 1
-    )
+      result.primaryFiles.length > 1)
   ) {
     if (!finalLimitationAdded) {
       result.limitations.push(
@@ -856,11 +1116,7 @@ function enforceFinalContextBudget(
 
     cleanDerivedStructures(result);
 
-    result.suggestedNextSteps =
-      buildSuggestedNextSteps(
-        result,
-        anchorKeywords,
-      );
+    result.suggestedNextSteps = buildSuggestedNextSteps(result, anchorKeywords);
 
     exactTokens = measureTokens();
   }
@@ -904,9 +1160,10 @@ export async function taskContextTool(
     excludePaths?: string[];
     depth?: TaskContextDepth;
   },
-  perf?: PerformanceRecorder
+  perf?: PerformanceRecorder,
 ): Promise<ToolResponse> {
-  const resolvedMaxTokens = input.maxTokens ?? TASK_CONTEXT_BUDGET.defaultTokens;
+  const resolvedMaxTokens =
+    input.maxTokens ?? TASK_CONTEXT_BUDGET.defaultTokens;
 
   const result = await buildTaskContext({
     workspaceId: input.workspaceId ?? cwd,
@@ -918,7 +1175,7 @@ export async function taskContextTool(
     excludePaths: input.excludePaths,
     depth: input.depth,
     maxTokens: resolvedMaxTokens,
-    perf
+    perf,
   });
 
   return {

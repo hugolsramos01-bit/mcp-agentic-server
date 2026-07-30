@@ -11,10 +11,31 @@ export interface IndexedPath {
 
 const EVAL_DIR_PATTERNS = /(?:^|[/\\])(?:eval|evals|test-cases|fixtures)(?:[/\\]|$)/i;
 const SNAPSHOT_EXT_PATTERN = /\.snap\.(?:ts|tsx|js|jsx|json)$/i;
-const GENERATED_FILES = new Set([
-  "package-lock.json", "yarn.lock", "pnpm-lock.yaml", "bun.lockb",
-  ".terraform.lock.hcl", "Gemfile.lock",
+
+const GENERATED_REPORT_FILES = /(?:^|[/\\])(?:eslint[_-]?(?:out|output|report)|lint[_-]?(?:out|output|report)|coverage-final)\.json$/i;
+const GENERATED_DIRECTORIES = /(?:^|[/\\])(?:coverage|reports|artifacts|\.nyc_output)(?:[/\\]|$)/i;
+const GENERATED_EXTENSIONS = /\.(?:log|lcov)$/i;
+
+const LOCK_FILES = new Set([
+  "package-lock.json",
+  "yarn.lock",
+  "pnpm-lock.yaml",
+  "bun.lock",
+  "bun.lockb",
+  ".terraform.lock.hcl",
+  "gemfile.lock",
 ]);
+
+export function isLockFile(path: string): boolean {
+  const baseFile = path
+    .replace(/\\/g, "/")
+    .split("/")
+    .pop()
+    ?.toLowerCase() ?? "";
+
+  return LOCK_FILES.has(baseFile);
+}
+
 const CONFIG_EXT_PATTERNS = /\.(?:config\.(?:ts|js|json|mjs|cjs)|d\.ts)$/i;
 const DOC_DIR_PATTERNS = /(?:^|[/\\])docs?(?:[/\\]|$)/i;
 const BUILD_DIR_PATTERNS = /(?:^|[/\\])(?:dist|build|out|\.next|\.nuxt)[/\\]/i;
@@ -22,12 +43,24 @@ const BUILD_DIR_PATTERNS = /(?:^|[/\\])(?:dist|build|out|\.next|\.nuxt)[/\\]/i;
 /** Root-level documentation files (README, LICENSE, etc.) */
 const ROOT_DOC_FILES = /^(?:readme|security|contributing|code_of_conduct|license|changelog)(?:\..+)?$/i;
 
+const ROOT_CONFIGURATION_FILES = new Set([
+  "package.json",
+  "server.json",
+]);
+
 export function classifyCandidateKind(path: string): CandidateKind {
   const lower = path.toLowerCase().replace(/\\/g, "/");
 
-  // Generated build artifacts
+  // Generated build artifacts and reports
   if (BUILD_DIR_PATTERNS.test(lower)) return "generated";
-  if (GENERATED_FILES.has(lower.split("/").pop() ?? "")) return "generated";
+  if (GENERATED_DIRECTORIES.test(lower)) return "generated";
+  if (GENERATED_REPORT_FILES.test(lower)) return "generated";
+  if (GENERATED_EXTENSIONS.test(lower)) return "generated";
+  
+  // Lockfiles (treated as configuration but will be autoReadEligible: false later)
+  const baseFile = lower.split("/").pop() ?? "";
+  if (isLockFile(path)) return "configuration";
+  if (ROOT_CONFIGURATION_FILES.has(baseFile)) return "configuration";
 
   // Evaluation test inputs/outputs
   if (EVAL_DIR_PATTERNS.test(lower)) return "evaluation";
@@ -37,21 +70,19 @@ export function classifyCandidateKind(path: string): CandidateKind {
 
   // Documentation
   if (DOC_DIR_PATTERNS.test(lower)) return "documentation";
-  const baseFile = lower.split("/").pop() ?? "";
   if (ROOT_DOC_FILES.test(baseFile)) return "documentation";
 
   // GitHub workflows
   if (lower.startsWith(".github/workflows/")) return "configuration";
 
   // Test files
-  const base = lower.split("/").pop() ?? "";
-  if (base.includes(".test.") || base.includes(".spec.") || lower.includes("/__tests__/")) return "test";
+  if (baseFile.includes(".test.") || baseFile.includes(".spec.") || lower.includes("/__tests__/")) return "test";
 
   // Configuration
   if (CONFIG_EXT_PATTERNS.test(lower)) return "configuration";
-  if (base.startsWith("tsconfig")) return "configuration";
-  if (base.startsWith("eslint")) return "configuration";
-  if (base.startsWith(".env")) return "configuration";
+  if (baseFile.startsWith("tsconfig")) return "configuration";
+  if (baseFile.startsWith("eslint")) return "configuration";
+  if (baseFile.startsWith(".env")) return "configuration";
   if (lower.endsWith(".d.ts")) return "configuration";
 
   // .github/ and perf/ without more specific pattern

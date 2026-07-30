@@ -5,6 +5,28 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.4.0] - 2026-07-30
+
+### Added
+- Deterministic candidate hygiene and candidate eligibility metadata.
+- Pre-budget RiskProfile with risk level, score, confidence, factors,
+  dependency coverage and estimated blast radius.
+- Risk-adaptive VerificationPlan for suggest_checks.
+- Verification stages: initial, after_initial_success and before_release.
+- Support for actual changed paths and goal-based discovery planning.
+- Robust Git porcelain parsing for staged, unstaged, untracked and renamed files.
+
+### Changed
+- suggest_checks now returns deterministic advisory verification plans.
+- Risk and verification policies account for sensitive configuration,
+  fan-out, test proximity and analysis confidence.
+- Workspace-scoped legacy verification remains available during the
+  compatibility transition.
+
+### Deprecated
+- suggest_checks paths, scope and level legacy options.
+  Use changedPaths, goal, taskType and focusPaths.
+
 ## [1.3.1] - 2026-07-29
 
 ### Fixed

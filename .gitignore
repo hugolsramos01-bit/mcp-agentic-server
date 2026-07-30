@@ -3,6 +3,7 @@ dist/
 releases/
 .env
 *.log
+*.tgz
 .vscode/
 
 perf/results/

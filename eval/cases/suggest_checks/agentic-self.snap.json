@@ -1,202 +1,83 @@
 {
-  "selectionMode": "workspace",
   "packageManager": "npm",
-  "pipeline": [
-    {
-      "tier": "static_analysis",
-      "label": "Static Analysis",
-      "checks": [
-        {
-          "script": "typecheck",
-          "command": "npm run typecheck",
-          "tier": "static_analysis",
-          "reason": "Valida tipos estatisticamente sem gerar artefatos",
-          "confidence": "high",
-          "mutatesWorkspace": false,
-          "estimatedCost": "low"
-        }
-      ]
-    },
-    {
-      "tier": "general_tests",
-      "label": "Test Suite",
-      "checks": [
-        {
-          "script": "test",
-          "command": "npm test",
-          "tier": "general_tests",
-          "reason": "Executa a suíte geral declarada pelo projeto",
-          "confidence": "medium",
-          "mutatesWorkspace": false,
-          "estimatedCost": "medium"
-        }
-      ]
-    },
-    {
-      "tier": "build",
-      "label": "Build",
-      "checks": [
-        {
-          "script": "build",
-          "command": "npm run build",
-          "tier": "build",
-          "reason": "Garante compilação e criação dos artefatos",
-          "confidence": "high",
-          "mutatesWorkspace": false,
-          "estimatedCost": "high"
-        },
-        {
-          "script": "build:app",
-          "command": "npm run build:app",
-          "tier": "build",
-          "reason": "Garante compilação e criação dos artefatos",
-          "confidence": "high",
-          "mutatesWorkspace": false,
-          "estimatedCost": "high"
-        }
-      ]
-    },
-    {
-      "tier": "smoke_tests",
-      "label": "Smoke Tests",
-      "checks": [
-        {
-          "script": "smoke:package",
-          "command": "npm run smoke:package",
-          "tier": "smoke_tests",
-          "reason": "Verificação rápida de inicialização ou pacote gerado",
-          "confidence": "high",
-          "mutatesWorkspace": false,
-          "estimatedCost": "low"
-        }
-      ]
-    },
-    {
-      "tier": "e2e_tests",
-      "label": "E2E Tests",
-      "checks": [
-        {
-          "script": "test:http",
-          "command": "npm run test:http",
-          "tier": "e2e_tests",
-          "reason": "Validação fim a fim ou interface primária do sistema",
-          "confidence": "medium",
-          "mutatesWorkspace": false,
-          "estimatedCost": "high"
-        }
-      ]
-    }
-  ],
-  "recommendedOrder": [
-    "typecheck",
-    "test",
-    "build",
-    "build:app",
-    "smoke:package",
-    "test:http"
-  ],
-  "unclassified": [
-    {
-      "script": "bench:agent",
-      "command": "npm run bench:agent",
-      "tier": "other",
-      "reason": "Classificação pendente",
-      "confidence": "low",
-      "mutatesWorkspace": false,
-      "estimatedCost": "medium"
-    },
-    {
-      "script": "bench:regions",
-      "command": "npm run bench:regions",
-      "tier": "other",
-      "reason": "Classificação pendente",
-      "confidence": "low",
-      "mutatesWorkspace": false,
-      "estimatedCost": "medium"
-    },
-    {
-      "script": "bench:server",
-      "command": "npm run bench:server",
-      "tier": "other",
-      "reason": "Classificação pendente",
-      "confidence": "low",
-      "mutatesWorkspace": false,
-      "estimatedCost": "medium"
-    },
-    {
-      "script": "bench:tools",
-      "command": "npm run bench:tools",
-      "tier": "other",
-      "reason": "Classificação pendente",
-      "confidence": "low",
-      "mutatesWorkspace": false,
-      "estimatedCost": "medium"
-    },
-    {
-      "script": "clean",
-      "command": "npm run clean",
-      "tier": "other",
-      "reason": "Classificação pendente",
-      "confidence": "low",
-      "mutatesWorkspace": false,
-      "estimatedCost": "medium"
-    },
-    {
-      "script": "dev",
-      "command": "npm run dev",
-      "tier": "other",
-      "reason": "Classificação pendente",
-      "confidence": "low",
-      "mutatesWorkspace": false,
-      "estimatedCost": "medium"
-    },
-    {
-      "script": "eval",
-      "command": "npm run eval",
-      "tier": "other",
-      "reason": "Classificação pendente",
-      "confidence": "low",
-      "mutatesWorkspace": false,
-      "estimatedCost": "medium"
-    },
-    {
-      "script": "eval:update",
-      "command": "npm run eval:update",
-      "tier": "other",
-      "reason": "Classificação pendente",
-      "confidence": "low",
-      "mutatesWorkspace": false,
-      "estimatedCost": "medium"
-    },
-    {
-      "script": "postinstall",
-      "command": "npm run postinstall",
-      "tier": "other",
-      "reason": "Classificação pendente",
-      "confidence": "low",
-      "mutatesWorkspace": false,
-      "estimatedCost": "medium"
-    },
-    {
-      "script": "start",
-      "command": "npm start",
-      "tier": "other",
-      "reason": "Classificação pendente",
-      "confidence": "low",
-      "mutatesWorkspace": false,
-      "estimatedCost": "medium"
-    },
-    {
-      "script": "test:runtime",
-      "command": "npm run test:runtime",
-      "tier": "other",
-      "reason": "Classificação pendente",
-      "confidence": "low",
-      "mutatesWorkspace": false,
-      "estimatedCost": "medium"
-    }
-  ],
-  "limitations": [
-    "A classificação usa nomes e comandos dos scripts; ela ainda não considera os arquivos alterados"
-  ]
+  "plan": {
+    "version": 1,
+    "mode": "advisory",
+    "basis": "discovery",
+    "riskLevel": "medium",
+    "riskConfidence": "low",
+    "policyLevel": "medium",
+    "recommendations": [
+      {
+        "script": "typecheck",
+        "command": "npm run typecheck",
+        "tier": "static_analysis",
+        "stage": "initial",
+        "priority": "strongly_recommended",
+        "reason": "Legacy workspace pipeline check",
+        "riskFactors": [],
+        "estimatedCost": "low",
+        "confidence": "high"
+      },
+      {
+        "script": "test",
+        "command": "npm test",
+        "tier": "general_tests",
+        "stage": "initial",
+        "priority": "strongly_recommended",
+        "reason": "Legacy workspace pipeline check",
+        "riskFactors": [],
+        "estimatedCost": "medium",
+        "confidence": "medium"
+      },
+      {
+        "script": "build",
+        "command": "npm run build",
+        "tier": "build",
+        "stage": "initial",
+        "priority": "strongly_recommended",
+        "reason": "Legacy workspace pipeline check",
+        "riskFactors": [],
+        "estimatedCost": "high",
+        "confidence": "high"
+      },
+      {
+        "script": "build:app",
+        "command": "npm run build:app",
+        "tier": "build",
+        "stage": "initial",
+        "priority": "strongly_recommended",
+        "reason": "Legacy workspace pipeline check",
+        "riskFactors": [],
+        "estimatedCost": "high",
+        "confidence": "high"
+      },
+      {
+        "script": "smoke:package",
+        "command": "npm run smoke:package",
+        "tier": "smoke_tests",
+        "stage": "before_release",
+        "priority": "strongly_recommended",
+        "reason": "Legacy workspace pipeline check",
+        "riskFactors": [],
+        "estimatedCost": "low",
+        "confidence": "high"
+      },
+      {
+        "script": "test:http",
+        "command": "npm run test:http",
+        "tier": "e2e_tests",
+        "stage": "initial",
+        "priority": "strongly_recommended",
+        "reason": "Legacy workspace pipeline check",
+        "riskFactors": [],
+        "estimatedCost": "high",
+        "confidence": "medium"
+      }
+    ],
+    "limitations": [
+      "Legacy 'scope: workspace' used. Bypassing risk-adaptive planner and returning all safe checks.",
+      "The legacy 'level' and 'scope' options are deprecated."
+    ]
+  }
 }

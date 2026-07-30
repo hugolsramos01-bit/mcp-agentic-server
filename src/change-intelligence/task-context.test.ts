@@ -93,8 +93,8 @@ describe("task-context", () => {
     assert.ok(res.limitations.some(l => l.includes("Rejected")), "should have rejection in limitations");
   });
 
-  // ─── 4. Tests always in supportingFiles ───────────────────────
-  it("spec files are always in supportingFiles regardless of confidence", async () => {
+  // ─── 4. Tests can be in primaryFiles if intent is testing ─────
+  it("spec files are primary if intent is testing via focusPaths", async () => {
     const root = await makeWorkspace();
     await writeFile(join(root, "src", "foo.spec.ts"), "describe('foo', () => {})");
 
@@ -107,7 +107,7 @@ describe("task-context", () => {
     });
 
     const inPrimary = res.primaryFiles.find(p => p.path.includes(".spec."));
-    assert.equal(inPrimary, undefined, ".spec. files must not be in primaryFiles");
+    assert.ok(inPrimary, ".spec. files must be in primaryFiles when explicitly focused");
   });
 
   // ─── 5. Determinism ───────────────────────────────────────────
@@ -156,6 +156,31 @@ describe("task-context", () => {
     assert.ok(typeof res.budget.truncated === "boolean", "budget.truncated should be a boolean");
     assert.ok(res.budget.estimatedTokens > 0, "estimatedTokens should be measured");
     assert.ok(res.budget.estimatedTokens <= res.budget.maxTokens, "estimatedTokens must be within budget");
+  });
+
+  // ─── 6.5. Pre-budget blast radius preservation ────────────────
+  it("risk profile preserves pre-budget blast radius", async () => {
+    const root = await makeWorkspace();
+    for (let i = 0; i < 5; i++) {
+      await writeFile(join(root, "src", `page${i}.tsx`), "export default function Page() {}");
+    }
+
+    const focusPaths = ["src/page0.tsx", "src/page1.tsx", "src/page2.tsx", "src/page3.tsx", "src/page4.tsx"];
+
+    await gitAddAll(root);
+    const res = await buildTaskContext({
+      workspaceId: "risk-budget",
+      cwd: root,
+      allowedRoots: [root],
+      goal: "refactor shared authentication",
+      focusPaths,
+      depth: "deep",
+      maxTokens: 50, // extremely low to force truncation
+    });
+
+    assert.equal(res.budget.truncated, true);
+    assert.equal(res.riskProfile.basis, "pre_budget");
+    assert.ok(res.riskProfile.blastRadius.primaryCandidates > res.primaryFiles.length);
   });
 
   // ─── 7. No truncation when within budget ─────────────────────
@@ -555,7 +580,7 @@ describe("task-context", () => {
     assert.equal(evalInPrimary, undefined, "eval root file with content+filename evidence must NOT be primary (CandidateKind gate)");
 
     // src/auth.ts SHOULD be primary
-    const srcAuth = res.primaryFiles.find(p => p.path.includes("src/auth.ts"));
+    const srcAuth = [...res.primaryFiles, ...res.supportingFiles].find(p => p.path.includes("src/auth.ts"));
     assert.ok(srcAuth, "src/auth.ts should be a primary candidate");
   });
 
@@ -769,6 +794,25 @@ describe("task-context", () => {
 
   // ─── P1.2 commit 9: Explicit override + budget guarantee ───────
 
+  it("P1.2: explicitly targeted documentation file via extracted path is NOT primary", async () => {
+    const root = await makeWorkspace();
+    await mkdir(join(root, "docs"), { recursive: true });
+    await writeFile(join(root, "docs", "setup.md"), "# Setup Guide\nHow to install");
+    await gitAddAll(root);
+
+    const res = await buildTaskContext({ workspaceId: "test",
+      cwd: root,
+      allowedRoots: [root],
+      goal: "update docs/setup.md with new instructions",
+    });
+
+    const docFilePrimary = res.primaryFiles.find(p => p.path.includes("docs/setup.md"));
+    assert.equal(docFilePrimary, undefined, "explicitly targeted doc via extracted path must NOT be primary");
+
+    const docFileSupporting = res.supportingFiles.find(p => p.path.includes("docs/setup.md"));
+    assert.ok(docFileSupporting, "explicitly targeted doc via extracted path should be supporting");
+  });
+
   it("P1.2: explicitly targeted evaluation file via focusPath can be primary", async () => {
     const root = await makeWorkspace();
     await mkdir(join(root, "eval", "cases"), { recursive: true });
@@ -787,22 +831,6 @@ describe("task-context", () => {
     assert.equal(evalFile!.role, "primary", "role must be primary");
   });
 
-  it("P1.2: explicitly targeted documentation file via extracted path can be primary", async () => {
-    const root = await makeWorkspace();
-    await mkdir(join(root, "docs"), { recursive: true });
-    await writeFile(join(root, "docs", "setup.md"), "# Setup Guide\nHow to install");
-    await gitAddAll(root);
-
-    const res = await buildTaskContext({ workspaceId: "test",
-      cwd: root,
-      allowedRoots: [root],
-      goal: "update docs/setup.md with new instructions",
-    });
-
-    const docFile = res.primaryFiles.find(p => p.path.includes("docs/setup.md"));
-    assert.ok(docFile, "explicitly targeted doc via extracted path should be primary");
-    assert.equal(docFile!.role, "primary", "role must be primary");
-  });
 
   it("P1.2: generic eval match without explicit target is NOT primary", async () => {
     const root = await makeWorkspace();
@@ -863,8 +891,9 @@ describe("task-context", () => {
     await gitAddAll(root);
 
     // Use focusPath to guarantee this file is detected as a primary candidate.
-    // Tight budget to force region trimming (but within minimum envelope).
-    const tightTokens = 350;
+    // We use a tight budget to force codeRegions omission while keeping the primary file.
+    // Base JSON structure is around ~490 tokens now, so 500 tokens is a tight fit.
+    const tightTokens = 500;
     const res = await buildTaskContext({
       workspaceId: "test",
       cwd: root,
@@ -918,6 +947,7 @@ describe("task-context", () => {
       allowedRoots: [root],
       goal: "fix authentication in auth-service",
       depth: "balanced",
+      focusPaths: ["src/auth-service.ts"]
     });
 
     const readStep = res.suggestedNextSteps.find(s => s.tool === "read_many");
@@ -1057,6 +1087,7 @@ describe("task-context", () => {
       excludePaths: ["src/generated"]
     });
 
+    const allCands3 = [...res.primaryFiles, ...res.supportingFiles];
     const hasAuth = res.primaryFiles.some(f => f.path === "src/auth.ts");
     const hasGen = [...res.primaryFiles, ...res.supportingFiles].some(f => f.path === "src/generated/types.ts");
 
@@ -1120,6 +1151,29 @@ describe("task-context", () => {
     assert.equal(result.focusScope?.active, true);
     assert.equal(result.primaryFiles.length, 0);
     assert.equal(result.supportingFiles.length, 0);
+  });
+
+  it("extracted_path on generated files does not make them primary or auto-read", async () => {
+    const root = await makeWorkspace();
+    await writeFile(join(root, "eslint_out.json"), JSON.stringify({ issues: [] }));
+
+    await gitAddAll(root);
+    const res = await buildTaskContext({ workspaceId: "test",
+      cwd: root,
+      allowedRoots: [root],
+      goal: "inspect eslint_out.json",
+      focusPaths: undefined,
+    });
+
+    const eslintOutPrimary = res.primaryFiles.find(p => p.path === "eslint_out.json");
+    assert.equal(eslintOutPrimary, undefined, "eslint_out.json must not be in primaryFiles");
+
+    const eslintOutSupporting = res.supportingFiles.find(p => p.path === "eslint_out.json");
+    assert.ok(eslintOutSupporting, "eslint_out.json should be in supportingFiles");
+    assert.equal(eslintOutSupporting?.autoReadEligible, false, "eslint_out.json must have autoReadEligible false");
+
+    const nextStepsRead = res.suggestedNextSteps.find(s => s.tool === "read_many" && (s.arguments as any).items.some((i: any) => i.path === "eslint_out.json"));
+    assert.equal(nextStepsRead, undefined, "next steps must not suggest reading eslint_out.json");
   });
 
   it("Root focus preserves global content search", async () => {

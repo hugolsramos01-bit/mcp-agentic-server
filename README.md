@@ -170,6 +170,29 @@ The tool surface depends on the `AGENTIC_TOOL_MODE` setting.
 | `tournament_*` | Autonomous evaluation and judgment of changes. |
 | `risk_assess_command` | Preview policy assessment before bash. |
 | `changed_files_summary` | Fast Git status and diff abstraction. |
+| `task_context` | Computes a `RiskProfile` (risk level, score, blast radius) from focused paths. |
+| `suggest_checks` | Advisory planner returning a deterministic `VerificationPlan`. |
+
+### Verification & Risk (New in 1.4.0)
+The risk and verification pipeline enforces strict, deterministic planning.
+* **`task_context`** now produces a `RiskProfile` accounting for sensitive configuration, fan-out, test proximity, and analysis confidence.
+* **`suggest_checks`** returns a `VerificationPlan` and is **advisory only** (commands are not executed). Mutating checks and non-existent scripts are excluded. Low confidence can elevate `policyLevel` without altering the intrinsic `riskLevel`.
+
+**Supported Inputs:**
+```typescript
+{
+  workspaceId: string;
+  changedPaths?: string[]; // Actual paths changed
+  goal?: string;           // Optional goal for discovery
+  taskType?: "auto" | "bug_fix" | "feature" | "refactor" | "security_review" | "migration" | "frontend" | "release";
+  focusPaths?: string[];   // Specific files to focus on
+
+  // Legacy compatibility transition (deprecated)
+  paths?: string[];
+  scope?: "changed" | "workspace";
+  level?: "minimal" | "recommended" | "full";
+}
+```
 
 Deprecated compatibility aliases are hidden by default and never appear in the model's standard workflow. Existing clients can temporarily opt in with `AGENTIC_LEGACY_ALIASES=1`; they will be removed in the next major release. New clients must use the canonical names above: `edit_dry_run`, `next_route_map`, `payload_schema_map`, `changed_files_summary`, and `project_bootstrap`.
 
