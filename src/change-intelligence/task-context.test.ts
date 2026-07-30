@@ -891,8 +891,9 @@ describe("task-context", () => {
     await gitAddAll(root);
 
     // Use focusPath to guarantee this file is detected as a primary candidate.
-    // Tight budget to force region trimming (but within minimum envelope).
-    const tightTokens = 450;
+    // We use a tight budget to force codeRegions omission while keeping the primary file.
+    // Base JSON structure is around ~490 tokens now, so 500 tokens is a tight fit.
+    const tightTokens = 500;
     const res = await buildTaskContext({
       workspaceId: "test",
       cwd: root,

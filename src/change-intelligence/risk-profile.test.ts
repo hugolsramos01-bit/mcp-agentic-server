@@ -75,7 +75,7 @@ describe("calculateRiskProfile", () => {
       focusScope: mockFocus,
       assessments: [mockAssessment("src/app.ts")],
       directDependents: [
-        { source: "src/app.ts", dependents: Array.from({ length: 11 }, (_, i) => `dep${i}.ts`), confidence: "high", limitations: [] }
+        { source: "src/app.ts", dependents: Array.from({ length: 11 }, (_, i) => `dep${i}.ts`), totalDependents: 11, truncated: true, analysisStatus: "available", confidence: "high", limitations: [] }
       ],
       nearbyTestCandidates: [ { sourcePath: "src/app.ts", testPaths: ["src/app.test.ts"] } ],
     };
@@ -91,8 +91,8 @@ describe("calculateRiskProfile", () => {
       focusScope: mockFocus,
       assessments: [mockAssessment("src/app.ts"), mockAssessment("src/utils.ts")],
       directDependents: [
-        { source: "src/app.ts", dependents: ["a.ts", "b.ts"], confidence: "high", limitations: [] },
-        { source: "src/utils.ts", dependents: ["b.ts", "c.ts"], confidence: "high", limitations: [] },
+        { source: "src/app.ts", dependents: ["a.ts", "b.ts"], totalDependents: 2, truncated: false, analysisStatus: "available", confidence: "high", limitations: [] },
+        { source: "src/utils.ts", dependents: ["b.ts", "c.ts"], totalDependents: 2, truncated: false, analysisStatus: "available", confidence: "high", limitations: [] },
       ],
       nearbyTestCandidates: [ 
         { sourcePath: "src/app.ts", testPaths: ["src/app.test.ts"] },
@@ -100,7 +100,8 @@ describe("calculateRiskProfile", () => {
       ],
     };
     const risk = calculateRiskProfile(input);
-    assert.equal(risk.blastRadius.uniqueDirectDependents, 3);
+    assert.equal(risk.blastRadius.observedUniqueDirectDependents, 3);
+    assert.equal(risk.blastRadius.directDependentsLowerBound, 3);
   });
 
   test("config sensível + 11 dependentes -> critical", () => {
@@ -110,7 +111,7 @@ describe("calculateRiskProfile", () => {
       focusScope: mockFocus,
       assessments: [mockAssessment("package.json"), mockAssessment("src/app.ts")],
       directDependents: [
-        { source: "src/app.ts", dependents: Array.from({ length: 11 }, (_, i) => `dep${i}.ts`), confidence: "high", limitations: [] }
+        { source: "src/app.ts", dependents: Array.from({ length: 11 }, (_, i) => `dep${i}.ts`), totalDependents: 11, truncated: true, analysisStatus: "available", confidence: "high", limitations: [] }
       ],
       nearbyTestCandidates: [ { sourcePath: "src/app.ts", testPaths: ["src/app.test.ts"] } ],
     };
@@ -170,7 +171,7 @@ describe("calculateRiskProfile", () => {
       effectiveDepth: "balanced",
       focusScope: mockFocus,
       assessments: [mockAssessment("package.json"), mockAssessment("src/app.ts")],
-      directDependents: [ { source: "src/app.ts", dependents: ["a.ts"], confidence: "high", limitations: [] } ],
+      directDependents: [ { source: "src/app.ts", dependents: ["a.ts"], totalDependents: 1, truncated: false, analysisStatus: "available", confidence: "high", limitations: [] } ],
       nearbyTestCandidates: [],
     }).factors;
 
@@ -179,7 +180,7 @@ describe("calculateRiskProfile", () => {
       effectiveDepth: "balanced",
       focusScope: mockFocus,
       assessments: [mockAssessment("src/app.ts"), mockAssessment("package.json")], // reordered
-      directDependents: [ { source: "src/app.ts", dependents: ["a.ts"], confidence: "high", limitations: [] } ],
+      directDependents: [ { source: "src/app.ts", dependents: ["a.ts"], totalDependents: 1, truncated: false, analysisStatus: "available", confidence: "high", limitations: [] } ],
       nearbyTestCandidates: [],
     }).factors;
 

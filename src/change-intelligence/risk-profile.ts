@@ -18,19 +18,40 @@ const FACTOR_ORDER: readonly RiskFactorCode[] = [
   "test_proximity_gap",
 ];
 
-function inferAssessmentConfidence(input: RiskProfileInput): RiskAssessmentConfidence {
+function resolveDependencyCoverage(
+  input: RiskProfileInput,
+  primaryCount: number
+): "not_run" | "unavailable" | "partial" | "available" {
   if (input.effectiveDepth === "fast") {
-    return "low";
+    return "not_run";
   }
 
-  const primaryCount = input.assessments.filter(
-    (candidate) => candidate.primaryEligible && candidate.confidence === "high"
+  const failed = input.directDependents.filter(
+    (entry) => entry.analysisStatus === "failed" || entry.analysisStatus === "skipped"
   ).length;
 
-  if (primaryCount > 3) {
-    return "medium";
+  if (input.directDependents.length > 0 && failed === input.directDependents.length) {
+    return "unavailable";
   }
 
+  if (
+    failed > 0 ||
+    input.directDependents.some((entry) => entry.truncated) ||
+    primaryCount > 3
+  ) {
+    return "partial";
+  }
+
+  return "available";
+}
+
+function inferAssessmentConfidence(coverage: "not_run" | "unavailable" | "partial" | "available"): RiskAssessmentConfidence {
+  if (coverage === "not_run" || coverage === "unavailable") {
+    return "low";
+  }
+  if (coverage === "partial") {
+    return "medium";
+  }
   return "high";
 }
 
@@ -43,6 +64,16 @@ function riskLevelFromScore(score: number): RiskLevel {
   if (score >= 40) return "high";
   if (score >= 20) return "medium";
   return "low";
+}
+
+function isSensitiveConfigPath(path: string): boolean {
+  const normalized = path.replace(/\\/g, "/");
+  return (
+    normalized === "package.json" ||
+    normalized === "server.json" ||
+    normalized.startsWith(".github/workflows/") ||
+    isLockFile(normalized)
+  );
 }
 
 export function calculateRiskProfile(input: RiskProfileInput): RiskProfile {
@@ -61,18 +92,11 @@ export function calculateRiskProfile(input: RiskProfileInput): RiskProfile {
   let hasSensitiveConfig = false;
   
   const configPaths = primaryAssessments
-    .filter((c) => c.kind === "configuration" || isLockFile(c.path))
+    .filter((c) => c.kind === "configuration" || isSensitiveConfigPath(c.path))
     .map((c) => c.path);
     
   for (const path of configPaths) {
-    if (isLockFile(path)) {
-      hasSensitiveConfig = true;
-    } else if (
-      path === "package.json" || 
-      path === "server.json" || 
-      path.startsWith(".github/workflows/") ||
-      path.startsWith(".github\\workflows\\")
-    ) {
+    if (isSensitiveConfigPath(path)) {
       hasSensitiveConfig = true;
     } else {
       hasCommonConfig = true;
@@ -170,27 +194,33 @@ export function calculateRiskProfile(input: RiskProfileInput): RiskProfile {
   }
 
   // 6. fan_out
-  const depsCount = dependentPaths.size;
-  if (depsCount > 10) {
+  const observedUniqueDependents = dependentPaths.size;
+  const largestReportedFanOut = Math.max(
+    0,
+    ...input.directDependents.map((entry) => entry.totalDependents)
+  );
+  const fanOutForScoring = Math.max(observedUniqueDependents, largestReportedFanOut);
+
+  if (fanOutForScoring > 10) {
     factors.push({
       code: "fan_out",
       weight: 45,
       reason: "More than 10 unique dependent files.",
-      evidence: { count: depsCount },
+      evidence: { count: fanOutForScoring },
     });
-  } else if (depsCount >= 6) {
+  } else if (fanOutForScoring >= 6) {
     factors.push({
       code: "fan_out",
       weight: 25,
       reason: "6 to 10 unique dependent files.",
-      evidence: { count: depsCount },
+      evidence: { count: fanOutForScoring },
     });
-  } else if (depsCount >= 3) {
+  } else if (fanOutForScoring >= 3) {
     factors.push({
       code: "fan_out",
       weight: 10,
       reason: "3 to 5 unique dependent files.",
-      evidence: { count: depsCount },
+      evidence: { count: fanOutForScoring },
     });
   }
 
@@ -200,28 +230,25 @@ export function calculateRiskProfile(input: RiskProfileInput): RiskProfile {
   // Score
   const score = Math.min(100, factors.reduce((total, factor) => total + factor.weight, 0));
   
-  let dependencyAnalysis: "not_run" | "partial" | "available" = "available";
-  if (input.effectiveDepth === "fast") {
-    dependencyAnalysis = "not_run";
-  } else if (primaryCount > 3) {
-    dependencyAnalysis = "partial";
-  }
+  const coverageAnalysis = resolveDependencyCoverage(input, primaryCount);
 
   return {
     version: 1,
     basis: "pre_budget",
     level: riskLevelFromScore(score),
     score,
-    confidence: inferAssessmentConfidence(input),
+    confidence: inferAssessmentConfidence(coverageAnalysis),
     factors,
     blastRadius: {
       primaryCandidates: primaryPaths.size,
-      uniqueDirectDependents: depsCount,
+      observedUniqueDirectDependents: observedUniqueDependents,
+      directDependentsLowerBound: fanOutForScoring,
+      dependencyDataTruncated: input.directDependents.some((e) => e.truncated),
       estimatedAffectedFiles: new Set([...primaryPaths, ...dependentPaths]).size,
       focusMatchedFiles: input.focusScope.matchedFileCount,
     },
     coverage: {
-      dependencyAnalysis,
+      dependencyAnalysis: coverageAnalysis,
     },
   };
 }

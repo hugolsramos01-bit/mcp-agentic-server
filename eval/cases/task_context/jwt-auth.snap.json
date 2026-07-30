@@ -345,17 +345,21 @@
       "autoReadEligible": true
     },
     {
-      "path": "package.json",
+      "path": "src/tool-contracts.ts",
       "role": "supporting",
       "confidence": "medium",
       "evidence": [
         {
           "type": "content_match",
           "detail": "Contains matching keywords"
+        },
+        {
+          "type": "test_proximity",
+          "detail": "Has nearby tests: src/tool-contracts.test.ts"
         }
       ],
       "recommendedReadTool": "read_adaptive",
-      "selectionReason": "content_match",
+      "selectionReason": "content_match, test_proximity",
       "autoReadEligible": true
     },
     {
@@ -613,6 +617,20 @@
       "recommendedReadTool": "read_adaptive",
       "selectionReason": "test_proximity",
       "autoReadEligible": true
+    },
+    {
+      "path": "src/tool-contracts.test.ts",
+      "role": "test",
+      "confidence": "medium",
+      "evidence": [
+        {
+          "type": "test_proximity",
+          "detail": "Is test for: src/tool-contracts.ts"
+        }
+      ],
+      "recommendedReadTool": "read_adaptive",
+      "selectionReason": "test_proximity",
+      "autoReadEligible": true
     }
   ],
   "riskProfile": {
@@ -630,7 +648,9 @@
     ],
     "blastRadius": {
       "primaryCandidates": 2,
-      "uniqueDirectDependents": 0,
+      "observedUniqueDirectDependents": 0,
+      "directDependentsLowerBound": 0,
+      "dependencyDataTruncated": false,
       "estimatedAffectedFiles": 2,
       "focusMatchedFiles": 253
     },
@@ -694,6 +714,12 @@
       "testPaths": [
         "src/review-checkpoints.test.ts"
       ]
+    },
+    {
+      "sourcePath": "src/tool-contracts.ts",
+      "testPaths": [
+        "src/tool-contracts.test.ts"
+      ]
     }
   ],
   "suggestedNextSteps": [
@@ -722,7 +748,7 @@
   "limitations": [],
   "budget": {
     "maxTokens": 6000,
-    "estimatedTokens": 3229,
+    "estimatedTokens": 3358,
     "truncated": false,
     "omittedCandidates": 0,
     "omittedRegions": 0

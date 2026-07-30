@@ -786,8 +786,7 @@ export async function buildTaskContext(
       .map((entry) => ({
         ...entry,
         dependents: entry.dependents.filter((path) => !isPathExcluded(path)),
-      }))
-      .filter((entry) => entry.dependents.length > 0);
+      }));
     pDependencySearch.end();
   }
 

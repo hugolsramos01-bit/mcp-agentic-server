@@ -9,6 +9,9 @@ const execFileAsync = promisify(execFile);
 export interface DirectDependentResult {
   source: string;
   dependents: string[];
+  totalDependents: number;
+  truncated: boolean;
+  analysisStatus: "available" | "no_matches" | "failed" | "skipped";
   confidence: Confidence;
   limitations: string[];
 }
@@ -34,6 +37,9 @@ export async function getLimitedSharedDependencies(
       results.push({
         source: target,
         dependents: [],
+        totalDependents: 0,
+        truncated: false,
+        analysisStatus: "skipped",
         confidence: "low",
         limitations: ["Filename too short for lexical grep heuristics"],
       });
@@ -60,6 +66,9 @@ export async function getLimitedSharedDependencies(
       results.push({
         source: target,
         dependents,
+        totalDependents: lines.length,
+        truncated: isTruncated,
+        analysisStatus: "available",
         confidence: "medium", // lexical: always medium — may have false positives
         limitations: [
           "Lexical search only (no AST); results may include false positives",
@@ -72,6 +81,9 @@ export async function getLimitedSharedDependencies(
         results.push({
           source: target,
           dependents: [],
+          totalDependents: 0,
+          truncated: false,
+          analysisStatus: "no_matches",
           confidence: "medium", // lexical: only proves no textual matches
           limitations: [
             "No lexical references were found",
@@ -83,6 +95,9 @@ export async function getLimitedSharedDependencies(
         results.push({
           source: target,
           dependents: [],
+          totalDependents: 0,
+          truncated: false,
+          analysisStatus: "failed",
           confidence: "low",
           limitations: [
             `git grep failed: ${err?.message ?? "unknown error"}`,

@@ -151,18 +151,26 @@ export interface RiskProfile {
   factors: RiskFactor[];
   blastRadius: {
     primaryCandidates: number;
-    uniqueDirectDependents: number;
+    observedUniqueDirectDependents: number;
+    directDependentsLowerBound: number;
+    dependencyDataTruncated: boolean;
     estimatedAffectedFiles: number;
     focusMatchedFiles: number;
   };
   coverage: {
-    dependencyAnalysis: "not_run" | "partial" | "available";
+    dependencyAnalysis: "not_run" | "unavailable" | "partial" | "available";
   };
 }
 
 export interface DirectDependentEntry {
   source: string;
   dependents: string[];
+
+  totalDependents: number;
+  truncated: boolean;
+
+  analysisStatus: "available" | "no_matches" | "failed" | "skipped";
+
   confidence: Confidence;
   limitations: string[];
 }

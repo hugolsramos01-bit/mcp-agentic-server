@@ -78,22 +78,15 @@
     "version": 1,
     "basis": "pre_budget",
     "level": "low",
-    "score": 10,
+    "score": 0,
     "confidence": "high",
-    "factors": [
-      {
-        "code": "fan_out",
-        "weight": 10,
-        "reason": "3 to 5 unique dependent files.",
-        "evidence": {
-          "count": 3
-        }
-      }
-    ],
+    "factors": [],
     "blastRadius": {
       "primaryCandidates": 1,
-      "uniqueDirectDependents": 3,
-      "estimatedAffectedFiles": 4,
+      "observedUniqueDirectDependents": 2,
+      "directDependentsLowerBound": 2,
+      "dependencyDataTruncated": false,
+      "estimatedAffectedFiles": 3,
       "focusMatchedFiles": 253
     },
     "coverage": {
@@ -104,10 +97,12 @@
     {
       "source": "src/server/mutation-receipt.ts",
       "dependents": [
-        "package.json",
         "src/server.ts",
         "src/server/mutation-receipt.test.ts"
       ],
+      "totalDependents": 2,
+      "truncated": false,
+      "analysisStatus": "available",
       "confidence": "medium",
       "limitations": [
         "Lexical search only (no AST); results may include false positives"
@@ -152,7 +147,7 @@
   "limitations": [],
   "budget": {
     "maxTokens": 6000,
-    "estimatedTokens": 636,
+    "estimatedTokens": 643,
     "truncated": false,
     "omittedCandidates": 0,
     "omittedRegions": 0

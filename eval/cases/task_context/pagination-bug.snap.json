@@ -91,7 +91,9 @@
     "factors": [],
     "blastRadius": {
       "primaryCandidates": 1,
-      "uniqueDirectDependents": 0,
+      "observedUniqueDirectDependents": 0,
+      "directDependentsLowerBound": 0,
+      "dependencyDataTruncated": false,
       "estimatedAffectedFiles": 1,
       "focusMatchedFiles": 1
     },
@@ -138,7 +140,7 @@
   "limitations": [],
   "budget": {
     "maxTokens": 6000,
-    "estimatedTokens": 539,
+    "estimatedTokens": 557,
     "truncated": false,
     "omittedCandidates": 0,
     "omittedRegions": 0
