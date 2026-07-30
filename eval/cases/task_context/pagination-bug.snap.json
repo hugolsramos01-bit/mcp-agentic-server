@@ -82,6 +82,25 @@
       "autoReadEligible": true
     }
   ],
+  "riskProfile": {
+    "version": 1,
+    "basis": "pre_budget",
+    "level": "low",
+    "score": 0,
+    "confidence": "low",
+    "factors": [],
+    "blastRadius": {
+      "primaryCandidates": 1,
+      "observedUniqueDirectDependents": 0,
+      "directDependentsLowerBound": 0,
+      "dependencyDataTruncated": false,
+      "estimatedAffectedFiles": 1,
+      "focusMatchedFiles": 1
+    },
+    "coverage": {
+      "dependencyAnalysis": "not_run"
+    }
+  },
   "directDependents": [],
   "applicableInstructions": [
     {
@@ -121,7 +140,7 @@
   "limitations": [],
   "budget": {
     "maxTokens": 6000,
-    "estimatedTokens": 473,
+    "estimatedTokens": 557,
     "truncated": false,
     "omittedCandidates": 0,
     "omittedRegions": 0

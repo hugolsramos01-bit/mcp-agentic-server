@@ -43,6 +43,11 @@ const BUILD_DIR_PATTERNS = /(?:^|[/\\])(?:dist|build|out|\.next|\.nuxt)[/\\]/i;
 /** Root-level documentation files (README, LICENSE, etc.) */
 const ROOT_DOC_FILES = /^(?:readme|security|contributing|code_of_conduct|license|changelog)(?:\..+)?$/i;
 
+const ROOT_CONFIGURATION_FILES = new Set([
+  "package.json",
+  "server.json",
+]);
+
 export function classifyCandidateKind(path: string): CandidateKind {
   const lower = path.toLowerCase().replace(/\\/g, "/");
 
@@ -55,6 +60,7 @@ export function classifyCandidateKind(path: string): CandidateKind {
   // Lockfiles (treated as configuration but will be autoReadEligible: false later)
   const baseFile = lower.split("/").pop() ?? "";
   if (isLockFile(path)) return "configuration";
+  if (ROOT_CONFIGURATION_FILES.has(baseFile)) return "configuration";
 
   // Evaluation test inputs/outputs
   if (EVAL_DIR_PATTERNS.test(lower)) return "evaluation";

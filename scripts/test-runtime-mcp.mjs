@@ -102,9 +102,32 @@ async function run() {
       excludePaths: ["excluded"]
     });
     
-    const tc1Text = JSON.stringify(tc1.structuredContent || tc1);
+    const tc1Text = JSON.stringify(tc1);
     assert(!tc1Text.includes("excluded/secret.ts"), "Excluded file should not be present");
     assert(tc1Text.includes("tests/auth.test.ts"), "Tests should be in context since they depend on focused files");
+    
+    function extractTaskContextResult(response) {
+      const structured = response?.structuredContent;
+      const candidates = [
+        structured?.data,
+        structured,
+        structured?.envelope?.data,
+        structured?.result,
+        structured?.data?.envelope,
+      ];
+      return candidates.find(
+        (candidate) =>
+          candidate?.riskProfile?.version === 1 &&
+          Array.isArray(candidate?.primaryFiles) &&
+          Array.isArray(candidate?.supportingFiles)
+      );
+    }
+
+    const tc1Data = extractTaskContextResult(tc1);
+    assert.ok(tc1Data, "task_context result was not found");
+    assert.equal(tc1Data.riskProfile.version, 1, "riskProfile.version must be 1");
+    assert.ok(["low", "medium", "high", "critical"].includes(tc1Data.riskProfile.level), "riskProfile.level must be valid");
+    assert.equal(tc1Data.riskProfile.basis, "pre_budget", "riskProfile.basis must be pre_budget");
 
     console.log("3. read_many: Success and Errors");
     const rm1 = await callTool("read_many", {

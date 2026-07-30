@@ -42,6 +42,7 @@ import {
   GoalIntent,
   CandidateAssessment,
 } from "./types.js";
+import { calculateRiskProfile } from "./risk-profile.js";
 import {
   loadAndExtractCodeRegions,
   CodeRegionSkippedError,
@@ -785,8 +786,7 @@ export async function buildTaskContext(
       .map((entry) => ({
         ...entry,
         dependents: entry.dependents.filter((path) => !isPathExcluded(path)),
-      }))
-      .filter((entry) => entry.dependents.length > 0);
+      }));
     pDependencySearch.end();
   }
 
@@ -809,6 +809,20 @@ export async function buildTaskContext(
     },
     primaryFiles,
     supportingFiles,
+    riskProfile: calculateRiskProfile({
+      taskType: normalized.taskTypeSuggestion ?? "auto",
+      effectiveDepth,
+      focusScope: {
+        active: focusScope.active,
+        exactFiles: [...focusScope.exactFiles],
+        directories: focusScope.directoryPrefixes,
+        matchedFileCount: discoveryFiles.length,
+        unresolved: focusScope.unresolved,
+      },
+      assessments,
+      directDependents,
+      nearbyTestCandidates,
+    }),
     directDependents,
     applicableInstructions,
     nearbyTestCandidates,

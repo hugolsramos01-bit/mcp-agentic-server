@@ -120,6 +120,75 @@ export interface TaskFocusScope {
   unresolved: string[];
 }
 
+export type RiskLevel = "low" | "medium" | "high" | "critical";
+
+export type RiskAssessmentConfidence = "low" | "medium" | "high";
+
+export type RiskFactorCode =
+  | "fan_out"
+  | "configuration_scope"
+  | "broad_focus"
+  | "multi_primary_scope"
+  | "refactor_scope"
+  | "test_proximity_gap";
+
+export interface RiskFactor {
+  code: RiskFactorCode;
+  weight: number;
+  reason: string;
+  evidence?: {
+    count?: number;
+    paths?: string[];
+  };
+}
+
+export interface RiskProfile {
+  version: 1;
+  basis: "pre_budget";
+  level: RiskLevel;
+  score: number;
+  confidence: RiskAssessmentConfidence;
+  factors: RiskFactor[];
+  blastRadius: {
+    primaryCandidates: number;
+    observedUniqueDirectDependents: number;
+    directDependentsLowerBound: number;
+    dependencyDataTruncated: boolean;
+    estimatedAffectedFiles: number;
+    focusMatchedFiles: number;
+  };
+  coverage: {
+    dependencyAnalysis: "not_run" | "unavailable" | "partial" | "available";
+  };
+}
+
+export interface DirectDependentEntry {
+  source: string;
+  dependents: string[];
+
+  totalDependents: number;
+  truncated: boolean;
+
+  analysisStatus: "available" | "no_matches" | "failed" | "skipped";
+
+  confidence: Confidence;
+  limitations: string[];
+}
+
+export interface NearbyTestCandidate {
+  sourcePath: string;
+  testPaths: string[];
+}
+
+export interface RiskProfileInput {
+  taskType: TaskType;
+  effectiveDepth: TaskContextDepth;
+  focusScope: TaskFocusScope;
+  assessments: readonly CandidateAssessment[];
+  directDependents: readonly DirectDependentEntry[];
+  nearbyTestCandidates: readonly NearbyTestCandidate[];
+}
+
 export interface TaskContextResult {
   version: 1;
   goal: string;
@@ -135,12 +204,9 @@ export interface TaskContextResult {
   primaryFiles: TaskFileCandidate[];
   supportingFiles: TaskFileCandidate[];
   
-  directDependents: Array<{
-    source: string;
-    dependents: string[];
-    confidence: Confidence;
-    limitations: string[];
-  }>;
+  riskProfile: RiskProfile;
+  
+  directDependents: DirectDependentEntry[];
   
   applicableInstructions: Array<{
     path: string;
@@ -148,10 +214,7 @@ export interface TaskContextResult {
     reason: string;
   }>;
   
-  nearbyTestCandidates: Array<{
-    sourcePath: string;
-    testPaths: string[];
-  }>;
+  nearbyTestCandidates: NearbyTestCandidate[];
   
   suggestedNextSteps: Array<{
     tool: string;
