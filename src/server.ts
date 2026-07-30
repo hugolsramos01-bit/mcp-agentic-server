@@ -2160,7 +2160,7 @@ function createMcpServer(
           workspaceId: z.string().describe("Workspace ID"),
           changedPaths: z.array(z.string()).optional().describe("Arquivos comprovadamente alterados"),
           goal: z.string().optional().describe("Objetivo da mudança, se aplicável (Discovery mode)"),
-          taskType: z.string().optional().describe("Tipo de tarefa (e.g. 'feature', 'fix', 'refactor', 'test', 'auto')"),
+          taskType: z.enum(["auto", "bug_fix", "feature", "refactor", "security_review", "migration", "frontend", "release"]).optional().describe("Tipo de tarefa"),
           focusPaths: z.array(z.string()).optional().describe("Arquivos foco informados explicitamente"),
           
           paths: z.array(z.string()).optional().describe("[LEGACY] Alias for changedPaths"),

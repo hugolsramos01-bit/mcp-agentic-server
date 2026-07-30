@@ -9,7 +9,7 @@
     "active": false,
     "exactFiles": [],
     "directories": [],
-    "matchedFileCount": 253,
+    "matchedFileCount": 260,
     "unresolved": []
   },
   "primaryFiles": [
@@ -652,7 +652,7 @@
       "directDependentsLowerBound": 0,
       "dependencyDataTruncated": false,
       "estimatedAffectedFiles": 2,
-      "focusMatchedFiles": 253
+      "focusMatchedFiles": 260
     },
     "coverage": {
       "dependencyAnalysis": "not_run"

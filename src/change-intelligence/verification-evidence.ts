@@ -43,8 +43,14 @@ export function detectDependencyEnvironment(
 export async function buildVerificationEvidence(
   options: BuildEvidenceOptions
 ): Promise<VerificationEvidence | null> {
-  const { cwd, packageManager, changedPaths, goal, taskType, focusPaths, availableChecks } = options;
+  const { cwd, packageManager, goal, taskType, focusPaths, availableChecks } = options;
   const dependenciesInstalled = detectDependencyEnvironment(cwd, packageManager);
+
+  // Normalize and deduplicate changed paths
+  const changedPaths = [...new Set((options.changedPaths ?? [])
+    .map(p => p.replace(/\\/g, "/").replace(/^\.\/+/, ""))
+    .filter(Boolean))
+  ].sort((a, b) => a.localeCompare(b));
 
   // 1. Explicit actual_changes route
   if (changedPaths && changedPaths.length > 0) {
@@ -74,7 +80,7 @@ export async function buildVerificationEvidence(
     const nearbyTests = changedPaths.map(sourcePath => ({
       sourcePath,
       testPaths: findNearbyTests(sourcePath, allTrackedFiles, fileSet)
-    }));
+    })).filter(candidate => candidate.testPaths.length > 0);
 
     // Get dependents to calculate fan-out
     const dependentsResults = await getLimitedSharedDependencies(cwd, changedPaths);
@@ -114,10 +120,11 @@ export async function buildVerificationEvidence(
   // 2. Discovery route (no changedPaths, but goal exists)
   if (goal) {
     const taskContext = await buildTaskContext({
-      type: "auto",
+      type: taskType ?? "auto",
+      focusPaths,
       maxTokens: 8192,
       depth: "balanced",
-      workspaceId: "legacy",
+      workspaceId: "suggest-checks-discovery",
       allowedRoots: [cwd],
       goal: goal,
       cwd

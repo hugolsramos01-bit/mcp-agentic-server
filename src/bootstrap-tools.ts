@@ -520,9 +520,49 @@ export async function suggestChecksTool(cwd: string, options: SuggestChecksOptio
     }
   }
 
-  // Preserve legacy scope: "workspace"
-  if (changedPaths.length === 0 && !goal && options.scope === "workspace") {
-    goal = "Verify workspace integrity";
+  // Preserve legacy scope: "workspace" as an explicit global pipeline bypass
+  if (options.scope === "workspace") {
+    const safeChecks = classified.filter(c => !c.mutatesWorkspace);
+    
+    // Sort safe checks by tier to mimic old pipeline ordering loosely
+    const tierOrder: Record<string, number> = {
+      static_analysis: 1,
+      unit_tests: 2,
+      general_tests: 3,
+      integration_tests: 4,
+      build: 5,
+      e2e_tests: 6,
+      smoke_tests: 7,
+      unknown: 8
+    };
+    safeChecks.sort((a, b) => (tierOrder[a.tier] || 99) - (tierOrder[b.tier] || 99));
+
+    return {
+      content: [{
+        type: "text",
+        text: JSON.stringify({
+          packageManager,
+          plan: {
+            version: 1,
+            mode: "advisory",
+            basis: "discovery",
+            riskLevel: "medium",
+            riskConfidence: "low",
+            policyLevel: "medium",
+            recommendations: safeChecks.map(c => ({
+              script: c.script,
+              command: c.command,
+              tier: c.tier,
+              stage: c.tier === "smoke_tests" ? "before_release" : "initial"
+            })),
+            limitations: [
+              "Legacy 'scope: workspace' used. Bypassing risk-adaptive planner and returning all safe checks.",
+              "The legacy 'level' and 'scope' options are deprecated."
+            ]
+          }
+        }, null, 2)
+      }]
+    };
   }
 
   const evidence = await buildVerificationEvidence({

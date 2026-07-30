@@ -249,6 +249,28 @@ test("actual_changes vence candidatos da descoberta", () => {
   assert.strictEqual(planVerification(evidenceActual).basis, "actual_changes");
 });
 
+test("checks com custos diferentes -> low antes de medium/high", () => {
+  const evidence: VerificationEvidence = {
+    riskProfile: createMockProfile("high", "high"),
+    taskType: "feature",
+    changedPaths: ["src/core.ts"],
+    candidatePaths: [],
+    nearbyTests: [],
+    dependentPaths: [],
+    availableChecks: [
+      { script: "expensive-static", command: "npm run es", tier: "static_analysis", reason: "", confidence: "high", mutatesWorkspace: false, estimatedCost: "high" },
+      { script: "cheap-static", command: "npm run cs", tier: "static_analysis", reason: "", confidence: "high", mutatesWorkspace: false, estimatedCost: "low" },
+    ],
+    environment: { dependenciesInstalled: true }
+  };
+  
+  const plan = planVerification(evidence);
+  
+  // They have the same confidence, but cheap-static has low cost (better), so it should be first.
+  assert.strictEqual(plan.recommendations[0].script, "cheap-static");
+  assert.strictEqual(plan.recommendations[1].script, "expensive-static");
+});
+
 test("Dependências ausentes geram limitação, não instalação", () => {
   const evidence: VerificationEvidence = {
     riskProfile: createMockProfile("low", "high"),
