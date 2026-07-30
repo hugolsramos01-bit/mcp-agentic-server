@@ -24,7 +24,7 @@
   },
   "git": {
     "branch": "## feature/risk-adaptive-flow...origin/feature/risk-adaptive-flow",
-    "status": "## feature/risk-adaptive-flow...origin/feature/risk-adaptive-flow\n M scripts/test-runtime-mcp.mjs\n M src/change-intelligence/risk-profile.test.ts\n M src/change-intelligence/risk-profile.ts\n M src/change-intelligence/task-context.test.ts\n M src/change-intelligence/task-context.ts\n M src/change-intelligence/types.ts\n"
+    "status": "## feature/risk-adaptive-flow...origin/feature/risk-adaptive-flow\n M src/change-intelligence/file-dependencies-internal.ts\n M src/change-intelligence/indexed-path.ts\n M src/change-intelligence/risk-profile.test.ts\n M src/change-intelligence/risk-profile.ts\n M src/change-intelligence/task-context.test.ts\n M src/change-intelligence/task-context.ts\n M src/change-intelligence/types.ts\n"
   },
   "routes": [],
   "collections": [],
@@ -341,8 +341,8 @@
     }
   ],
   "tokenBudget": {
-    "used": 1532,
+    "used": 1544,
     "max": 8000,
-    "remaining": 6468
+    "remaining": 6456
   }
 }
