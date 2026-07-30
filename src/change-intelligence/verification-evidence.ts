@@ -73,7 +73,7 @@ export async function buildVerificationEvidence(
 
     // Find nearby tests manually for the changed source files
     const { git } = await import("../git.js");
-    const lsFilesResult = await git(cwd, ["ls-files", "-z"]);
+    const lsFilesResult = await git(cwd, ["ls-files", "--cached", "--others", "--exclude-standard", "-z"]);
     const allTrackedFiles = lsFilesResult.stdout.split("\0").filter(Boolean);
     const fileSet: ReadonlySet<string> = new Set(allTrackedFiles);
     
@@ -90,7 +90,7 @@ export async function buildVerificationEvidence(
       taskType: taskType || "auto",
       effectiveDepth: "balanced",
       focusScope: {
-        active: focusPaths !== undefined && focusPaths.length > 0,
+        active: false,
         matchedFileCount: changedPaths.length,
         exactFiles: [],
         directories: [],

@@ -522,17 +522,17 @@ export async function suggestChecksTool(cwd: string, options: SuggestChecksOptio
 
   // Preserve legacy scope: "workspace" as an explicit global pipeline bypass
   if (options.scope === "workspace") {
-    const safeChecks = classified.filter(c => !c.mutatesWorkspace);
+    const safeChecks = classified.filter(c => !c.mutatesWorkspace && c.tier !== "other");
     
     // Sort safe checks by tier to mimic old pipeline ordering loosely
     const tierOrder: Record<string, number> = {
       static_analysis: 1,
       unit_tests: 2,
       general_tests: 3,
-      integration_tests: 4,
-      build: 5,
-      e2e_tests: 6,
-      smoke_tests: 7,
+      build: 4,
+      integration_tests: 5,
+      smoke_tests: 6,
+      e2e_tests: 7,
       unknown: 8
     };
     safeChecks.sort((a, b) => (tierOrder[a.tier] || 99) - (tierOrder[b.tier] || 99));
@@ -553,7 +553,12 @@ export async function suggestChecksTool(cwd: string, options: SuggestChecksOptio
               script: c.script,
               command: c.command,
               tier: c.tier,
-              stage: c.tier === "smoke_tests" ? "before_release" : "initial"
+              stage: c.tier === "smoke_tests" ? "before_release" : "initial",
+              priority: "strongly_recommended",
+              reason: "Legacy workspace pipeline check",
+              riskFactors: [],
+              estimatedCost: c.estimatedCost,
+              confidence: c.confidence
             })),
             limitations: [
               "Legacy 'scope: workspace' used. Bypassing risk-adaptive planner and returning all safe checks.",

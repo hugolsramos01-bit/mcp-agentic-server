@@ -12,109 +12,67 @@
         "script": "typecheck",
         "command": "npm run typecheck",
         "tier": "static_analysis",
-        "stage": "initial"
+        "stage": "initial",
+        "priority": "strongly_recommended",
+        "reason": "Legacy workspace pipeline check",
+        "riskFactors": [],
+        "estimatedCost": "low",
+        "confidence": "high"
       },
       {
         "script": "test",
         "command": "npm test",
         "tier": "general_tests",
-        "stage": "initial"
+        "stage": "initial",
+        "priority": "strongly_recommended",
+        "reason": "Legacy workspace pipeline check",
+        "riskFactors": [],
+        "estimatedCost": "medium",
+        "confidence": "medium"
       },
       {
         "script": "build",
         "command": "npm run build",
         "tier": "build",
-        "stage": "initial"
+        "stage": "initial",
+        "priority": "strongly_recommended",
+        "reason": "Legacy workspace pipeline check",
+        "riskFactors": [],
+        "estimatedCost": "high",
+        "confidence": "high"
       },
       {
         "script": "build:app",
         "command": "npm run build:app",
         "tier": "build",
-        "stage": "initial"
-      },
-      {
-        "script": "test:http",
-        "command": "npm run test:http",
-        "tier": "e2e_tests",
-        "stage": "initial"
+        "stage": "initial",
+        "priority": "strongly_recommended",
+        "reason": "Legacy workspace pipeline check",
+        "riskFactors": [],
+        "estimatedCost": "high",
+        "confidence": "high"
       },
       {
         "script": "smoke:package",
         "command": "npm run smoke:package",
         "tier": "smoke_tests",
-        "stage": "before_release"
+        "stage": "before_release",
+        "priority": "strongly_recommended",
+        "reason": "Legacy workspace pipeline check",
+        "riskFactors": [],
+        "estimatedCost": "low",
+        "confidence": "high"
       },
       {
-        "script": "bench:agent",
-        "command": "npm run bench:agent",
-        "tier": "other",
-        "stage": "initial"
-      },
-      {
-        "script": "bench:regions",
-        "command": "npm run bench:regions",
-        "tier": "other",
-        "stage": "initial"
-      },
-      {
-        "script": "bench:server",
-        "command": "npm run bench:server",
-        "tier": "other",
-        "stage": "initial"
-      },
-      {
-        "script": "bench:tools",
-        "command": "npm run bench:tools",
-        "tier": "other",
-        "stage": "initial"
-      },
-      {
-        "script": "clean",
-        "command": "npm run clean",
-        "tier": "other",
-        "stage": "initial"
-      },
-      {
-        "script": "dev",
-        "command": "npm run dev",
-        "tier": "other",
-        "stage": "initial"
-      },
-      {
-        "script": "eval",
-        "command": "npm run eval",
-        "tier": "other",
-        "stage": "initial"
-      },
-      {
-        "script": "eval:update",
-        "command": "npm run eval:update",
-        "tier": "other",
-        "stage": "initial"
-      },
-      {
-        "script": "postinstall",
-        "command": "npm run postinstall",
-        "tier": "other",
-        "stage": "initial"
-      },
-      {
-        "script": "start",
-        "command": "npm start",
-        "tier": "other",
-        "stage": "initial"
-      },
-      {
-        "script": "test:runtime",
-        "command": "npm run test:runtime",
-        "tier": "other",
-        "stage": "initial"
-      },
-      {
-        "script": "test:runtime:built",
-        "command": "npm run test:runtime:built",
-        "tier": "other",
-        "stage": "initial"
+        "script": "test:http",
+        "command": "npm run test:http",
+        "tier": "e2e_tests",
+        "stage": "initial",
+        "priority": "strongly_recommended",
+        "reason": "Legacy workspace pipeline check",
+        "riskFactors": [],
+        "estimatedCost": "high",
+        "confidence": "medium"
       }
     ],
     "limitations": [
