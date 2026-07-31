@@ -12,10 +12,62 @@ describe("goal-normalizer", () => {
     assert.ok(res1.expandedKeywords.includes("sandbox"));
 
     const res2 = normalizeGoal("corrigir autenticacao do usuario");
-    // 'do' is stopword, 'usuario' might stay
     assert.deepEqual(res2.tokens, ["corrigir", "autenticacao", "usuario"]);
-    // 'autenticacao' matches 'auth' synonyms somewhat, wait, 'autenticacao' has no direct match in synonyms for auth unless we add it, but 'auth' might match.
-    // 'auth' is in the syn list. 'autenticacao' contains 'auth' if we are not careful? No, it contains 'aut'.
+    assert.ok(res2.expandedKeywords.includes("auth"));
+    assert.ok(res2.expandedKeywords.includes("jwt"));
+  });
+
+  it("preserves explicit keyword origin and weakens generic public synonyms", () => {
+    const result = normalizeGoal("refatorar JWT sem alterar contrato público");
+
+    const jwt = result.keywordSignals.find((signal) => signal.value === "jwt");
+    const publico = result.keywordSignals.find((signal) => signal.value === "publico");
+    const customer = result.keywordSignals.find((signal) => signal.value === "customer");
+
+    assert.deepEqual(jwt, {
+      value: "jwt",
+      origin: "explicit",
+      strength: "strong",
+      canonical: "auth",
+    });
+    assert.equal(publico?.origin, "explicit");
+    assert.equal(publico?.strength, "weak");
+    assert.equal(customer?.origin, "expanded");
+    assert.equal(customer?.strength, "weak");
+    assert.ok(result.anchorKeywords.indexOf("jwt") < result.anchorKeywords.indexOf("customer"));
+  });
+
+  it("uses exact synonym aliases instead of substring expansion", () => {
+    const result = normalizeGoal("update publication metadata and authorization notes");
+
+    assert.ok(!result.expandedKeywords.includes("customer"), "publication must not activate the public synonym group");
+    assert.ok(!result.expandedKeywords.includes("jwt"), "authorization must not activate auth by substring");
+  });
+
+  it("removes explicit paths before lexical tokenization", () => {
+    const result = normalizeGoal("fix src/app/payment/page.tsx auth flow");
+
+    assert.ok(result.extractedPaths.includes("src/app/payment/page.tsx"));
+    assert.ok(!result.tokens.includes("src"));
+    assert.ok(!result.tokens.includes("tsx"));
+    assert.ok(result.tokens.includes("auth"));
+  });
+
+  it("expands token expiration morphology without generic task noise", () => {
+    const result = normalizeGoal(
+      "Identificar a lógica de autenticação JWT e o tratamento de expiração de tokens",
+    );
+
+    assert.ok(!result.anchorKeywords.includes("identificar"));
+    assert.ok(!result.anchorKeywords.includes("logica"));
+    assert.ok(!result.anchorKeywords.includes("tratamento"));
+    assert.ok(result.anchorKeywords.includes("tokens"));
+    assert.ok(result.anchorKeywords.includes("expirado"));
+    assert.ok(result.anchorKeywords.includes("expiresat"));
+    assert.ok(
+      result.anchorKeywords.indexOf("tokens") < result.anchorKeywords.indexOf("auth"),
+      "explicit token term must precede inferred auth aliases",
+    );
   });
 
   it("extracts paths", () => {

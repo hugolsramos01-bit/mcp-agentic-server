@@ -1,7 +1,6 @@
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import {
-  basename,
   dirname,
   isAbsolute,
   join,
@@ -11,11 +10,12 @@ import {
 } from "node:path";
 import { normalizeGoal } from "./goal-normalizer.js";
 import {
-  inferConfidence,
-  WEAK_GOAL_KEYWORDS,
-  EVIDENCE_WEIGHTS,
-  KIND_PENALTIES,
-} from "./evidence.js";
+  containsKeywordBoundary,
+  inferCandidateConfidence,
+  rankCandidateAssessments,
+  selectContentSearchSignals,
+  type CandidateKeywordMatch,
+} from "./candidate-ranking.js";
 import { findNearbyTests } from "./test-proximity.js";
 import {
   getWorkspaceFileCacheKey,
@@ -27,7 +27,6 @@ import {
   isPrimaryEligibleKind,
   isDependencySkippedKind,
   candidateKindPriority,
-  isLockFile,
 } from "./indexed-path.js";
 import { getLimitedSharedDependencies } from "./file-dependencies-internal.js";
 import {
@@ -40,7 +39,6 @@ import {
   TaskContextDepth,
   CandidateKind,
   GoalIntent,
-  CandidateAssessment,
 } from "./types.js";
 import { calculateRiskProfile } from "./risk-profile.js";
 import {
@@ -63,7 +61,8 @@ export const TASK_CONTEXT_BUDGET = {
 
 /** Exact segment match for basenames: splits by -, _, ., camelCase boundaries. */
 function matchesFilenameSegment(nameOnly: string, kw: string): boolean {
-  const segments = nameOnly
+  const withoutExtension = nameOnly.replace(/\.[^.]+$/, "");
+  const segments = withoutExtension
     .replace(/([a-z])([A-Z])/g, "$1-$2")
     .toLowerCase()
     .split(/[-_. ]+/);
@@ -389,6 +388,13 @@ export async function buildTaskContext(
 
   // 5. Candidates map: path → evidence[]
   const candidatesMap = new Map<string, EvidenceEntry[]>();
+  const candidateKeywordMatches = new Map<
+    string,
+    Map<string, CandidateKeywordMatch>
+  >();
+  const keywordSignalByValue = new Map(
+    normalized.keywordSignals.map((signal) => [signal.value, signal]),
+  );
 
   // Build kind lookup from indexed paths
   const kindMap = new Map<string, CandidateKind>();
@@ -406,6 +412,7 @@ export async function buildTaskContext(
     path: string,
     ev: EvidenceEntry,
     scope: EvidenceScope = "discovery",
+    matchedKeywords: readonly string[] = [],
   ) {
     if (isPathExcluded(path)) return; // respect excludePaths for all additions
 
@@ -417,6 +424,26 @@ export async function buildTaskContext(
     const existing = candidatesMap.get(path)!;
     if (!existing.some((e) => e.type === ev.type && e.detail === ev.detail)) {
       existing.push(ev);
+    }
+
+    if (matchedKeywords.length > 0) {
+      if (!candidateKeywordMatches.has(path)) {
+        candidateKeywordMatches.set(path, new Map());
+      }
+      const matches = candidateKeywordMatches.get(path)!;
+      for (const keyword of matchedKeywords) {
+        const signal = keywordSignalByValue.get(keyword);
+        if (!signal) continue;
+        const current = matches.get(keyword);
+        if (current) {
+          current.evidenceTypes.add(ev.type);
+        } else {
+          matches.set(keyword, {
+            ...signal,
+            evidenceTypes: new Set([ev.type]),
+          });
+        }
+      }
     }
   }
 
@@ -449,16 +476,16 @@ export async function buildTaskContext(
         if (kw.length < 3) continue;
 
         // Filename: exact segment match
-        if (matchesFilenameSegment(file.nameOnly, kw)) {
+        if (matchesFilenameSegment(file.base, kw)) {
           addEvidence(file.path, {
             type: "filename_exact",
             detail: `Basename segment matches keyword: ${kw}`,
-          });
+          }, "discovery", [kw]);
         } else if (file.nameOnly.includes(kw)) {
           addEvidence(file.path, {
             type: "filename_partial",
             detail: `Basename contains keyword: ${kw}`,
-          });
+          }, "discovery", [kw]);
         }
 
         // Route match: index/page/route files whose directory matches the keyword
@@ -475,19 +502,19 @@ export async function buildTaskContext(
           addEvidence(file.path, {
             type: "route",
             detail: `Route file in directory matching keyword: ${kw}`,
-          });
+          }, "discovery", [kw]);
         }
 
         // Schema match: basename contains "schema" and dir or name matches keyword
         if (
           file.nameOnly.includes("schema") &&
-          (matchesFilenameSegment(file.nameOnly, kw) ||
+          (matchesFilenameSegment(file.base, kw) ||
             dirMatchesKeyword(file.dir, kw))
         ) {
           addEvidence(file.path, {
             type: "schema",
             detail: `Schema file matching keyword: ${kw}`,
-          });
+          }, "discovery", [kw]);
         }
       }
     }
@@ -498,13 +525,24 @@ export async function buildTaskContext(
   let hasExactFocusPath = false;
   let hasExactExtractedPath = false;
 
+  const intent = inferGoalIntent(
+    input.goal,
+    normalized.taskTypeSuggestion ?? "auto",
+    Array.from(focusScope.exactFiles),
+  );
+
   const currentHighCandidates = [];
   for (const [path, evidences] of candidatesMap.entries()) {
     const types = new Set(evidences.map((e) => e.type));
     if (types.has("focus_path")) hasExactFocusPath = true;
     if (types.has("extracted_path")) hasExactExtractedPath = true;
     if (
-      inferConfidence(evidences) === "high" &&
+      inferCandidateConfidence(path, evidences, {
+        intent,
+        keywordSignals: normalized.keywordSignals,
+        keywordMatchesByPath: candidateKeywordMatches,
+        getKind,
+      }) === "high" &&
       isPrimaryEligibleKind(getKind(path))
     ) {
       currentHighCandidates.push({ path, evidences });
@@ -523,17 +561,22 @@ export async function buildTaskContext(
       hasExactExtractedPath ||
       hasUniqueHighConfidenceIndexedCandidate);
 
+  const anchorKeywordSet = new Set(anchorKeywords);
+  const rankedGrepSignals = selectContentSearchSignals(
+    normalized.keywordSignals,
+    anchorKeywordSet,
+  );
+
   const shouldRunContentSearch =
-    !directContextSufficient && anchorKeywords.some((kw) => kw.length >= 4);
+    !directContextSufficient && rankedGrepSignals.length > 0;
 
   if (shouldRunContentSearch) {
     const pContentSearch = perf.startPhase("contentSearch");
-    const grepKeywords = anchorKeywords
-      .slice(0, 5)
-      .filter((kw) => kw.length >= 4);
+    const grepSignals = rankedGrepSignals;
+    const grepKeywords = grepSignals.map((signal) => signal.value);
 
     if (grepKeywords.length > 0) {
-      const grepArgs = ["grep", "-i", "-l", "-F"];
+      const grepArgs = ["grep", "-i", "-n", "-I", "-m", "20", "-F"];
       for (const kw of grepKeywords) {
         grepArgs.push("-e", kw);
       }
@@ -562,25 +605,60 @@ export async function buildTaskContext(
             timeout: 5000,
             maxBuffer: 10 * 1024 * 1024,
           });
-          const grepFiles = stdout
-            .split("\n")
-            .map((f) => f.trim().replace(/\\/g, "/"))
-            .filter(Boolean)
-            .filter((file) => isInsideFocusScope(file, focusScope));
+          const matchesByFile = new Map<string, Set<string>>();
+          for (const rawLine of stdout.split("\n")) {
+            const line = rawLine.trim();
+            if (!line) continue;
+            const parsed = line.match(/^(.+?):(\d+):(.*)$/);
+            if (!parsed) continue;
+            const path = parsed[1].replace(/\\/g, "/");
+            if (!isInsideFocusScope(path, focusScope)) continue;
 
-          // Sort by CandidateKind priority before cap — prefer source/test over docs/eval
-          const orderedGrepFiles = grepFiles
-            .map((path) => ({ path, kind: getKind(path) }))
-            .sort(
-              (a, b) =>
-                candidateKindPriority(a.kind) - candidateKindPriority(b.kind),
+            const lineContent = parsed[3];
+            for (const keyword of grepKeywords) {
+              if (!containsKeywordBoundary(lineContent, keyword)) continue;
+              if (!matchesByFile.has(path)) matchesByFile.set(path, new Set());
+              matchesByFile.get(path)!.add(keyword);
+            }
+          }
+
+          const signalOrder = new Map(
+            grepSignals.map((signal, index) => [signal.value, index]),
+          );
+          const orderedGrepFiles = [...matchesByFile.entries()]
+            .map(([path, matched]) => ({
+              path,
+              kind: getKind(path),
+              matched,
+              bestSignalRank: Math.min(
+                ...[...matched].map((keyword) => signalOrder.get(keyword) ?? 999),
+              ),
+            }))
+            .sort((a, b) => {
+              if (a.bestSignalRank !== b.bestSignalRank) {
+                return a.bestSignalRank - b.bestSignalRank;
+              }
+              if (a.matched.size !== b.matched.size) {
+                return b.matched.size - a.matched.size;
+              }
+              const kindDiff =
+                candidateKindPriority(a.kind) - candidateKindPriority(b.kind);
+              if (kindDiff !== 0) return kindDiff;
+              return a.path.localeCompare(b.path);
+            });
+
+          for (const { path, matched } of orderedGrepFiles.slice(0, 20)) {
+            const matchedKeywords = [...matched].sort(
+              (a, b) => (signalOrder.get(a) ?? 999) - (signalOrder.get(b) ?? 999),
             );
-
-          for (const { path } of orderedGrepFiles.slice(0, 20)) {
             addEvidence(
               path,
-              { type: "content_match", detail: `Contains matching keywords` },
+              {
+                type: "content_match",
+                detail: `Contains matching keywords: ${matchedKeywords.join(", ")}`,
+              },
               "discovery",
+              matchedKeywords,
             );
           }
         } catch (err: any) {
@@ -627,76 +705,11 @@ export async function buildTaskContext(
   pTestDiscovery.end();
 
   // 11. Initial assignment of confidence & sorting deterministically
-  const intent = inferGoalIntent(
-    input.goal,
-    normalized.taskTypeSuggestion ?? "auto",
-    Array.from(focusScope.exactFiles),
-  );
-
-  const assessments: CandidateAssessment[] = Array.from(
-    candidatesMap.entries(),
-  ).map(([path, evidence]) => {
-    const kind = getKind(path);
-    const confidence = inferConfidence(evidence);
-
-    // Calcular score determinístico
-    let score = 0;
-    for (const e of evidence) {
-      score += EVIDENCE_WEIGHTS[e.type as keyof typeof EVIDENCE_WEIGHTS] || 0;
-    }
-    score -= KIND_PENALTIES[kind] || 0;
-
-    const explicitlyFocused = evidence.some((e) => e.type === "focus_path");
-
-    // Elegibilidade
-    let primaryEligible = isPrimaryEligibleKind(kind) || explicitlyFocused;
-    if (kind === "test") primaryEligible = false;
-    if (intent === "testing" && kind === "test") primaryEligible = true;
-    if (intent === "configuration" && kind === "configuration")
-      primaryEligible = true;
-
-    // autoReadEligible logic
-    let autoReadEligible = true;
-    if (kind === "generated" || isLockFile(path)) {
-      autoReadEligible = false;
-    }
-    if (explicitlyFocused) autoReadEligible = true;
-
-    const eligibilityReasons: string[] = [];
-    if (primaryEligible) eligibilityReasons.push("primary_eligible");
-    if (!autoReadEligible) eligibilityReasons.push("auto_read_blocked");
-
-    return {
-      path,
-      kind,
-      evidence,
-      score,
-      confidence,
-      primaryEligible,
-      autoReadEligible,
-      eligibilityReasons,
-      rejectionReasons: [],
-    };
-  });
-
-  // Sort candidates
-  assessments.sort((a, b) => {
-    // 1. score
-    if (b.score !== a.score) return b.score - a.score;
-    // 2. kind priority
-    const kpA = candidateKindPriority(a.kind);
-    const kpB = candidateKindPriority(b.kind);
-    if (kpA !== kpB) return kpA - kpB;
-    // 3. strong evidence count
-    const strongA = a.evidence.filter(
-      (e) => EVIDENCE_WEIGHTS[e.type as keyof typeof EVIDENCE_WEIGHTS] >= 35,
-    ).length;
-    const strongB = b.evidence.filter(
-      (e) => EVIDENCE_WEIGHTS[e.type as keyof typeof EVIDENCE_WEIGHTS] >= 35,
-    ).length;
-    if (strongA !== strongB) return strongB - strongA;
-    // 4. path
-    return a.path.localeCompare(b.path);
+  const assessments = rankCandidateAssessments(candidatesMap.entries(), {
+    intent,
+    keywordSignals: normalized.keywordSignals,
+    keywordMatchesByPath: candidateKeywordMatches,
+    getKind,
   });
 
   const primaryFiles: TaskFileCandidate[] = [];
