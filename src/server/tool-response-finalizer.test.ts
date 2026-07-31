@@ -140,11 +140,41 @@ test("native command failure becomes an error envelope", () => {
     },
   };
 
-  const result = finalizeToolResponse(response, defaultOptions, instr);
+  const result = finalizeToolResponse(
+    response,
+    { ...defaultOptions, toolName: "run_package_script" },
+    instr,
+  );
 
   assert.strictEqual(result.structuredContent.status, "error");
   assert.strictEqual(result.structuredContent.error, "typecheck failed");
   assert.strictEqual(result.isError, true);
+});
+
+test("read content containing command-like JSON remains successful", () => {
+  const instr = createMockInstrumentation();
+  const fileContent = '{"status":"failed","exitCode":2,"message":"fixture text"}';
+  const response = {
+    structuredContent: {
+      result: fileContent,
+      file: {
+        path: "fixtures/command-result.json",
+        contentHash: "sha256:fixture",
+        sizeBytes: fileContent.length,
+      },
+    },
+  };
+
+  const result = finalizeToolResponse(
+    response,
+    { ...defaultOptions, toolName: "read" },
+    instr,
+  );
+
+  assert.strictEqual(result.structuredContent.status, "success");
+  assert.strictEqual(result.isError, false);
+  assert.strictEqual(result.structuredContent.error, null);
+  assert.strictEqual(result.structuredContent.data.result, fileContent);
 });
 
 test("widget meta preserved", () => {
