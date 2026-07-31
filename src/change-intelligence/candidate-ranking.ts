@@ -34,6 +34,12 @@ export interface CandidateRankingContext {
   getKind(path: string): CandidateKind;
 }
 
+export interface ContentMatchCandidate {
+  path: string;
+  kind: CandidateKind;
+  matched: ReadonlySet<string>;
+}
+
 const STYLE_FILE_PATTERN = /\.(?:css|scss|sass|less|styl)$/i;
 const GENERIC_IMPLEMENTATION_FILE_PATTERN =
   /(?:^|[-_.])(?:api|service|repository|repositorio|store|handler|controller|controlador|guard|middleware|query|database|db|auth|token|session|account|setup|verification|verify)(?:[-_.]|$)/i;
@@ -172,6 +178,86 @@ export function selectContentSearchSignals(
   }
 
   for (const signal of eligible) add(signal);
+  return selected;
+}
+
+export function selectBalancedContentMatches(
+  candidates: readonly ContentMatchCandidate[],
+  signals: readonly GoalKeywordSignal[],
+  limit = 20,
+): ContentMatchCandidate[] {
+  if (limit <= 0 || candidates.length === 0) return [];
+
+  const signalOrder = new Map(
+    signals.map((signal, index) => [signal.value, index]),
+  );
+  const conceptOrder: string[] = [];
+  const conceptKeywords = new Map<string, Set<string>>();
+
+  for (const signal of signals) {
+    const concept = signal.canonical ?? signal.value;
+    if (!conceptKeywords.has(concept)) {
+      conceptOrder.push(concept);
+      conceptKeywords.set(concept, new Set());
+    }
+    conceptKeywords.get(concept)!.add(signal.value);
+  }
+
+  const compareWithinConcept = (
+    a: ContentMatchCandidate,
+    b: ContentMatchCandidate,
+  ): number => {
+    const kindDiff =
+      candidateKindPriority(a.kind) - candidateKindPriority(b.kind);
+    if (kindDiff !== 0) return kindDiff;
+    if (a.matched.size !== b.matched.size) return b.matched.size - a.matched.size;
+    const bestA = Math.min(
+      ...[...a.matched].map((keyword) => signalOrder.get(keyword) ?? 999),
+    );
+    const bestB = Math.min(
+      ...[...b.matched].map((keyword) => signalOrder.get(keyword) ?? 999),
+    );
+    if (bestA !== bestB) return bestA - bestB;
+    return a.path.localeCompare(b.path);
+  };
+
+  const buckets = new Map<string, ContentMatchCandidate[]>();
+  for (const concept of conceptOrder) {
+    const keywords = conceptKeywords.get(concept)!;
+    buckets.set(
+      concept,
+      candidates
+        .filter((candidate) =>
+          [...candidate.matched].some((keyword) => keywords.has(keyword)),
+        )
+        .sort(compareWithinConcept),
+    );
+  }
+
+  const selected: ContentMatchCandidate[] = [];
+  const selectedPaths = new Set<string>();
+  const positions = new Map(conceptOrder.map((concept) => [concept, 0]));
+
+  while (selected.length < limit) {
+    let progressed = false;
+    for (const concept of conceptOrder) {
+      const bucket = buckets.get(concept) ?? [];
+      let position = positions.get(concept) ?? 0;
+      while (position < bucket.length && selectedPaths.has(bucket[position].path)) {
+        position++;
+      }
+      positions.set(concept, position + 1);
+      if (position >= bucket.length) continue;
+
+      const candidate = bucket[position];
+      selected.push(candidate);
+      selectedPaths.add(candidate.path);
+      progressed = true;
+      if (selected.length >= limit) break;
+    }
+    if (!progressed) break;
+  }
+
   return selected;
 }
 
@@ -416,11 +502,15 @@ export function rankCandidateAssessments(
     const explicitlyFocused = evidence.some(
       (entry) => entry.type === "focus_path",
     );
+    const explicitlySelected = evidence.some(
+      (entry) =>
+        entry.type === "focus_path" || entry.type === "extracted_path",
+    );
     const styleIntentMismatch = isStyleFileIncompatibleWithGoal(
       path,
       context.keywordSignals,
     );
-    if (styleIntentMismatch && !explicitlyFocused) score -= 60;
+    if (styleIntentMismatch && !explicitlySelected) score -= 60;
 
     let primaryEligible = isPrimaryEligibleKind(kind) || explicitlyFocused;
     if (kind === "test") primaryEligible = false;
@@ -430,20 +520,20 @@ export function rankCandidateAssessments(
     if (context.intent === "configuration" && kind === "configuration") {
       primaryEligible = true;
     }
-    if (styleIntentMismatch && !explicitlyFocused) primaryEligible = false;
-    if (isLockFile(path) && !explicitlyFocused) primaryEligible = false;
+    if (styleIntentMismatch && !explicitlySelected) primaryEligible = false;
+    if (isLockFile(path) && !explicitlySelected) primaryEligible = false;
 
     let autoReadEligible = true;
     if (kind === "generated" || isLockFile(path)) autoReadEligible = false;
-    if (styleIntentMismatch && !explicitlyFocused) autoReadEligible = false;
-    if (explicitlyFocused) autoReadEligible = true;
+    if (styleIntentMismatch && !explicitlySelected) autoReadEligible = false;
+    if (explicitlySelected && kind !== "generated") autoReadEligible = true;
 
     const eligibilityReasons: string[] = [];
     if (primaryEligible) eligibilityReasons.push("primary_eligible");
     if (!autoReadEligible) eligibilityReasons.push("auto_read_blocked");
 
     const rejectionReasons: string[] = [];
-    if (styleIntentMismatch && !explicitlyFocused) {
+    if (styleIntentMismatch && !explicitlySelected) {
       rejectionReasons.push("style_file_incompatible_with_backend_goal");
     }
 

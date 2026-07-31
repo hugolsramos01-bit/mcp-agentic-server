@@ -1348,4 +1348,70 @@ describe("task-context", () => {
       false,
     );
   });
+
+  it("preserves a style file explicitly cited in the goal", async () => {
+    const root = await makeWorkspace();
+    await mkdir(join(root, "src", "styles"), { recursive: true });
+    await writeFile(
+      join(root, "src", "styles", "api-table.css"),
+      ".api-table { display: grid; }",
+    );
+    await gitAddAll(root);
+
+    const result = await buildTaskContext({
+      workspaceId: "explicit-style-path",
+      cwd: root,
+      allowedRoots: [root],
+      goal: "ajustar src/styles/api-table.css sem alterar a resposta da API ou a consulta ao banco",
+      type: "bug_fix",
+      depth: "balanced",
+    });
+
+    const explicitStyle = result.primaryFiles.find(
+      (file) => file.path === "src/styles/api-table.css",
+    );
+    assert.ok(explicitStyle, "an extracted source path must remain primary");
+    assert.equal(explicitStyle?.autoReadEligible, true);
+    assert.ok(
+      explicitStyle?.evidence.some((entry) => entry.type === "extracted_path"),
+    );
+  });
+
+  it("balances the grep cap across primary and secondary semantic concepts", async () => {
+    const root = await makeWorkspace();
+    await mkdir(join(root, "docs"), { recursive: true });
+    await mkdir(join(root, "eval", "cases"), { recursive: true });
+
+    for (let index = 0; index < 12; index++) {
+      await writeFile(
+        join(root, "docs", `noise-${index}.md`),
+        "JWT middleware reference documentation",
+      );
+      await writeFile(
+        join(root, "eval", "cases", `noise-${index}.snap.json`),
+        JSON.stringify({ fixture: "JWT middleware snapshot" }),
+      );
+    }
+    await writeFile(
+      join(root, "src", "session-service.ts"),
+      "export function validate(value: string) { return value === 'expired token'; }",
+    );
+    await gitAddAll(root);
+
+    const result = await buildTaskContext({
+      workspaceId: "balanced-content-cap",
+      cwd: root,
+      allowedRoots: [root],
+      goal: "investigar JWT middleware e expiração de token",
+      type: "bug_fix",
+      depth: "balanced",
+    });
+
+    assert.ok(
+      [...result.primaryFiles, ...result.supportingFiles].some(
+        (file) => file.path === "src/session-service.ts",
+      ),
+      "documentation and snapshots for the first concept must not crowd out a source file for expiration",
+    );
+  });
 });
