@@ -13,6 +13,7 @@ import {
   containsKeywordBoundary,
   inferCandidateConfidence,
   rankCandidateAssessments,
+  selectBalancedContentMatches,
   selectContentSearchSignals,
   type CandidateKeywordMatch,
 } from "./candidate-ranking.js";
@@ -26,7 +27,6 @@ import {
   IndexedPath,
   isPrimaryEligibleKind,
   isDependencySkippedKind,
-  candidateKindPriority,
 } from "./indexed-path.js";
 import { getLimitedSharedDependencies } from "./file-dependencies-internal.js";
 import {
@@ -625,29 +625,17 @@ export async function buildTaskContext(
           const signalOrder = new Map(
             grepSignals.map((signal, index) => [signal.value, index]),
           );
-          const orderedGrepFiles = [...matchesByFile.entries()]
-            .map(([path, matched]) => ({
+          const orderedGrepFiles = selectBalancedContentMatches(
+            [...matchesByFile.entries()].map(([path, matched]) => ({
               path,
               kind: getKind(path),
               matched,
-              bestSignalRank: Math.min(
-                ...[...matched].map((keyword) => signalOrder.get(keyword) ?? 999),
-              ),
-            }))
-            .sort((a, b) => {
-              if (a.bestSignalRank !== b.bestSignalRank) {
-                return a.bestSignalRank - b.bestSignalRank;
-              }
-              if (a.matched.size !== b.matched.size) {
-                return b.matched.size - a.matched.size;
-              }
-              const kindDiff =
-                candidateKindPriority(a.kind) - candidateKindPriority(b.kind);
-              if (kindDiff !== 0) return kindDiff;
-              return a.path.localeCompare(b.path);
-            });
+            })),
+            grepSignals,
+            20,
+          );
 
-          for (const { path, matched } of orderedGrepFiles.slice(0, 20)) {
+          for (const { path, matched } of orderedGrepFiles) {
             const matchedKeywords = [...matched].sort(
               (a, b) => (signalOrder.get(a) ?? 999) - (signalOrder.get(b) ?? 999),
             );

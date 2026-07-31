@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import {
   containsKeywordBoundary,
   rankCandidateAssessments,
+  selectBalancedContentMatches,
   selectContentSearchSignals,
   type CandidateKeywordMatch,
 } from "./candidate-ranking.js";
@@ -154,6 +155,38 @@ describe("candidate-ranking", () => {
     );
   });
 
+  it("preserves an extracted style path as an explicit selection", () => {
+    const api = signal("api", "explicit", "normal", "api");
+    const database = signal("database", "explicit", "strong", "database");
+    const path = "src/styles/api-table.css";
+    const ranked = rank(
+      [
+        [
+          path,
+          [
+            { type: "extracted_path", detail: "Extracted from goal text" },
+            { type: "filename_exact", detail: "api" },
+            { type: "content_match", detail: "database" },
+          ],
+        ],
+      ],
+      [database, api],
+      new Map([
+        [
+          path,
+          new Map([
+            ["api", match(api, ["filename_exact"])],
+            ["database", match(database, ["content_match"])],
+          ]),
+        ],
+      ]),
+    );
+
+    assert.equal(ranked[0].primaryEligible, true);
+    assert.equal(ranked[0].autoReadEligible, true);
+    assert.deepEqual(ranked[0].rejectionReasons, []);
+  });
+
   it("balances content-search terms across strong semantic groups", () => {
     const signals = [
       signal("jwt", "explicit", "strong", "auth"),
@@ -174,6 +207,33 @@ describe("candidate-ranking", () => {
     assert.ok(selected.includes("expiracao"));
     assert.ok(!selected.includes("customer"));
     assert.equal(new Set(selected).size, selected.length);
+  });
+
+  it("balances capped content matches across semantic concepts", () => {
+    const jwt = signal("jwt", "explicit", "strong", "auth");
+    const expired = signal("expired", "expanded", "normal", "expiration");
+    const noisyDocs = Array.from({ length: 25 }, (_, index) => ({
+      path: `docs/jwt-${String(index).padStart(2, "0")}.md`,
+      kind: "documentation" as const,
+      matched: new Set(["jwt"]),
+    }));
+    const expirationSource = {
+      path: "src/session-service.ts",
+      kind: "source" as const,
+      matched: new Set(["expired"]),
+    };
+
+    const selected = selectBalancedContentMatches(
+      [...noisyDocs, expirationSource],
+      [jwt, expired],
+      20,
+    );
+
+    assert.ok(
+      selected.some((candidate) => candidate.path === expirationSource.path),
+      "secondary semantic concepts must retain a source candidate before the cap",
+    );
+    assert.equal(selected.length, 20);
   });
 
   it("matches identifier boundaries without short substring false positives", () => {
