@@ -1,10 +1,22 @@
 import { TaskType } from "./types.js";
 
+export type GoalKeywordOrigin = "explicit" | "expanded";
+export type GoalKeywordStrength = "weak" | "normal" | "strong";
+
+export interface GoalKeywordSignal {
+  value: string;
+  origin: GoalKeywordOrigin;
+  strength: GoalKeywordStrength;
+  canonical?: string;
+}
+
 export interface NormalizedGoal {
   tokens: string[];
   expandedKeywords: string[];
   /** Subset of expandedKeywords excluding ACTION_WORDS — suitable for content grep. */
   anchorKeywords: string[];
+  /** Ranked internal keyword metadata. Not exposed in TaskContextResult. */
+  keywordSignals: GoalKeywordSignal[];
   extractedPaths: string[];
   taskTypeSuggestion: TaskType;
   taskTypeSource: "explicit" | "inferred" | "default";
@@ -21,6 +33,8 @@ const STOPWORDS = new Set([
   "no", "nos", "o", "os", "para", "por", "pela", "pelas", "pelo", "pelos", "que", "se",
   "sem", "sua", "suas", "seu", "seus", "um", "uma", "umas", "uns", "como", "entre",
   "entender", "avaliar", "melhorar", "usar", "criar", "ver", "ter", "fazer", "sobre",
+  "identificar", "localizar", "logica", "tratamento", "mensagem", "mensagens",
+  "erro", "erros", "duplicada", "duplicadas",
 ]);
 
 /** Operational verbs and action words — excluded from content grep to reduce noise. */
@@ -98,21 +112,67 @@ const ACTION_WORDS = new Set([
   "bug", "bugs", "feature", "features", "issue", "issues", "tarefa", "task",
 ]);
 
-const SYNONYMS: Record<string, string[]> = {
-  tenant: ["tenant", "tenancy", "org", "organization", "multi-tenant", "multitenant", "multi_tenant", "account", "workspace"],
-  auth: ["auth", "authentication", "login", "signin", "oauth", "session", "jwt", "token", "password", "credential"],
-  security: ["security", "secure", "safe", "protect", "permission", "acl", "rbac", "access-control", "safety", "vulnerability"],
-  middleware: ["middleware", "interceptor", "filter", "hook", "pipe", "chain"],
-  permission: ["permission", "role", "access", "allow", "deny", "policy", "capability", "scope", "privilege"],
-  isolation: ["isolation", "isolated", "separate", "sandbox", "compartment", "boundary", "partition", "scope", "scoped"],
-  api: ["api", "endpoint", "route", "rest", "graphql", "rpc", "handler", "controller"],
-  database: ["database", "db", "sql", "query", "collection", "model", "schema", "store", "repository"],
-  builder: ["builder", "build", "construct", "factory", "generator", "creator", "page-builder", "pagebuilder", "editor"],
-  public: ["public", "client", "frontend", "customer", "user-facing", "external", "open", "unauthenticated", "anonymous"],
-};
+interface SynonymGroup {
+  canonical: string;
+  aliases: string[];
+}
 
-function normalizeToken(t: string): string { 
-  return t.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase(); 
+const SYNONYM_GROUPS: SynonymGroup[] = [
+  { canonical: "tenant", aliases: ["tenant", "tenancy", "org", "organization", "multi-tenant", "multitenant", "multi_tenant", "account", "workspace"] },
+  { canonical: "auth", aliases: ["auth", "authentication", "autenticacao", "autenticar", "login", "signin", "oauth", "session", "sessions", "sessao", "sessoes", "jwt", "token", "tokens", "password", "passwords", "senha", "senhas", "credential", "credentials", "credencial", "credenciais"] },
+  { canonical: "expiration", aliases: ["expiration", "expirations", "expiracao", "expiracoes", "expire", "expires", "expired", "expirado", "expirada", "expira", "expiresat", "ttl"] },
+  { canonical: "security", aliases: ["security", "secure", "safe", "protect", "permission", "acl", "rbac", "access-control", "safety", "vulnerability", "seguranca"] },
+  { canonical: "middleware", aliases: ["middleware", "interceptor", "filter", "filtro", "hook", "pipe", "chain"] },
+  { canonical: "permission", aliases: ["permission", "role", "access", "allow", "deny", "policy", "capability", "scope", "privilege", "permissao", "papel"] },
+  { canonical: "isolation", aliases: ["isolation", "isolated", "separate", "sandbox", "compartment", "boundary", "partition", "scope", "scoped", "isolamento"] },
+  { canonical: "api", aliases: ["api", "endpoint", "route", "rota", "rest", "graphql", "rpc", "handler", "controller", "controlador"] },
+  { canonical: "database", aliases: ["database", "db", "sql", "query", "consulta", "banco", "collection", "model", "schema", "store", "repository", "repositorio"] },
+  { canonical: "builder", aliases: ["builder", "build", "construct", "factory", "generator", "creator", "page-builder", "pagebuilder", "editor"] },
+  { canonical: "public", aliases: ["public", "publico", "client", "frontend", "customer", "user-facing", "external", "open", "unauthenticated", "anonymous"] },
+];
+
+const WEAK_GOAL_KEYWORDS = new Set([
+  "admin", "app", "page", "web", "site", "data", "route", "rota", "component", "src", "index",
+  "public", "publico", "client", "customer", "frontend", "external", "open", "user-facing", "user", "usuario",
+]);
+
+const STRONG_GOAL_KEYWORDS = new Set([
+  "jwt", "oauth", "token", "token_expired", "auth:logout", "authentication", "autenticacao",
+  "tokens", "expiration", "expiracao", "expired", "expirado", "expires", "expiresat",
+  "password", "senha", "credential", "credencial", "sql", "database", "db", "query", "graphql",
+  "rbac", "acl", "vulnerability", "401", "expiration", "expiracao",
+]);
+
+function normalizeToken(t: string): string {
+  return t.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase();
+}
+
+const SYNONYM_LOOKUP = new Map<string, SynonymGroup>();
+for (const group of SYNONYM_GROUPS) {
+  for (const alias of group.aliases) {
+    const normalizedAlias = normalizeToken(alias);
+    if (!SYNONYM_LOOKUP.has(normalizedAlias)) {
+      SYNONYM_LOOKUP.set(normalizedAlias, group);
+    }
+  }
+}
+
+function keywordStrength(
+  value: string,
+  origin: GoalKeywordOrigin,
+  canonical?: string,
+): GoalKeywordStrength {
+  if (canonical === "public" || WEAK_GOAL_KEYWORDS.has(value)) return "weak";
+  if (origin === "explicit" && STRONG_GOAL_KEYWORDS.has(value)) return "strong";
+  return "normal";
+}
+
+function signalRank(signal: GoalKeywordSignal): number {
+  if (signal.origin === "explicit" && signal.strength === "strong") return 0;
+  if (signal.origin === "explicit" && signal.strength === "normal") return 1;
+  if (signal.origin === "expanded" && signal.strength === "normal") return 2;
+  if (signal.origin === "explicit" && signal.strength === "weak") return 3;
+  return 4;
 }
 
 function inferTaskType(goal: string): TaskType | null {
@@ -128,30 +188,79 @@ function inferTaskType(goal: string): TaskType | null {
 }
 
 export function normalizeGoal(goal: string, explicitType?: TaskType): NormalizedGoal {
-  const lowerGoal = goal.toLowerCase();
-  
   // Extract explicit file paths (things with / or .ts, .js, etc. without whitespace inside)
-  const extractedPaths = Array.from(goal.matchAll(/(?:[a-zA-Z0-9_-]+[\\/])+[a-zA-Z0-9_.-]+|[a-zA-Z0-9_-]+\.(?:ts|js|tsx|jsx|json|md|py|go|rs|cpp|h|css|html)\b/g))
-    .map(m => m[0].replace(/\\/g, "/"))
+  const pathMatches = Array.from(goal.matchAll(/(?:[a-zA-Z0-9_-]+[\\/])+[a-zA-Z0-9_.-]+|[a-zA-Z0-9_-]+\.(?:ts|js|tsx|jsx|json|md|py|go|rs|cpp|h|css|html)\b/g));
+  const extractedPaths = pathMatches
+    .map((match) => match[0].replace(/\\/g, "/"))
     .filter(p => !p.startsWith("http://") && !p.startsWith("https://"));
 
-  const rawTokens = lowerGoal.split(/\s+/).filter(Boolean);
-  const tokens = rawTokens.filter(t => !STOPWORDS.has(normalizeToken(t)) && t.length > 1);
-  
-  const expandedKeywords = new Set(tokens);
+  // Paths are handled as sovereign evidence. Remove them before lexical tokenization
+  // so fragments such as src, app and tsx do not pollute semantic ranking.
+  let lexicalGoal = goal;
+  for (const match of pathMatches) lexicalGoal = lexicalGoal.replace(match[0], " ");
+
+  const normalizedLexicalGoal = normalizeToken(lexicalGoal);
+  const rawTokens = normalizedLexicalGoal.match(/[a-z0-9]+(?::[a-z0-9_-]+)?(?:[_-][a-z0-9]+)*/g) ?? [];
+  const tokens = rawTokens.filter((token) => !STOPWORDS.has(token) && token.length > 1);
+
+  const signalsByValue = new Map<string, GoalKeywordSignal>();
+  const insertionOrder = new Map<string, number>();
+  let nextOrder = 0;
+
+  const addSignal = (signal: GoalKeywordSignal) => {
+    const existing = signalsByValue.get(signal.value);
+    if (!existing) {
+      signalsByValue.set(signal.value, signal);
+      insertionOrder.set(signal.value, nextOrder++);
+      return;
+    }
+
+    // Explicit terms always win over inferred synonyms. Within the same origin,
+    // retain the stronger classification.
+    if (
+      (existing.origin === "expanded" && signal.origin === "explicit") ||
+      (existing.origin === signal.origin && signalRank(signal) < signalRank(existing))
+    ) {
+      signalsByValue.set(signal.value, signal);
+    }
+  };
+
   for (const token of tokens) {
-    const nt = normalizeToken(token);
-    for (const [key, syns] of Object.entries(SYNONYMS)) {
-      if (nt.includes(key) || key.includes(nt) || syns.some(s => s.includes(nt) || nt.includes(s))) {
-        for (const s of syns) expandedKeywords.add(s);
-      }
+    const group = SYNONYM_LOOKUP.get(token);
+    addSignal({
+      value: token,
+      origin: "explicit",
+      strength: keywordStrength(token, "explicit", group?.canonical),
+      canonical: group?.canonical,
+    });
+
+    if (!group) continue;
+    for (const alias of group.aliases) {
+      const value = normalizeToken(alias);
+      if (value === token) continue;
+      addSignal({
+        value,
+        origin: "expanded",
+        strength: keywordStrength(value, "expanded", group.canonical),
+        canonical: group.canonical,
+      });
     }
   }
-  
-  const keywords = [...expandedKeywords].filter(k => k.length > 2);
-  
+
+  const keywordSignals = [...signalsByValue.values()]
+    .filter((signal) => signal.value.length > 2)
+    .sort((a, b) => {
+      const rankDiff = signalRank(a) - signalRank(b);
+      if (rankDiff !== 0) return rankDiff;
+      return (insertionOrder.get(a.value) ?? 0) - (insertionOrder.get(b.value) ?? 0);
+    });
+
+  const keywords = keywordSignals.map((signal) => signal.value);
+
   // anchorKeywords = expandedKeywords minus ACTION_WORDS (noun/adjective terms suitable for grep)
-  const anchorKeywords = keywords.filter(k => !ACTION_WORDS.has(k));
+  const anchorKeywords = keywordSignals
+    .filter((signal) => !ACTION_WORDS.has(signal.value))
+    .map((signal) => signal.value);
   
   let finalTaskType: TaskType = "auto";
   let taskTypeSource: "explicit" | "inferred" | "default" = "default";
@@ -171,6 +280,7 @@ export function normalizeGoal(goal: string, explicitType?: TaskType): Normalized
     tokens,
     expandedKeywords: keywords,
     anchorKeywords,
+    keywordSignals,
     extractedPaths: [...new Set(extractedPaths)],
     taskTypeSuggestion: finalTaskType,
     taskTypeSource,

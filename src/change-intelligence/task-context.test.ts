@@ -1194,4 +1194,158 @@ describe("task-context", () => {
       [...result.primaryFiles, ...result.supportingFiles].some(file => file.path === "src/hidden-name.ts"),
     );
   });
+
+  it("P1.3: explicit JWT anchors outrank weak public/client/customer synonyms", async () => {
+    const root = await makeWorkspace();
+    await mkdir(join(root, "src", "auth"), { recursive: true });
+    await mkdir(join(root, "scripts"), { recursive: true });
+    await writeFile(
+      join(root, "src", "auth", "session-guard.ts"),
+      "export function guardJwt(token: string) { return token === 'token_expired' ? 'expired' : 'jwt'; }",
+    );
+    await writeFile(
+      join(root, "src", "customer-dashboard.ts"),
+      "export const publicCustomerDashboard = 'public customer';",
+    );
+    await writeFile(
+      join(root, "scripts", "new-client.ts"),
+      "export const createPublicClient = () => 'public client';",
+    );
+    await gitAddAll(root);
+
+    const result = await buildTaskContext({
+      workspaceId: "jwt-vs-public",
+      cwd: root,
+      allowedRoots: [root],
+      goal: "Identificar a lógica de autenticação JWT e expiração de tokens sem alterar o contrato público",
+      type: "refactor",
+      depth: "balanced",
+    });
+
+    assert.equal(result.primaryFiles[0]?.path, "src/auth/session-guard.ts");
+    assert.equal(
+      result.primaryFiles.some((file) => file.path === "src/customer-dashboard.ts"),
+      false,
+      "customer dashboard based only on weak public synonyms must not be primary",
+    );
+    assert.equal(
+      result.primaryFiles.some((file) => file.path === "scripts/new-client.ts"),
+      false,
+      "client script based only on weak public synonyms must not be primary",
+    );
+  });
+
+  it("P1.3: API/database goal prioritizes implementation and blocks CSS auto-read", async () => {
+    const root = await makeWorkspace();
+    await mkdir(join(root, "src", "utils"), { recursive: true });
+    await mkdir(join(root, "src", "styles", "components"), { recursive: true });
+    await writeFile(
+      join(root, "src", "utils", "api.js"),
+      "export async function apiFetch(path) { return fetch(path); }",
+    );
+    await writeFile(
+      join(root, "src", "styles", "components", "consulta-table.css"),
+      "/* consulta banco filtros */ .consulta-table { display: grid; }",
+    );
+    await gitAddAll(root);
+
+    const result = await buildTaskContext({
+      workspaceId: "api-vs-css",
+      cwd: root,
+      allowedRoots: [root],
+      goal: "Localizar a lógica de consulta ao banco e aplicação de filtros de imóveis sem alterar a resposta da API",
+      type: "bug_fix",
+      depth: "balanced",
+    });
+
+    assert.equal(result.primaryFiles[0]?.path, "src/utils/api.js");
+    assert.equal(
+      result.primaryFiles.some((file) => file.path.endsWith("consulta-table.css")),
+      false,
+      "CSS must not be primary for an API/database implementation goal",
+    );
+    const cssCandidate = result.supportingFiles.find((file) =>
+      file.path.endsWith("consulta-table.css"),
+    );
+    assert.ok(cssCandidate, "CSS may remain visible as supporting context");
+    assert.equal(cssCandidate?.autoReadEligible, false);
+    assert.equal(
+      result.suggestedNextSteps.some((step) =>
+        JSON.stringify(step.arguments).includes("consulta-table.css"),
+      ),
+      false,
+      "next steps must not auto-read incompatible CSS",
+    );
+  });
+
+  it("P1.3: warm cache preserves ranking deterministically", async () => {
+    const root = await makeWorkspace();
+    await mkdir(join(root, "src", "auth"), { recursive: true });
+    await writeFile(join(root, "src", "auth", "guard.ts"), "export const guard = 'jwt token expiration';");
+    await writeFile(join(root, "src", "customer.ts"), "export const customer = 'public customer';");
+    await gitAddAll(root);
+
+    const input = {
+      workspaceId: "warm-ranking",
+      cwd: root,
+      allowedRoots: [root],
+      goal: "refatorar JWT token expiration sem alterar contrato público",
+      depth: "balanced" as const,
+    };
+    const cold = await buildTaskContext(input);
+    const warm = await buildTaskContext(input);
+
+    assert.deepEqual(
+      cold.primaryFiles.map((file) => file.path),
+      warm.primaryFiles.map((file) => file.path),
+    );
+    assert.deepEqual(
+      cold.supportingFiles.map((file) => file.path),
+      warm.supportingFiles.map((file) => file.path),
+    );
+  });
+
+  it("P1.3: token expiration morphology finds account setup implementation", async () => {
+    const root = await makeWorkspace();
+    await mkdir(join(root, "src", "lib"), { recursive: true });
+    await mkdir(join(root, "src", "payload", "collections"), { recursive: true });
+    await mkdir(join(root, "src", "scripts"), { recursive: true });
+    await writeFile(
+      join(root, "src", "lib", "account-setup.ts"),
+      "export function verifyAccountSetupToken(token: string) { const expiresAt = Date.now(); if (expiresAt <= Date.now()) throw new Error('Token expirado'); return token; }",
+    );
+    await writeFile(
+      join(root, "src", "payload", "collections", "accountSetupTokens.ts"),
+      "export const accountSetupTokens = { fields: ['tokenHash', 'expiresAt'] };",
+    );
+    await writeFile(
+      join(root, "src", "scripts", "new-client.ts"),
+      "export const createPublicClient = () => 'public customer';",
+    );
+    await gitAddAll(root);
+
+    const result = await buildTaskContext({
+      workspaceId: "token-expiration-realistic",
+      cwd: root,
+      allowedRoots: [root],
+      goal: "Identificar a lógica de autenticação JWT e o tratamento de expiração de tokens sem alterar o contrato público",
+      type: "refactor",
+      depth: "balanced",
+    });
+
+    assert.ok(
+      result.primaryFiles.some((file) => file.path === "src/lib/account-setup.ts"),
+      "account setup token implementation must be primary",
+    );
+    assert.ok(
+      result.primaryFiles.some((file) =>
+        file.path.endsWith("payload/collections/accountSetupTokens.ts"),
+      ),
+      "camelCase token collection filename must be recognized",
+    );
+    assert.equal(
+      result.primaryFiles.some((file) => file.path.endsWith("scripts/new-client.ts")),
+      false,
+    );
+  });
 });
