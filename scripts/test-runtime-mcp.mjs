@@ -106,25 +106,16 @@ async function run() {
     assert(!tc1Text.includes("excluded/secret.ts"), "Excluded file should not be present");
     assert(tc1Text.includes("tests/auth.test.ts"), "Tests should be in context since they depend on focused files");
     
-    function extractTaskContextResult(response) {
-      const structured = response?.structuredContent;
-      const candidates = [
-        structured?.data,
-        structured,
-        structured?.envelope?.data,
-        structured?.result,
-        structured?.data?.envelope,
-      ];
-      return candidates.find(
-        (candidate) =>
-          candidate?.riskProfile?.version === 1 &&
-          Array.isArray(candidate?.primaryFiles) &&
-          Array.isArray(candidate?.supportingFiles)
-      );
-    }
-
-    const tc1Data = extractTaskContextResult(tc1);
+    assert.equal(tc1.structuredContent?.status, "success", "task_context must expose one top-level success envelope");
+    const tc1Data = tc1.structuredContent?.data;
     assert.ok(tc1Data, "task_context result was not found");
+    assert.equal("result" in tc1Data, false, "task_context data must not contain a serialized result copy");
+    assert.equal("envelope" in tc1Data, false, "task_context data must not contain a nested envelope");
+    assert.match(
+      tc1.content?.find((item) => item.type === "text")?.text ?? "",
+      /^task_context: success/,
+      "text content must remain a compact tool summary",
+    );
     assert.equal(tc1Data.riskProfile.version, 1, "riskProfile.version must be 1");
     assert.ok(["low", "medium", "high", "critical"].includes(tc1Data.riskProfile.level), "riskProfile.level must be valid");
     assert.equal(tc1Data.riskProfile.basis, "pre_budget", "riskProfile.basis must be pre_budget");

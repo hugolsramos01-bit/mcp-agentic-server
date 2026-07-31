@@ -41,6 +41,28 @@ test("nested envelope", () => {
   assert.strictEqual(result.structuredContent.status, "success");
 });
 
+test("legacy result/envelope wrapper is collapsed without duplicating data", () => {
+  const instr = createMockInstrumentation();
+  const taskContextData = {
+    version: 1,
+    primaryFiles: [{ path: "src/auth.ts" }],
+    supportingFiles: [],
+  };
+  const response = {
+    structuredContent: {
+      result: JSON.stringify(taskContextData),
+      envelope: taskContextData,
+    },
+  };
+
+  const result = finalizeToolResponse(response, defaultOptions, instr);
+
+  assert.deepStrictEqual(result.structuredContent.data, taskContextData);
+  assert.equal("result" in result.structuredContent.data, false);
+  assert.equal("envelope" in result.structuredContent.data, false);
+  assert.strictEqual(instr.counts.jsonParses, 0, "Structured data must not be reparsed");
+});
+
 test("native structured data", () => {
   const instr = createMockInstrumentation();
   const response = {
@@ -105,6 +127,23 @@ test("text error", () => {
   assert.strictEqual(result.structuredContent.status, "error");
   assert.strictEqual(result.structuredContent.error, "this is an error message");
   assert.deepStrictEqual(result.structuredContent.data, {});
+  assert.strictEqual(result.isError, true);
+});
+
+test("native command failure becomes an error envelope", () => {
+  const instr = createMockInstrumentation();
+  const response = {
+    structuredContent: {
+      status: "failed",
+      exitCode: 2,
+      message: "typecheck failed",
+    },
+  };
+
+  const result = finalizeToolResponse(response, defaultOptions, instr);
+
+  assert.strictEqual(result.structuredContent.status, "error");
+  assert.strictEqual(result.structuredContent.error, "typecheck failed");
   assert.strictEqual(result.isError, true);
 });
 

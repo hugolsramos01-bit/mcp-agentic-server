@@ -126,7 +126,7 @@ function createAppToolRegistrar(server: McpServer, config: ServerConfig) {
           response = {
             content: [{ type: "text", text: JSON.stringify(envelope, null, 2) }],
             isError: true,
-            structuredContent: envelope.data
+            structuredContent: envelope
           };
         } else {
           throw err;
@@ -1829,78 +1829,26 @@ function createMcpServer(
       }
     };
 
-    const wrap = (tool: string, req: any, response: any, extra?: { nextActions?: any[], diagnostics?: any[], startedAt?: number }) => {
-      const resultText = contentText(response.content);
-      
-      // Build universal envelope — every tool response includes:
-      // - status: "success" | "error" (tool execution), with commandStatus when applicable
-      // - data: un-stringified parsed JSON or plain text
-      // - error: string or null
-      // - diagnostics: directly callable follow-up suggestions or warnings
-      // - metrics: durationMs, truncated
-      const toolStatus = response.isError ? "error" : "success";
-      
-      // Detect command failure inside a successful tool execution
-      // (e.g. test runner that exited non-zero but tool executed fine)
-      let commandStatus: string | undefined;
-      if (resultText.includes('"status": "failed"') || resultText.includes('"status":"failed"')) {
-        commandStatus = "failed";
-      } else if (resultText.includes('"exitCode":') || resultText.includes('"exitCode" :')) {
-        // extract exit code
-        const ecMatch = resultText.match(/"exitCode"\s*:\s*(\d+)/);
-        if (ecMatch && parseInt(ecMatch[1]) !== 0) {
-          commandStatus = "failed";
-        }
-      }
-      
-      const status = commandStatus === "failed" ? "error" : toolStatus; // unify "failed" to "error" in status
-      // Auto-measure: if no startedAt provided, measure at wrap() entry as estimate.
-      // This catches the wall-clock time spent in the handler (including awaits).
-      const wrapEntryAt = performance.now();
-      const durationMs = extra?.startedAt ? Math.round(performance.now() - extra.startedAt) : Math.round(performance.now() - (req.__startedAt ?? wrapEntryAt));
-      
-      let parsedData: any = resultText;
-      try {
-        if (resultText.trim().startsWith("{") || resultText.trim().startsWith("[")) {
-          parsedData = JSON.parse(resultText);
-        }
-      } catch (e) {
-        // Leave as string if not valid JSON
-      }
-
-      const envelope = response.structuredContent ? {
-        ...response.structuredContent,
-        diagnostics: response.structuredContent.diagnostics ?? extra?.diagnostics ?? [],
-        metrics: {
-          durationMs,
-          truncated: Boolean(response._meta?.truncated || resultText.includes("[truncated]") || resultText.includes("... [truncated")),
-          ...(response.structuredContent.metrics || {})
-        }
-      } : {
-        status,
-        data: status === "error" && typeof parsedData === "string" ? {} : parsedData,
-        error: status === "error" ? (typeof parsedData === "string" ? parsedData : (parsedData.error || parsedData.message || JSON.stringify(parsedData))) : null,
-        diagnostics: extra?.diagnostics ?? [],
-        metrics: {
-          durationMs,
-          truncated: Boolean(response._meta?.truncated || resultText.includes("[truncated]") || resultText.includes("... [truncated")),
-        }
-      };
+    // Assistant-mode decorator only. The universal MCP envelope is produced
+    // exactly once by finalizeToolResponse at the public tool boundary.
+    const wrap = (tool: string, req: any, response: any) => {
+      const summary = getSummary(tool, req);
+      const responseMeta = response?._meta ?? {};
+      const existingCard = responseMeta.card;
 
       return {
         ...response,
-        content: [{ type: "text", text: `${tool}: ${getSummary(tool, req)}` }],
         _meta: {
+          ...responseMeta,
           tool,
           card: {
+            ...(existingCard && typeof existingCard === "object"
+              ? existingCard
+              : {}),
             workspaceId: req.workspaceId,
-            summary: getSummary(tool, req),
-            payload: { content: response.content },
+            summary,
+            payload: existingCard?.payload ?? { content: response.content },
           },
-        },
-        structuredContent: {
-          result: resultText,
-          envelope,
         },
       };
     };

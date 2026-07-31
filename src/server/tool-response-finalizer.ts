@@ -31,6 +31,63 @@ function isEnvelope(value: any): boolean {
   );
 }
 
+function legacyWrappedData(value: any): any | undefined {
+  if (
+    !value ||
+    typeof value !== "object" ||
+    typeof value.result !== "string" ||
+    !value.envelope ||
+    typeof value.envelope !== "object" ||
+    isEnvelope(value.envelope)
+  ) {
+    return undefined;
+  }
+
+  return value.envelope;
+}
+
+function detectCommandFailure(value: any): string | undefined {
+  if (typeof value === "string") {
+    try {
+      const parsed = JSON.parse(value);
+      if (parsed !== value) return detectCommandFailure(parsed);
+    } catch {
+      // Some legacy tools return command JSON as plain text.
+    }
+
+    if (/"status"\s*:\s*"failed"/i.test(value)) {
+      return "Command reported status=failed";
+    }
+    const exitCodeMatch = value.match(/"exitCode"\s*:\s*(-?\d+)/i);
+    if (exitCodeMatch && Number(exitCodeMatch[1]) !== 0) {
+      return `Command exited with code ${exitCodeMatch[1]}`;
+    }
+    return undefined;
+  }
+
+  if (!value || typeof value !== "object") return undefined;
+
+  if (typeof value.status === "string" && value.status.toLowerCase() === "failed") {
+    return value.error ?? value.message ?? "Command reported status=failed";
+  }
+
+  const exitCode =
+    typeof value.exitCode === "number"
+      ? value.exitCode
+      : typeof value.exitCode === "string"
+        ? Number(value.exitCode)
+        : undefined;
+  if (Number.isFinite(exitCode) && exitCode !== 0) {
+    return value.error ?? value.message ?? `Command exited with code ${exitCode}`;
+  }
+
+  if (typeof value.result === "string") {
+    return detectCommandFailure(value.result);
+  }
+
+  return undefined;
+}
+
 export function finalizeToolResponse(
   response: any,
   options: ToolResponseFinalizerOptions,
@@ -48,6 +105,7 @@ export function finalizeToolResponse(
       : isEnvelope(structured)
         ? structured
         : undefined;
+  const legacyData = existingEnvelope ? undefined : legacyWrappedData(structured);
 
   let parsedFromText: any;
   let rawData: any;
@@ -58,6 +116,8 @@ export function finalizeToolResponse(
   if (existingEnvelope) {
     finalStatus = existingEnvelope.status;
     rawData = existingEnvelope.data;
+  } else if (legacyData !== undefined) {
+    rawData = legacyData;
   } else if (structured !== undefined) {
     // Structured data nativo da ferramenta.
     rawData = structured;
@@ -86,6 +146,13 @@ export function finalizeToolResponse(
     }
   }
 
+  const commandFailure =
+    finalStatus === "success" ? detectCommandFailure(rawData) : undefined;
+  if (commandFailure) {
+    finalStatus = "error";
+    parsedFromText = commandFailure;
+  }
+
   const status = finalStatus;
 
   const basePolicy = {
@@ -105,13 +172,17 @@ export function finalizeToolResponse(
 
   const wasTruncated = truncMetrics.totalTruncatedFields > 0 || Boolean(response._meta?.truncated || (text && (text.includes("[truncated]") || text.includes("... [truncated"))));
 
-  const envelopeError = existingEnvelope?.error ?? (status === "error" ? (typeof parsedFromText === "string" ? parsedFromText : parsedFromText?.error ?? parsedFromText?.message ?? JSON.stringify(parsedFromText)) : null);
+  const envelopeError = existingEnvelope?.error ?? (status === "error" ? (commandFailure ?? (typeof parsedFromText === "string" ? parsedFromText : parsedFromText?.error ?? parsedFromText?.message ?? JSON.stringify(parsedFromText))) : null);
+  const nativeDiagnostics =
+    !existingEnvelope && Array.isArray(rawData?.diagnostics)
+      ? rawData.diagnostics
+      : [];
 
   const envelope = {
     status,
     data,
     error: envelopeError,
-    diagnostics: existingEnvelope?.diagnostics ?? [],
+    diagnostics: existingEnvelope?.diagnostics ?? nativeDiagnostics,
     metrics: {
       durationMs: existingEnvelope?.metrics?.durationMs ?? Math.round(performance.now() - startedAt),
       truncated: wasTruncated,
