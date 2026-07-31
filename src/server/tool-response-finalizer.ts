@@ -46,6 +46,12 @@ function legacyWrappedData(value: any): any | undefined {
   return value.envelope;
 }
 
+const COMMAND_RESULT_TOOLS = new Set([
+  "bash",
+  "run_package_script",
+  "worktree_install_deps",
+]);
+
 function detectCommandFailure(value: any): string | undefined {
   if (typeof value === "string") {
     try {
@@ -147,7 +153,9 @@ export function finalizeToolResponse(
   }
 
   const commandFailure =
-    finalStatus === "success" ? detectCommandFailure(rawData) : undefined;
+    finalStatus === "success" && COMMAND_RESULT_TOOLS.has(toolName)
+      ? detectCommandFailure(rawData)
+      : undefined;
   if (commandFailure) {
     finalStatus = "error";
     parsedFromText = commandFailure;
