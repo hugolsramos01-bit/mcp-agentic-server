@@ -263,6 +263,7 @@ export interface VerificationPlan {
 
   basis:
     | "actual_changes"
+    | "goal_discovery"
     | "discovery";
 
   riskLevel: RiskLevel;
@@ -278,6 +279,11 @@ export interface VerificationPlan {
 }
 
 export interface VerificationEvidence {
+  basis?:
+    | "actual_changes"
+    | "goal_discovery"
+    | "discovery";
+
   riskProfile: RiskProfile;
   taskType: TaskType;
 
@@ -286,6 +292,9 @@ export interface VerificationEvidence {
 
   nearbyTests: string[];
   dependentPaths: string[];
+  focusPaths?: string[];
+  domainSignals?: string[];
+  limitations?: string[];
 
   availableChecks:
     ClassifiedCheck[];

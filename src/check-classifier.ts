@@ -74,11 +74,19 @@ export function classifyPackageScripts(
       confidence = "high";
       estimatedCost = "high";
       reason = "Valida integração entre múltiplos componentes";
-    } else if (script === "test:smoke" || script === "smoke" || script === "smoke:package") {
+    } else if (
+      script === "test:smoke" ||
+      script === "smoke" ||
+      script === "smoke:package" ||
+      script === "ci:verify" ||
+      script === "verify:ci"
+    ) {
       tier = "smoke_tests";
       confidence = "high";
-      estimatedCost = "low";
-      reason = "Verificação rápida de inicialização ou pacote gerado";
+      estimatedCost = script.includes("ci") ? "high" : "low";
+      reason = script.includes("ci")
+        ? "Executa a verificação declarada para o pipeline de integração contínua"
+        : "Verificação rápida de inicialização ou pacote gerado";
     } else if (script === "build" || script === "build:app") {
       tier = "build";
       confidence = "high";

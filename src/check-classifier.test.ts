@@ -81,6 +81,18 @@ describe("check-classifier", () => {
     assert.strictEqual(unitTest.command, "yarn test:unit");
   });
 
+  it("classifies declared CI verification as a release check", () => {
+    const classified = classifyPackageScripts(
+      { "ci:verify": "node scripts/verify-ci.mjs" },
+      "npm",
+    );
+
+    assert.strictEqual(classified[0].tier, "smoke_tests");
+    assert.strictEqual(classified[0].confidence, "high");
+    assert.strictEqual(classified[0].estimatedCost, "high");
+    assert.strictEqual(classified[0].command, "npm run ci:verify");
+  });
+
   it("does not drop unclassified scripts silently", () => {
     const scripts = {
       "verify-contracts": "node verify.js",

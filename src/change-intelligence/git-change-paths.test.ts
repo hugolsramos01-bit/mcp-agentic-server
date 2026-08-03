@@ -4,7 +4,7 @@ import { execFileSync } from "node:child_process";
 import { join } from "node:path";
 import { mkdtempSync, rmSync, writeFileSync, mkdirSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { getGitChangedPaths } from "./git-change-paths.js";
+import { findGitMetadataRoot, getGitChangedPaths } from "./git-change-paths.js";
 
 describe("getGitChangedPaths", () => {
   let cwd: string;
@@ -67,4 +67,29 @@ describe("getGitChangedPaths", () => {
     assert.ok(paths.includes("renamed.txt"));
     assert.strictEqual(paths.includes("initial.txt"), false);
   });
+
+  test("does not inherit Git metadata from an ancestor workspace", () => {
+    const nested = join(cwd, "nested", "deeper");
+    mkdirSync(nested, { recursive: true });
+    assert.strictEqual(findGitMetadataRoot(nested), null);
+  });
+});
+
+test("fails fast when Git metadata is unavailable", async () => {
+  const noGitRoot = mkdtempSync(join(tmpdir(), "git-metadata-unavailable-"));
+  try {
+    const startedAt = performance.now();
+    assert.strictEqual(findGitMetadataRoot(noGitRoot), null);
+    await assert.rejects(
+      getGitChangedPaths(noGitRoot),
+      (error: Error & { code?: string }) =>
+        error.code === "git_metadata_unavailable",
+    );
+    assert.ok(
+      performance.now() - startedAt < 1_000,
+      "missing Git metadata should not spawn a slow repository search",
+    );
+  } finally {
+    rmSync(noGitRoot, { recursive: true, force: true });
+  }
 });

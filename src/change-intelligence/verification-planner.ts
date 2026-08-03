@@ -13,6 +13,8 @@ const SCRIPT_PRIORITY = [
   "build",
   "build:app",
   "smoke:package",
+  "ci:verify",
+  "verify:ci",
   "test:smoke",
   "smoke",
   "test:http",
@@ -22,6 +24,15 @@ const SCRIPT_PRIORITY = [
 
 const COST_PRIORITY = { low: 3, medium: 2, high: 1 };
 const CONFIDENCE_PRIORITY = { high: 3, medium: 2, low: 1 };
+
+function isIntegrationTestPath(path: string): boolean {
+  const normalized = path.replace(/\\/g, "/").toLowerCase();
+  return (
+    normalized.includes("/integration/") ||
+    /(?:^|[._/-])integration(?:[._/-]|$)/.test(normalized) ||
+    normalized.includes("/e2e/")
+  );
+}
 
 function sortChecks(checks: ClassifiedCheck[]): ClassifiedCheck[] {
   return [...checks].sort((a, b) => {
@@ -54,8 +65,9 @@ function sortChecks(checks: ClassifiedCheck[]): ClassifiedCheck[] {
 export function planVerification(evidence: VerificationEvidence): VerificationPlan {
   const { riskProfile, environment, availableChecks, changedPaths, candidatePaths } = evidence;
 
-  // Rule: actual_changes wins over discovery candidates
-  const basis = changedPaths.length > 0 ? "actual_changes" : "discovery";
+  // The evidence builder owns the provenance. Keep a compatibility fallback for
+  // callers that construct VerificationEvidence directly.
+  const basis = evidence.basis ?? (changedPaths.length > 0 ? "actual_changes" : "discovery");
 
   // Check for documentation-only changes
   const scopePaths = changedPaths.length > 0 ? changedPaths : candidatePaths;
@@ -83,7 +95,7 @@ export function planVerification(evidence: VerificationEvidence): VerificationPl
   const safeChecks = availableChecks.filter(check => !check.mutatesWorkspace);
 
   const recommendations: (VerificationRecommendation & { _selectionRank?: number })[] = [];
-  const limitations: string[] = [];
+  const limitations: string[] = [...(evidence.limitations ?? [])];
 
   if (environment.dependenciesInstalled === false) {
     limitations.push("Project dependencies are not installed; recommended checks may not run until the workspace dependencies are prepared.");
@@ -99,6 +111,13 @@ export function planVerification(evidence: VerificationEvidence): VerificationPl
   const integrationChecks = getChecksByTier("integration_tests");
   const smokeChecks = getChecksByTier("smoke_tests");
   const e2eChecks = getChecksByTier("e2e_tests");
+  const domainSignals = evidence.domainSignals ?? [];
+  const hasRelatedTests = evidence.nearbyTests.length > 0;
+  const hasRelatedUnitTests = evidence.nearbyTests.some(
+    (path) => !isIntegrationTestPath(path),
+  );
+  const hasDomainRelevantIntegrationEvidence =
+    domainSignals.length > 0 && hasRelatedTests;
 
   // Caps tracking
   const caps = {
@@ -153,16 +172,16 @@ export function planVerification(evidence: VerificationEvidence): VerificationPl
   switch (policyLevel) {
     case "low":
       recommend(staticChecks, "initial", "recommended", "Cheap static validation before broader checks.", "static_analysis");
-      if (evidence.nearbyTests.length > 0) {
-        recommend(unitChecks.length > 0 ? unitChecks : generalChecks, "after_initial_success", "recommended", "Nearby tests were discovered for the changed source files.", "test_checks");
+      if (hasRelatedUnitTests) {
+        recommend(unitChecks.length > 0 ? unitChecks : generalChecks, "after_initial_success", "recommended", "Nearby unit or general tests were discovered for the changed source files.", "test_checks");
       }
       break;
 
     case "medium":
       recommend(staticChecks, "initial", "recommended", "Static validation required for medium risk.", "static_analysis");
-      if (evidence.nearbyTests.length > 0) {
-        recommend(unitChecks.length > 0 ? unitChecks : generalChecks, "after_initial_success", "recommended", "Nearby tests were discovered for the changed source files.", "test_checks");
-      } else {
+      if (hasRelatedUnitTests) {
+        recommend(unitChecks.length > 0 ? unitChecks : generalChecks, "after_initial_success", "recommended", "Nearby unit or general tests were discovered for the changed source files.", "test_checks");
+      } else if (!hasRelatedTests) {
         recommend(unitChecks.length > 0 ? unitChecks : generalChecks, "after_initial_success", "recommended", "Medium risk warrants unit or general test coverage.", "test_checks");
       }
       break;
@@ -187,6 +206,40 @@ export function planVerification(evidence: VerificationEvidence): VerificationPl
         needsSmoke = true;
       }
       break;
+  }
+
+  if (hasDomainRelevantIntegrationEvidence) {
+    if (integrationChecks.length > 0) {
+      recommend(
+        integrationChecks,
+        "after_initial_success",
+        policyLevel === "high" || policyLevel === "critical"
+          ? "strongly_recommended"
+          : "recommended",
+        `Domain-relevant tests were found for: ${domainSignals.join(", ")}.`,
+        "integration",
+      );
+      if (
+        !limitations.includes(
+          "Integration tests may require an isolated database.",
+        )
+      ) {
+        limitations.push("Integration tests may require an isolated database.");
+      }
+      if (smokeChecks.length > 0) {
+        recommend(
+          smokeChecks,
+          "before_release",
+          "recommended",
+          "Domain-sensitive changes should pass the declared smoke or CI verification before release.",
+          "smoke",
+        );
+      }
+    } else {
+      limitations.push(
+        `Related tests were found for ${domainSignals.join(", ")}, but no declared integration check exists.`,
+      );
+    }
   }
 
   if (needsBuild) {
