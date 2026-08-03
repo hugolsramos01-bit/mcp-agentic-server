@@ -1,11 +1,11 @@
 import { existsSync } from "node:fs";
-import { join } from "node:path";
-import { 
-  VerificationEvidence, 
-  TaskType, 
+import { isAbsolute, join } from "node:path";
+import {
+  VerificationEvidence,
+  TaskType,
   CandidateAssessment,
   DirectDependentEntry,
-  RiskProfileInput
+  RiskProfileInput,
 } from "./types.js";
 import type { ClassifiedCheck, PackageManager } from "../check-classifier.js";
 import { buildTaskContext } from "./task-context.js";
@@ -21,12 +21,53 @@ export interface BuildEvidenceOptions {
   goal?: string;
   taskType?: TaskType;
   focusPaths?: string[];
+  gitMetadataAvailable?: boolean;
   availableChecks: ClassifiedCheck[];
+}
+
+const DOMAIN_PATTERNS: Array<[string, RegExp]> = [
+  [
+    "concurrency",
+    /(?:^|[^a-z0-9])(lease|lock|locking|mutex|concurr(?:ency|ent)?|fencing|semaphore)(?:[^a-z0-9]|$)/i,
+  ],
+  [
+    "transaction",
+    /(?:^|[^a-z0-9])(transaction|transactional|transacao|rollback|commit)(?:[^a-z0-9]|$)/i,
+  ],
+  [
+    "authentication",
+    /(?:^|[^a-z0-9])(auth|authentication|autenticacao|oauth|jwt|login)(?:[^a-z0-9]|$)/i,
+  ],
+  [
+    "migration",
+    /(?:^|[^a-z0-9])(migration|migrate|migracao|schema-change)(?:[^a-z0-9]|$)/i,
+  ],
+];
+
+function normalizeFocusedPaths(cwd: string, paths: string[] = []): string[] {
+  const normalized = new Set<string>();
+  for (const rawPath of paths) {
+    const path = rawPath.replace(/\\/g, "/").replace(/^\.\/+/, "").trim();
+    if (!path || isAbsolute(path) || path.split("/").includes("..")) continue;
+    if (!existsSync(join(cwd, path))) continue;
+    normalized.add(path);
+  }
+  return [...normalized].sort((a, b) => a.localeCompare(b));
+}
+
+export function detectVerificationDomains(
+  goal: string | undefined,
+  paths: readonly string[],
+): string[] {
+  const searchable = [goal ?? "", ...paths].join(" ");
+  return DOMAIN_PATTERNS
+    .filter(([, pattern]) => pattern.test(searchable))
+    .map(([domain]) => domain);
 }
 
 export function detectDependencyEnvironment(
   cwd: string,
-  packageManager: PackageManager
+  packageManager: PackageManager,
 ): boolean | "unknown" {
   if (existsSync(join(cwd, "node_modules"))) {
     return true;
@@ -41,19 +82,35 @@ export function detectDependencyEnvironment(
 }
 
 export async function buildVerificationEvidence(
-  options: BuildEvidenceOptions
+  options: BuildEvidenceOptions,
 ): Promise<VerificationEvidence | null> {
-  const { cwd, packageManager, goal, taskType, focusPaths, availableChecks } = options;
+  const {
+    cwd,
+    packageManager,
+    goal,
+    taskType,
+    focusPaths,
+    availableChecks,
+  } = options;
   const dependenciesInstalled = detectDependencyEnvironment(cwd, packageManager);
+  const normalizedFocusPaths = normalizeFocusedPaths(cwd, focusPaths);
+  const evidenceLimitations: string[] = [];
 
-  // Normalize and deduplicate changed paths
-  const changedPaths = [...new Set((options.changedPaths ?? [])
-    .map(p => p.replace(/\\/g, "/").replace(/^\.\/+/, ""))
-    .filter(Boolean))
+  if (options.gitMetadataAvailable === false) {
+    evidenceLimitations.push(
+      "Git metadata unavailable; plan derived from goal and focused paths.",
+    );
+  }
+
+  const changedPaths = [
+    ...new Set(
+      (options.changedPaths ?? [])
+        .map((path) => path.replace(/\\/g, "/").replace(/^\.\/+/, ""))
+        .filter(Boolean),
+    ),
   ].sort((a, b) => a.localeCompare(b));
 
-  // 1. Explicit actual_changes route
-  if (changedPaths && changedPaths.length > 0) {
+  if (changedPaths.length > 0) {
     const assessments: CandidateAssessment[] = changedPaths.map((path) => ({
       path,
       kind: classifyCandidateKind(path),
@@ -71,20 +128,57 @@ export async function buildVerificationEvidence(
       rejectionReasons: [],
     }));
 
-    // Find nearby tests manually for the changed source files
-    const { git } = await import("../git.js");
-    const lsFilesResult = await git(cwd, ["ls-files", "--cached", "--others", "--exclude-standard", "-z"]);
-    const allTrackedFiles = lsFilesResult.stdout.split("\0").filter(Boolean);
+    let allTrackedFiles = [...new Set([...changedPaths, ...normalizedFocusPaths])];
+    try {
+      const { git } = await import("../git.js");
+      const lsFilesResult = await git(cwd, [
+        "ls-files",
+        "--cached",
+        "--others",
+        "--exclude-standard",
+        "-z",
+      ]);
+      allTrackedFiles = lsFilesResult.stdout.split("\0").filter(Boolean);
+    } catch {
+      if (
+        !evidenceLimitations.some((item) =>
+          item.startsWith("Git metadata unavailable"),
+        )
+      ) {
+        evidenceLimitations.push(
+          "Git metadata unavailable; verification evidence is limited to provided paths.",
+        );
+      }
+    }
     const fileSet: ReadonlySet<string> = new Set(allTrackedFiles);
-    
-    const nearbyTests = changedPaths.map(sourcePath => ({
-      sourcePath,
-      testPaths: findNearbyTests(sourcePath, allTrackedFiles, fileSet)
-    })).filter(candidate => candidate.testPaths.length > 0);
 
-    // Get dependents to calculate fan-out
-    const dependentsResults = await getLimitedSharedDependencies(cwd, changedPaths);
-    const directDependents = dependentsResults as DirectDependentEntry[];
+    const nearbyTestCandidates = changedPaths
+      .map((sourcePath) => ({
+        sourcePath,
+        testPaths: findNearbyTests(sourcePath, allTrackedFiles, fileSet),
+      }))
+      .filter((candidate) => candidate.testPaths.length > 0);
+    const focusedTests = normalizedFocusPaths.filter(
+      (path) => classifyCandidateKind(path) === "test",
+    );
+    const nearbyTests = [
+      ...new Set([
+        ...nearbyTestCandidates.flatMap((candidate) => candidate.testPaths),
+        ...focusedTests,
+      ]),
+    ].sort((a, b) => a.localeCompare(b));
+
+    let directDependents: DirectDependentEntry[] = [];
+    try {
+      directDependents = (await getLimitedSharedDependencies(
+        cwd,
+        changedPaths,
+      )) as DirectDependentEntry[];
+    } catch {
+      evidenceLimitations.push(
+        "Dependency relationships could not be resolved for the provided change set.",
+      );
+    }
 
     const riskInput: RiskProfileInput = {
       taskType: taskType || "auto",
@@ -94,22 +188,31 @@ export async function buildVerificationEvidence(
         matchedFileCount: changedPaths.length,
         exactFiles: [],
         directories: [],
-        unresolved: []
+        unresolved: [],
       },
       assessments,
       directDependents,
-      nearbyTestCandidates: nearbyTests
+      nearbyTestCandidates,
     };
 
     const riskProfile = calculateRiskProfile(riskInput);
 
     return {
+      basis: "actual_changes",
       riskProfile,
       taskType: taskType || "auto",
       changedPaths,
-      candidatePaths: [], // Candidates are mostly for discovery
-      nearbyTests: nearbyTests.flatMap(n => n.testPaths),
-      dependentPaths: Array.from(new Set(directDependents.flatMap((d) => d.dependents))),
+      candidatePaths: [],
+      nearbyTests,
+      dependentPaths: Array.from(
+        new Set(directDependents.flatMap((entry) => entry.dependents)),
+      ),
+      focusPaths: normalizedFocusPaths,
+      domainSignals: detectVerificationDomains(goal, [
+        ...changedPaths,
+        ...normalizedFocusPaths,
+      ]),
+      limitations: evidenceLimitations,
       availableChecks,
       environment: {
         dependenciesInstalled,
@@ -117,7 +220,65 @@ export async function buildVerificationEvidence(
     };
   }
 
-  // 2. Discovery route (no changedPaths, but goal exists)
+  if (goal && options.gitMetadataAvailable === false) {
+    const assessments: CandidateAssessment[] = normalizedFocusPaths.map((path) => ({
+      path,
+      kind: classifyCandidateKind(path),
+      evidence: [
+        {
+          type: "focus_path",
+          detail: "File was explicitly provided for goal-based verification",
+        },
+      ],
+      score: 90,
+      confidence: "high",
+      primaryEligible: true,
+      autoReadEligible: true,
+      eligibilityReasons: ["goal_focus"],
+      rejectionReasons: [],
+    }));
+    const focusedTests = normalizedFocusPaths.filter(
+      (path) => classifyCandidateKind(path) === "test",
+    );
+    const riskProfile = calculateRiskProfile({
+      taskType: taskType || "auto",
+      effectiveDepth: "balanced",
+      focusScope: {
+        active: normalizedFocusPaths.length > 0,
+        matchedFileCount: normalizedFocusPaths.length,
+        exactFiles: normalizedFocusPaths,
+        directories: [],
+        unresolved: [],
+      },
+      assessments,
+      directDependents: [],
+      nearbyTestCandidates: [],
+    });
+
+    if (normalizedFocusPaths.length === 0) {
+      evidenceLimitations.push(
+        "No focused paths were available; risk was estimated from the goal only.",
+      );
+    }
+
+    return {
+      basis: "goal_discovery",
+      riskProfile,
+      taskType: taskType || "auto",
+      changedPaths: [],
+      candidatePaths: normalizedFocusPaths,
+      nearbyTests: focusedTests,
+      dependentPaths: [],
+      focusPaths: normalizedFocusPaths,
+      domainSignals: detectVerificationDomains(goal, normalizedFocusPaths),
+      limitations: evidenceLimitations,
+      availableChecks,
+      environment: {
+        dependenciesInstalled,
+      },
+    };
+  }
+
   if (goal) {
     const taskContext = await buildTaskContext({
       type: taskType ?? "auto",
@@ -126,17 +287,42 @@ export async function buildVerificationEvidence(
       depth: "balanced",
       workspaceId: "suggest-checks-discovery",
       allowedRoots: [cwd],
-      goal: goal,
-      cwd
+      goal,
+      cwd,
     });
 
+    const discoveredCandidates = [
+      ...taskContext.primaryFiles,
+      ...taskContext.supportingFiles,
+    ].map((file) => file.path);
+    const focusedTests = normalizedFocusPaths.filter(
+      (path) => classifyCandidateKind(path) === "test",
+    );
+    const candidatePaths = [
+      ...new Set([...discoveredCandidates, ...normalizedFocusPaths]),
+    ].sort((a, b) => a.localeCompare(b));
+    const nearbyTests = [
+      ...new Set([
+        ...taskContext.nearbyTestCandidates.flatMap(
+          (candidate) => candidate.testPaths,
+        ),
+        ...focusedTests,
+      ]),
+    ].sort((a, b) => a.localeCompare(b));
+
     return {
+      basis: "goal_discovery",
       riskProfile: taskContext.riskProfile,
       taskType: taskContext.taskType,
-      changedPaths: [], // It's discovery based
-      candidatePaths: [...taskContext.primaryFiles, ...taskContext.supportingFiles].map(f => f.path),
-      nearbyTests: taskContext.nearbyTestCandidates.flatMap(n => n.testPaths),
-      dependentPaths: Array.from(new Set(taskContext.directDependents.flatMap(d => d.dependents))),
+      changedPaths: [],
+      candidatePaths,
+      nearbyTests,
+      dependentPaths: Array.from(
+        new Set(taskContext.directDependents.flatMap((entry) => entry.dependents)),
+      ),
+      focusPaths: normalizedFocusPaths,
+      domainSignals: detectVerificationDomains(goal, candidatePaths),
+      limitations: evidenceLimitations,
       availableChecks,
       environment: {
         dependenciesInstalled,
@@ -144,6 +330,5 @@ export async function buildVerificationEvidence(
     };
   }
 
-  // 3. No changes, no goal -> Return null so planner returns an empty plan with limitation
   return null;
 }

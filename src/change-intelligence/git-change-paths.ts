@@ -1,9 +1,22 @@
 import { execFile } from "node:child_process";
+import { existsSync } from "node:fs";
+import { join, resolve } from "node:path";
 import { promisify } from "node:util";
 
 const execFileAsync = promisify(execFile);
 
+export function findGitMetadataRoot(cwd: string): string | null {
+  const workspaceRoot = resolve(cwd);
+  return existsSync(join(workspaceRoot, ".git")) ? workspaceRoot : null;
+}
+
 export async function getGitChangedPaths(cwd: string): Promise<string[]> {
+  if (!findGitMetadataRoot(cwd)) {
+    const error = new Error("Git metadata unavailable");
+    (error as Error & { code?: string }).code = "git_metadata_unavailable";
+    throw error;
+  }
+
   try {
     const { stdout } = await execFileAsync(
       "git",
@@ -11,24 +24,21 @@ export async function getGitChangedPaths(cwd: string): Promise<string[]> {
         "status",
         "--porcelain=v1",
         "-z",
-        "--untracked-files=all"
+        "--untracked-files=all",
       ],
       {
         cwd,
-        encoding: "buffer"
-      }
+        encoding: "buffer",
+      },
     );
     const changedPaths: string[] = [];
     let i = 0;
     while (i < stdout.length) {
       if (i + 2 >= stdout.length) break;
 
-      // Porcelain v1 format: XY PATH\0 or XY PATH\0ORIG_PATH\0 for renames
       const x = stdout[i];
       const y = stdout[i + 1];
-      const status = String.fromCharCode(x, y);
-      
-      // Skip the space after XY
+
       let start = i + 3;
       let end = start;
       while (end < stdout.length && stdout[end] !== 0) {
@@ -39,10 +49,12 @@ export async function getGitChangedPaths(cwd: string): Promise<string[]> {
 
       let filePath = stdout.subarray(start, end).toString("utf8");
 
-      // Handle renames/copies (R or C in X or Y)
-      if (x === 0x52 /* R */ || x === 0x43 /* C */ || y === 0x52 || y === 0x43) {
-        // The first path is the NEW path, which is what we care about
-        // The ORIG_PATH follows the next null byte
+      if (
+        x === 0x52 ||
+        x === 0x43 ||
+        y === 0x52 ||
+        y === 0x43
+      ) {
         i = end + 1;
         let origEnd = i;
         while (origEnd < stdout.length && stdout[origEnd] !== 0) {
@@ -51,7 +63,6 @@ export async function getGitChangedPaths(cwd: string): Promise<string[]> {
         end = origEnd;
       }
 
-      // Normalize windows separators if any, though git status usually gives forward slashes
       filePath = filePath.replace(/\\/g, "/");
 
       if (filePath) {
@@ -62,7 +73,7 @@ export async function getGitChangedPaths(cwd: string): Promise<string[]> {
     }
 
     return changedPaths;
-  } catch (error) {
-    throw new Error("Failed to get git changed paths");
+  } catch (cause) {
+    throw new Error("Failed to get git changed paths", { cause });
   }
 }
