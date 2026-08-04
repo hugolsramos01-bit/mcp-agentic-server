@@ -30,6 +30,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   synchronize contents, rename atomically and clean up in `finally`.
 - `agentic_doctor` returns native structured data instead of serializing JSON
   inside `data.result`.
+- `npm run eval` now builds required artifacts before evaluation; workflows that
+  already built the project can use `npm run eval:built`.
 
 ### Fixed
 - Atomic creation and editing of allowed dotfiles such as `.gitignore`,
