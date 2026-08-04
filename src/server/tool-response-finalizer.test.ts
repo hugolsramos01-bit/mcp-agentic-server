@@ -342,11 +342,87 @@ test("public errors sanitize absolute paths but retain the requested relative pa
 
   assert.strictEqual(result.structuredContent.status, "error");
   assert.strictEqual(result.structuredContent.data.path, "../atlas/file.ts");
-  assert.strictEqual(result.structuredContent.data.workspaceRoot, ".");
+  assert.strictEqual(
+    result.structuredContent.data.workspaceRoot,
+    "<workspace:agentic>",
+  );
   assert.match(result.structuredContent.error, /\.\.\/atlas\/file\.ts/);
   assert.doesNotMatch(result.structuredContent.error, /C:\\/);
   assert.ok(Array.isArray(result.structuredContent.diagnostics));
   assert.ok(result.structuredContent.metrics);
+});
+
+test("run_package_script sanitizes Windows paths from stderr on failure", () => {
+  const workspaceRoot = "C:\\Users\\hugo\\projects\\agentic";
+  const result = finalizeToolResponse(
+    {
+      isError: true,
+      structuredContent: {
+        status: "failed",
+        exitCode: 1,
+        stderr: `Error reading ${workspaceRoot}\\src\\server.ts`,
+      },
+    },
+    {
+      ...defaultOptions,
+      toolName: "run_package_script",
+      inlineOutputCharacters: 10_000,
+      publicPathContext: { workspaceRoot, workspaceAlias: "agentic" },
+    },
+  );
+
+  assert.strictEqual(result.structuredContent.status, "error");
+  assert.doesNotMatch(result.structuredContent.data.stderr, /C:\\Users\\hugo/);
+  assert.match(result.structuredContent.data.stderr, /<workspace:agentic>/);
+});
+
+test("bash sanitizes POSIX paths from stdout on failure", () => {
+  const workspaceRoot = "/home/hugo/projects/agentic";
+  const result = finalizeToolResponse(
+    {
+      structuredContent: {
+        status: "error",
+        data: {
+          stdout: `Failed at ${workspaceRoot}/src/server.ts`,
+        },
+        error: "Command failed",
+        diagnostics: [],
+        metrics: { durationMs: 1, truncated: false },
+      },
+      isError: true,
+    },
+    {
+      ...defaultOptions,
+      toolName: "bash",
+      inlineOutputCharacters: 10_000,
+      publicPathContext: { workspaceRoot, workspaceAlias: "agentic" },
+    },
+  );
+
+  assert.doesNotMatch(result.structuredContent.data.stdout, /\/home\/hugo/);
+  assert.match(result.structuredContent.data.stdout, /<workspace:agentic>/);
+});
+
+test("worktree_teardown sanitizes paths from data.result on failure", () => {
+  const workspaceRoot = "C:\\Users\\hugo\\.agentic\\worktrees\\project-123";
+  const result = finalizeToolResponse(
+    {
+      isError: true,
+      structuredContent: {
+        result: `Could not remove ${workspaceRoot}\\locked-file.ts`,
+      },
+      content: [{ type: "text", text: "Worktree removal failed" }],
+    },
+    {
+      ...defaultOptions,
+      toolName: "worktree_teardown",
+      inlineOutputCharacters: 10_000,
+      publicPathContext: { workspaceRoot, workspaceAlias: "project" },
+    },
+  );
+
+  assert.doesNotMatch(result.structuredContent.data.result, /C:\\Users\\hugo/);
+  assert.match(result.structuredContent.data.result, /<workspace:project>/);
 });
 
 test("path-like text inside successful file content is not rewritten", () => {

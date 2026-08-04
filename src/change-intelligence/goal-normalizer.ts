@@ -179,7 +179,7 @@ function inferTaskType(goal: string): TaskType | null {
   const normalized = normalizeToken(goal);
   if (/\b(bug|fix|corrigir|error|crash|issue)\b/i.test(normalized)) return "bug_fix";
   if (/\b(feat|feature|adicionar|add|create|novo)\b/i.test(normalized)) return "feature";
-  if (/\b(refactor|refatorar|clean|cleanup)\b/i.test(normalized)) return "refactor";
+  if (/\b(refactor|refatorar|refatore|refatoracao|clean|cleanup)\b/i.test(normalized)) return "refactor";
   if (/\b(security|vulnerability|auth|secure)\b/i.test(normalized)) return "security_review";
   if (/\b(migrate|migration|migrar|update)\b/i.test(normalized)) return "migration";
   if (/\b(ui|frontend|css|react|vue|component)\b/i.test(normalized)) return "frontend";

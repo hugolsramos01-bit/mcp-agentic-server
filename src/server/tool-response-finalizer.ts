@@ -230,12 +230,20 @@ const CAMEL_PATH_FIELD_PATTERN =
   /(?:Path|Paths|Root|Roots|Cwd|Directory|Directories)$/;
 const MESSAGE_FIELD_PATTERN = /^(?:error|message|reason)$/i;
 
+export interface SanitizePublicPayloadOptions {
+  sanitizeAllStrings?: boolean;
+}
+
 export function sanitizePublicPayload(
   value: any,
   context: PublicPathContext = {},
   fieldName?: string,
+  options: SanitizePublicPayloadOptions = {},
 ): any {
   if (typeof value === "string") {
+    if (options.sanitizeAllStrings) {
+      return sanitizePublicError(value, context);
+    }
     if (
       fieldName &&
       (PATH_FIELD_PATTERN.test(fieldName) ||
@@ -256,7 +264,7 @@ export function sanitizePublicPayload(
       (PATH_FIELD_PATTERN.test(fieldName) ||
         CAMEL_PATH_FIELD_PATTERN.test(fieldName))
         ? sanitizePublicPath(item, context)
-        : sanitizePublicPayload(item, context, fieldName),
+        : sanitizePublicPayload(item, context, fieldName, options),
     );
   }
 
@@ -265,7 +273,7 @@ export function sanitizePublicPayload(
   return Object.fromEntries(
     Object.entries(value).map(([key, item]) => [
       key,
-      sanitizePublicPayload(item, context, key),
+      sanitizePublicPayload(item, context, key, options),
     ]),
   );
 }
@@ -340,7 +348,13 @@ export function finalizeToolResponse(
   }
 
   const status = finalStatus;
-  const publicRawData = sanitizePublicPayload(rawData, publicPathContext);
+  const sanitizeAllErrorStrings = status === "error";
+  const publicRawData = sanitizePublicPayload(
+    rawData,
+    publicPathContext,
+    undefined,
+    { sanitizeAllStrings: sanitizeAllErrorStrings },
+  );
 
   const basePolicy = {
     defaultStringLimit: inlineOutputCharacters,
@@ -392,6 +406,7 @@ export function finalizeToolResponse(
     existingEnvelope?.diagnostics ?? nativeDiagnostics,
     publicPathContext,
     "diagnostics",
+    { sanitizeAllStrings: sanitizeAllErrorStrings },
   );
 
   const envelope = {
@@ -422,7 +437,12 @@ export function finalizeToolResponse(
       : "";
 
   const { _meta: originalMeta, ...responseBody } = response;
-  const publicMeta = sanitizePublicPayload(originalMeta, publicPathContext);
+  const publicMeta = sanitizePublicPayload(
+    originalMeta,
+    publicPathContext,
+    undefined,
+    { sanitizeAllStrings: sanitizeAllErrorStrings },
+  );
   const sanitizedMeta =
     !hasWidget && publicMeta?.card
       ? Object.fromEntries(

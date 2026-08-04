@@ -32,13 +32,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   inside `data.result`.
 - `npm run eval` now builds required artifacts before evaluation; workflows that
   already built the project can use `npm run eval:built`.
+- The supported Node runtime now starts at `22.19.0`, matching the effective
+  minimum required by runtime dependencies and CI/release validation.
 
 ### Fixed
 - Atomic creation and editing of allowed dotfiles such as `.gitignore`,
   `.prettierrc`, `.eslintrc`, `.editorconfig` and `.env.example`, while keeping
   `.env` and `.npmrc` protected by the secret policy.
 - Public error, diagnostic and metadata payloads no longer expose absolute
-  workspace paths; requested relative paths remain available for recovery.
+  workspace paths, including arbitrary string fields such as `stdout`, `stderr`,
+  `result`, `output` and `details`; requested relative paths remain available.
+- Lockfiles no longer trigger concurrency-domain verification by filename.
+- Goal-based verification without Git now infers the effective task type before
+  calculating risk, including multi-file refactor scope.
 - File reads containing command-like JSON are no longer misclassified as
   failed command executions.
 - Explicitly referenced files are no longer demoted behind inferred candidates.

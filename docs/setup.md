@@ -5,7 +5,7 @@ MCP host can work with your local projects.
 
 ## What You Need
 
-- **Node** `>=22.12.0 <27`
+- **Node** `>=22.19.0 <27`
 - **npm** or **pnpm**
 - **Git**
 - **Bash** (Git Bash or WSL on Windows)

@@ -80,6 +80,10 @@ describe("goal-normalizer", () => {
     assert.equal(normalizeGoal("corrigir autenticacao do usuario").taskTypeSuggestion, "bug_fix");
     assert.equal(normalizeGoal("adicionar rota de pagamento").taskTypeSuggestion, "feature");
     assert.equal(normalizeGoal("migrar schema do banco").taskTypeSuggestion, "migration");
+    assert.equal(
+      normalizeGoal("Refatore os três serviços para extrair a validação compartilhada.").taskTypeSuggestion,
+      "refactor",
+    );
   });
 
   it("prioritizes explicit type", () => {

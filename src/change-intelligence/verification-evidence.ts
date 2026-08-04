@@ -9,7 +9,8 @@ import {
 } from "./types.js";
 import type { ClassifiedCheck, PackageManager } from "../check-classifier.js";
 import { buildTaskContext } from "./task-context.js";
-import { classifyCandidateKind } from "./indexed-path.js";
+import { classifyCandidateKind, isLockFile } from "./indexed-path.js";
+import { normalizeGoal } from "./goal-normalizer.js";
 import { findNearbyTests } from "./test-proximity.js";
 import { getLimitedSharedDependencies } from "./file-dependencies-internal.js";
 import { calculateRiskProfile } from "./risk-profile.js";
@@ -59,7 +60,8 @@ export function detectVerificationDomains(
   goal: string | undefined,
   paths: readonly string[],
 ): string[] {
-  const searchable = [goal ?? "", ...paths].join(" ");
+  const domainPaths = paths.filter((path) => !isLockFile(path));
+  const searchable = [goal ?? "", ...domainPaths].join(" ");
   return DOMAIN_PATTERNS
     .filter(([, pattern]) => pattern.test(searchable))
     .map(([domain]) => domain);
@@ -92,6 +94,9 @@ export async function buildVerificationEvidence(
     focusPaths,
     availableChecks,
   } = options;
+  const normalizedGoal = goal ? normalizeGoal(goal, taskType) : undefined;
+  const effectiveTaskType =
+    taskType ?? normalizedGoal?.taskTypeSuggestion ?? "auto";
   const dependenciesInstalled = detectDependencyEnvironment(cwd, packageManager);
   const normalizedFocusPaths = normalizeFocusedPaths(cwd, focusPaths);
   const evidenceLimitations: string[] = [];
@@ -181,7 +186,7 @@ export async function buildVerificationEvidence(
     }
 
     const riskInput: RiskProfileInput = {
-      taskType: taskType || "auto",
+      taskType: effectiveTaskType,
       effectiveDepth: "balanced",
       focusScope: {
         active: false,
@@ -200,7 +205,7 @@ export async function buildVerificationEvidence(
     return {
       basis: "actual_changes",
       riskProfile,
-      taskType: taskType || "auto",
+      taskType: effectiveTaskType,
       changedPaths,
       candidatePaths: [],
       nearbyTests,
@@ -241,7 +246,7 @@ export async function buildVerificationEvidence(
       (path) => classifyCandidateKind(path) === "test",
     );
     const riskProfile = calculateRiskProfile({
-      taskType: taskType || "auto",
+      taskType: effectiveTaskType,
       effectiveDepth: "balanced",
       focusScope: {
         active: normalizedFocusPaths.length > 0,
@@ -264,7 +269,7 @@ export async function buildVerificationEvidence(
     return {
       basis: "goal_discovery",
       riskProfile,
-      taskType: taskType || "auto",
+      taskType: effectiveTaskType,
       changedPaths: [],
       candidatePaths: normalizedFocusPaths,
       nearbyTests: focusedTests,
@@ -281,7 +286,7 @@ export async function buildVerificationEvidence(
 
   if (goal) {
     const taskContext = await buildTaskContext({
-      type: taskType ?? "auto",
+      type: effectiveTaskType,
       focusPaths,
       maxTokens: 8192,
       depth: "balanced",

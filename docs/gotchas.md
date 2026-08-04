@@ -15,7 +15,7 @@ If installed globally, make sure npm's global bin directory is on your `PATH`.
 
 ## Node Version Rejected
 
-Agentic MCP requires Node `>=22.12.0 <27`.
+Agentic MCP requires Node `>=22.19.0 <27`.
 
 ```bash
 node --version

@@ -286,6 +286,38 @@ test("Dependências ausentes geram limitação, não instalação", () => {
   assert.ok(plan.limitations.includes("Project dependencies are not installed; recommended checks may not run until the workspace dependencies are prepared."));
 });
 
+test("lockfile changes do not imply integration or database limitations", () => {
+  const evidence: VerificationEvidence = {
+    basis: "actual_changes",
+    riskProfile: createMockProfile("critical", "high", [
+      { code: "configuration_scope", reason: "", weight: 40 },
+    ]),
+    taskType: "auto",
+    changedPaths: ["package.json", "package-lock.json"],
+    candidatePaths: [],
+    nearbyTests: ["tests/integration/dependencies.test.ts"],
+    dependentPaths: [],
+    domainSignals: [],
+    limitations: [],
+    availableChecks: mockChecks,
+    environment: { dependenciesInstalled: true },
+  };
+
+  const plan = planVerification(evidence);
+  const integration = plan.recommendations.find(
+    (item) => item.script === "test:integration",
+  );
+  assert.strictEqual(
+    integration?.reason,
+    "Complex changes warrant integration validation.",
+  );
+  assert.ok(
+    !plan.limitations.includes(
+      "Integration tests may require an isolated database.",
+    ),
+  );
+});
+
 test("domain-sensitive change with related integration test uses staged verification", () => {
   const evidence: VerificationEvidence = {
     basis: "actual_changes",
