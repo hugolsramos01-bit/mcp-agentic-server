@@ -76,7 +76,7 @@ import {
 import { processResult, processOutputSchema, processToolResponse } from "./server/process-tools.js";
 import { generateMutationReceipt } from "./server/mutation-receipt.js";
 import { stat } from "node:fs/promises";
-import { join } from "node:path";
+import { basename, join } from "node:path";
 import { agenticDoctor } from "./diagnostics.js";
 import { finalizeToolResponse } from "./server/tool-response-finalizer.js";
 
@@ -95,14 +95,18 @@ interface RunningServer {
 // ═══════════════════════════════════════════════════════════════
 // Tool registration wrapper — envelope, metrics, _meta sanitization
 //
-// Every tool (except open_workspace) flows through here. The wrapper:
+// Every public tool, including open_workspace, flows through here. The wrapper:
 //   • Builds the { status, data, error, diagnostics, metrics } envelope
 //   • Truncates overly large output (inlineOutputCharacters cap)
 //   • Strips _meta.card for non-widget tools
 //   • Returns a compact summary in content for text-only clients
 // ═══════════════════════════════════════════════════════════════
 
-function createAppToolRegistrar(server: McpServer, config: ServerConfig) {
+function createAppToolRegistrar(
+  server: McpServer,
+  config: ServerConfig,
+  workspaces: WorkspaceRegistry,
+) {
   return function registerAppTool(name: string, definition: any, handler: (request: any) => any): void {
     registerExtAppTool(server, name, definition, async (request: any) => {
       const startedAt = performance.now();
@@ -111,38 +115,74 @@ function createAppToolRegistrar(server: McpServer, config: ServerConfig) {
       try {
         response = await handler(request);
       } catch (err: any) {
-        if (err.code === "workspace_unavailable" || err.code === "recovery_required" || err.code === "file_version_conflict") {
-          const envelope = {
-            status: "error",
-            data: {
-               code: err.code,
-               workspaceRoot: err.workspaceRoot,
-               sourceRoot: err.sourceRoot,
+        // Every public tool failure must still cross the same response
+        // finalizer. Full stack/path details remain available to local logs,
+        // while the public payload carries only stable recovery fields.
+        logEvent(config.logging, "warn", "tool_handler_error", {
+          tool: name,
+          code: err?.code,
+          message: err?.message ?? String(err),
+          stack: err?.stack,
+        });
+        response = {
+          content: [
+            {
+              type: "text",
+              text: err?.message ?? "Tool execution failed",
             },
-            error: err.message,
-            diagnostics: [],
-            metrics: { durationMs: Math.round(performance.now() - startedAt), truncated: false }
-          };
-          response = {
-            content: [{ type: "text", text: JSON.stringify(envelope, null, 2) }],
-            isError: true,
-            structuredContent: envelope.data
-          };
-        } else {
-          throw err;
-        }
+          ],
+          isError: true,
+          structuredContent: {
+            code: err?.code ?? "tool_error",
+            workspaceRoot: err?.workspaceRoot,
+            sourceRoot: err?.sourceRoot,
+            alias: err?.alias,
+            recovery: err?.recovery,
+          },
+        };
       }
-
-      if (name === "open_workspace") return response;
 
       const definitionMeta = (definition as any)?._meta;
       const hasWidget = Boolean(definitionMeta?.ui?.resourceUri || definitionMeta?.["ui/resourceUri"]);
+
+      let workspaceRoot: string | undefined;
+      let sourceRoot: string | undefined;
+      let workspaceAlias: string | undefined;
+
+      if (typeof request.workspaceId === "string") {
+        try {
+          const workspace = workspaces.getWorkspace(request.workspaceId);
+          workspaceRoot = workspace.root;
+          sourceRoot = workspace.sourceRoot;
+          workspaceAlias = workspace.alias ?? basename(workspace.root);
+        } catch {
+          // Unknown/closed workspace failures are finalized below using the
+          // handler error without performing a second public lookup failure.
+        }
+      }
+
+      if (name === "open_workspace") {
+        const opened = response.structuredContent?.data ?? response.structuredContent;
+        workspaceRoot = opened?.root ?? workspaceRoot;
+        sourceRoot = opened?.sourceRoot ?? sourceRoot;
+        workspaceAlias =
+          opened?.workspaceAlias ??
+          request.alias ??
+          (workspaceRoot ? basename(workspaceRoot) : undefined);
+      }
 
       return finalizeToolResponse(response, {
         toolName: name,
         startedAt,
         inlineOutputCharacters: config.inlineOutputCharacters,
         hasWidget,
+        publicPathContext: {
+          workspaceRoot,
+          sourceRoot,
+          workspaceAlias,
+          requestedPath:
+            typeof request.path === "string" ? request.path : undefined,
+        },
       });
     });
   };
@@ -170,7 +210,7 @@ function createMcpServer(
     },
   );
 
-  const registerAppTool = createAppToolRegistrar(server, config);
+   const registerAppTool = createAppToolRegistrar(server, config, workspaces);
 
   registerAppResource(
     server,
@@ -214,10 +254,10 @@ function createMcpServer(
     },
       async () => {
       const report = await agenticDoctor();
-      const text = JSON.stringify(report, null, 2);
-      // resultOutputSchema requires a result field. Keep the full report in the
-      // text payload and provide the schema-compatible summary field as well.
-      return { content: [textBlock(text)], structuredContent: { result: text } };
+      return {
+        content: [textBlock(JSON.stringify(report, null, 2))],
+        structuredContent: report,
+      };
     },
   );
 
@@ -492,37 +532,7 @@ function createMcpServer(
           .optional()
           .describe("Optional friendly name for this workspace. If provided, the workspace can be reopened later using resume_workspace. Must be unique."),
       },
-      outputSchema: {
-        workspaceId: z.string(),
-        root: z.string(),
-        mode: z.enum(["checkout", "worktree"]),
-        sourceRoot: z.string().optional(),
-        worktree: z
-          .object({
-            path: z.string(),
-            baseRef: z.string(),
-            baseSha: z.string(),
-            dirtySource: z.boolean(),
-            detached: z.boolean(),
-            managed: z.boolean(),
-          })
-          .optional(),
-        agentsFiles: z.array(workspaceAgentsFileOutputSchema),
-        availableAgentsFiles: z.array(workspaceAvailableAgentsFileOutputSchema),
-        agentsFileScan: z.object({
-          truncated: z.boolean(),
-          stopReason: z.enum(["max_files", "max_directories", "max_entries"]).optional(),
-          filesVisited: z.number(),
-          directoriesVisited: z.number(),
-          entriesVisited: z.number(),
-          maxDepthReached: z.boolean().optional(),
-        }).optional(),
-        skills: z.array(workspaceSkillOutputSchema),
-        agentProviders: z.array(workspaceLocalAgentProviderOutputSchema),
-        agents: z.array(workspaceLocalAgentOutputSchema),
-        skillDiagnostics: z.array(z.unknown()),
-        instruction: z.string(),
-      },
+      outputSchema: resultOutputSchema(),
       ...toolWidgetDescriptorMeta(config, "workspace"),
       annotations: READ_TOOL_ANNOTATIONS,
     },
@@ -548,9 +558,12 @@ function createMcpServer(
             metrics: { durationMs: Math.round(performance.now() - startedAt), truncated: false }
           };
           return {
-            content: [{ type: "text", text: JSON.stringify(envelope, null, 2) }],
+            content: [{ type: "text", text: err.message }],
             isError: true,
-            structuredContent: envelope.data,
+            structuredContent: {
+              ...envelope.data,
+              error: err.message,
+            },
           };
         }
         throw err;
@@ -652,6 +665,7 @@ function createMcpServer(
         },
         structuredContent: {
           workspaceId: workspace.id,
+          workspaceAlias: workspace.alias ?? basename(workspace.root),
           root: workspace.root,
           mode: workspace.mode,
           sourceRoot: workspace.sourceRoot,
@@ -1829,78 +1843,26 @@ function createMcpServer(
       }
     };
 
-    const wrap = (tool: string, req: any, response: any, extra?: { nextActions?: any[], diagnostics?: any[], startedAt?: number }) => {
-      const resultText = contentText(response.content);
-      
-      // Build universal envelope — every tool response includes:
-      // - status: "success" | "error" (tool execution), with commandStatus when applicable
-      // - data: un-stringified parsed JSON or plain text
-      // - error: string or null
-      // - diagnostics: directly callable follow-up suggestions or warnings
-      // - metrics: durationMs, truncated
-      const toolStatus = response.isError ? "error" : "success";
-      
-      // Detect command failure inside a successful tool execution
-      // (e.g. test runner that exited non-zero but tool executed fine)
-      let commandStatus: string | undefined;
-      if (resultText.includes('"status": "failed"') || resultText.includes('"status":"failed"')) {
-        commandStatus = "failed";
-      } else if (resultText.includes('"exitCode":') || resultText.includes('"exitCode" :')) {
-        // extract exit code
-        const ecMatch = resultText.match(/"exitCode"\s*:\s*(\d+)/);
-        if (ecMatch && parseInt(ecMatch[1]) !== 0) {
-          commandStatus = "failed";
-        }
-      }
-      
-      const status = commandStatus === "failed" ? "error" : toolStatus; // unify "failed" to "error" in status
-      // Auto-measure: if no startedAt provided, measure at wrap() entry as estimate.
-      // This catches the wall-clock time spent in the handler (including awaits).
-      const wrapEntryAt = performance.now();
-      const durationMs = extra?.startedAt ? Math.round(performance.now() - extra.startedAt) : Math.round(performance.now() - (req.__startedAt ?? wrapEntryAt));
-      
-      let parsedData: any = resultText;
-      try {
-        if (resultText.trim().startsWith("{") || resultText.trim().startsWith("[")) {
-          parsedData = JSON.parse(resultText);
-        }
-      } catch (e) {
-        // Leave as string if not valid JSON
-      }
-
-      const envelope = response.structuredContent ? {
-        ...response.structuredContent,
-        diagnostics: response.structuredContent.diagnostics ?? extra?.diagnostics ?? [],
-        metrics: {
-          durationMs,
-          truncated: Boolean(response._meta?.truncated || resultText.includes("[truncated]") || resultText.includes("... [truncated")),
-          ...(response.structuredContent.metrics || {})
-        }
-      } : {
-        status,
-        data: status === "error" && typeof parsedData === "string" ? {} : parsedData,
-        error: status === "error" ? (typeof parsedData === "string" ? parsedData : (parsedData.error || parsedData.message || JSON.stringify(parsedData))) : null,
-        diagnostics: extra?.diagnostics ?? [],
-        metrics: {
-          durationMs,
-          truncated: Boolean(response._meta?.truncated || resultText.includes("[truncated]") || resultText.includes("... [truncated")),
-        }
-      };
+    // Assistant-mode decorator only. The universal MCP envelope is produced
+    // exactly once by finalizeToolResponse at the public tool boundary.
+    const wrap = (tool: string, req: any, response: any) => {
+      const summary = getSummary(tool, req);
+      const responseMeta = response?._meta ?? {};
+      const existingCard = responseMeta.card;
 
       return {
         ...response,
-        content: [{ type: "text", text: `${tool}: ${getSummary(tool, req)}` }],
         _meta: {
+          ...responseMeta,
           tool,
           card: {
+            ...(existingCard && typeof existingCard === "object"
+              ? existingCard
+              : {}),
             workspaceId: req.workspaceId,
-            summary: getSummary(tool, req),
-            payload: { content: response.content },
+            summary,
+            payload: existingCard?.payload ?? { content: response.content },
           },
-        },
-        structuredContent: {
-          result: resultText,
-          envelope,
         },
       };
     };

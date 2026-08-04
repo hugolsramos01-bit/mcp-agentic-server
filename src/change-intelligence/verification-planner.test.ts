@@ -285,3 +285,71 @@ test("Dependências ausentes geram limitação, não instalação", () => {
   const plan = planVerification(evidence);
   assert.ok(plan.limitations.includes("Project dependencies are not installed; recommended checks may not run until the workspace dependencies are prepared."));
 });
+
+test("lockfile changes do not imply integration or database limitations", () => {
+  const evidence: VerificationEvidence = {
+    basis: "actual_changes",
+    riskProfile: createMockProfile("critical", "high", [
+      { code: "configuration_scope", reason: "", weight: 40 },
+    ]),
+    taskType: "auto",
+    changedPaths: ["package.json", "package-lock.json"],
+    candidatePaths: [],
+    nearbyTests: ["tests/integration/dependencies.test.ts"],
+    dependentPaths: [],
+    domainSignals: [],
+    limitations: [],
+    availableChecks: mockChecks,
+    environment: { dependenciesInstalled: true },
+  };
+
+  const plan = planVerification(evidence);
+  const integration = plan.recommendations.find(
+    (item) => item.script === "test:integration",
+  );
+  assert.strictEqual(
+    integration?.reason,
+    "Complex changes warrant integration validation.",
+  );
+  assert.ok(
+    !plan.limitations.includes(
+      "Integration tests may require an isolated database.",
+    ),
+  );
+});
+
+test("domain-sensitive change with related integration test uses staged verification", () => {
+  const evidence: VerificationEvidence = {
+    basis: "actual_changes",
+    riskProfile: createMockProfile("low", "high"),
+    taskType: "bug_fix",
+    changedPaths: ["src/lease/lease-manager.ts"],
+    candidatePaths: [],
+    nearbyTests: ["tests/integration/lease-fencing.test.ts"],
+    dependentPaths: [],
+    focusPaths: ["tests/integration/lease-fencing.test.ts"],
+    domainSignals: ["concurrency"],
+    limitations: [],
+    availableChecks: mockChecks,
+    environment: { dependenciesInstalled: true },
+  };
+
+  const plan = planVerification(evidence);
+  const byScript = new Map(plan.recommendations.map((item) => [item.script, item]));
+
+  assert.deepStrictEqual(
+    plan.recommendations.map((item) => item.script),
+    ["typecheck", "lint", "test:integration", "smoke:package"],
+  );
+  assert.strictEqual(byScript.get("typecheck")?.stage, "initial");
+  assert.strictEqual(
+    byScript.get("test:integration")?.stage,
+    "after_initial_success",
+  );
+  assert.strictEqual(byScript.get("smoke:package")?.stage, "before_release");
+  assert.ok(
+    plan.limitations.includes(
+      "Integration tests may require an isolated database.",
+    ),
+  );
+});

@@ -509,14 +509,16 @@ export async function suggestChecksTool(cwd: string, options: SuggestChecksOptio
 
   // Fallback to options.paths alias if changedPaths is missing
   let changedPaths = options.changedPaths || options.paths || [];
+  let gitMetadataAvailable: boolean | undefined;
 
   let goal = options.goal;
   
   if (changedPaths.length === 0) {
     try {
       changedPaths = await getRobustGitChangedPaths(cwd);
+      gitMetadataAvailable = true;
     } catch (e) {
-      // ignore
+      gitMetadataAvailable = false;
     }
   }
 
@@ -577,6 +579,7 @@ export async function suggestChecksTool(cwd: string, options: SuggestChecksOptio
     goal,
     taskType: options.taskType,
     focusPaths: options.focusPaths,
+    gitMetadataAvailable,
     availableChecks: classified
   });
 

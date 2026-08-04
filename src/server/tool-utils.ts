@@ -1,7 +1,7 @@
 import type { Request, Response } from "express";
 import { readFileSync, existsSync } from "node:fs";
 import { access } from "node:fs/promises";
-import { createHash } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import { fileURLToPath } from "node:url";
 import * as z from "zod/v4";
 import type { ServerConfig, WidgetMode } from "../config.js";
@@ -464,6 +464,8 @@ export interface AtomicMutationOptions {
   ifMatch: string | null | undefined;
   requireIfMatch: "off" | "existing" | "all";
   mutate: (tempAbsolutePath: string) => Promise<any>;
+  /** Test seam for deterministic rename-failure coverage. */
+  renameFile?: (temporaryPath: string, targetPath: string) => void;
 }
 
 export function computeFileHash(absolutePath: string): string | null {
@@ -478,8 +480,17 @@ export function computeFileHash(absolutePath: string): string | null {
 
 export async function applyAtomicMutation(options: AtomicMutationOptions): Promise<any> {
   const { enforceSecurePath } = await import("../pi-tools.js");
-  const { copyFileSync, renameSync, unlinkSync, existsSync } = await import("node:fs");
-  const { dirname, resolve, basename } = await import("node:path");
+  const {
+    closeSync,
+    copyFileSync,
+    existsSync,
+    fsyncSync,
+    mkdirSync,
+    openSync,
+    renameSync,
+    unlinkSync,
+  } = await import("node:fs");
+  const { dirname, join } = await import("node:path");
   
   const absolutePath = enforceSecurePath(options.targetPath, options.cwd, [options.root], true);
   
@@ -524,22 +535,69 @@ export async function applyAtomicMutation(options: AtomicMutationOptions): Promi
   }
 
   const dir = dirname(absolutePath);
-  const tmpPath = resolve(dir, `.${basename(absolutePath)}.tmp.${Date.now()}`);
+  mkdirSync(dir, { recursive: true });
+
+  // Never derive the temporary basename from the target. A target such as
+  // `.gitignore` previously produced `..gitignore.tmp.*`, which looked like a
+  // traversal segment to the secure-path validator even though it was a sibling.
+  const tmpPath = join(dir, `.agentic-tmp-${randomUUID()}`);
+  let reservationFd: number | undefined;
+
+  const removeTemporaryBestEffort = () => {
+    try {
+      if (existsSync(tmpPath)) unlinkSync(tmpPath);
+    } catch {
+      // Preserve the primary mutation result. A later cleanup sweep can remove
+      // an orphan if the filesystem itself refuses deletion.
+    }
+  };
+
+  const syncFile = (path: string) => {
+    const descriptor = openSync(path, "r+");
+    try {
+      fsyncSync(descriptor);
+    } finally {
+      closeSync(descriptor);
+    }
+  };
+
+  const syncDirectoryBestEffort = () => {
+    if (process.platform === "win32") return;
+    let descriptor: number | undefined;
+    try {
+      descriptor = openSync(dir, "r");
+      fsyncSync(descriptor);
+    } catch {
+      // Directory fsync is not supported by every filesystem/runtime.
+    } finally {
+      if (descriptor !== undefined) closeSync(descriptor);
+    }
+  };
 
   try {
+    // Reserve the sibling name exclusively before any mutation work. This
+    // prevents concurrent writers from sharing a temporary file.
+    reservationFd = openSync(tmpPath, "wx", 0o600);
+    closeSync(reservationFd);
+    reservationFd = undefined;
+
     if (exists) {
       copyFileSync(absolutePath, tmpPath);
     }
 
     const mutationResult = await options.mutate(tmpPath);
     if (mutationResult && mutationResult.isError) {
-      if (existsSync(tmpPath)) unlinkSync(tmpPath);
       return mutationResult;
     }
 
+    if (!existsSync(tmpPath)) {
+      throw new Error("Atomic mutation did not produce a temporary file");
+    }
+
+    syncFile(tmpPath);
+
     const preRenameHash = computeFileHash(absolutePath);
     if (preRenameHash !== currentHash) {
-      if (existsSync(tmpPath)) unlinkSync(tmpPath);
       return {
         isError: true,
         content: [{ type: "text", text: `file_version_conflict: File changed on disk during mutation. Expected hash ${currentHash}, but actual hash is ${preRenameHash}` }],
@@ -554,7 +612,8 @@ export async function applyAtomicMutation(options: AtomicMutationOptions): Promi
       };
     }
 
-    renameSync(tmpPath, absolutePath);
+    (options.renameFile ?? renameSync)(tmpPath, absolutePath);
+    syncDirectoryBestEffort();
     
     const newHash = computeFileHash(absolutePath);
     if (mutationResult && typeof mutationResult === "object") {
@@ -571,10 +630,14 @@ export async function applyAtomicMutation(options: AtomicMutationOptions): Promi
     }
     return mutationResult;
   } catch (error: any) {
-    if (existsSync(tmpPath)) unlinkSync(tmpPath);
     return {
       isError: true,
       content: [{ type: "text", text: `Mutation failed: ${error.message}` }],
     };
+  } finally {
+    if (reservationFd !== undefined) {
+      try { closeSync(reservationFd); } catch {}
+    }
+    removeTemporaryBestEffort();
   }
 }

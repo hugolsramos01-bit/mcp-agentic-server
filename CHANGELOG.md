@@ -5,6 +5,51 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.5.0] - 2026-08-04
+
+### Added
+- Uniform public MCP response envelopes for every tool, including
+  `open_workspace`, with `status`, `data`, `error`, `diagnostics` and `metrics`.
+- Runtime contract coverage for workspace opening, native doctor diagnostics,
+  missing-file errors and attempts to read outside the workspace root.
+- Deterministic semantic candidate ranking with explicit-path priority,
+  boundary-aware matching and balanced lexical signals.
+- Goal-based verification discovery for workspaces without local Git metadata.
+- Domain-sensitive staged verification for concurrency, leases, locks,
+  authentication, transactions and migrations when related tests and declared
+  scripts are available.
+
+### Changed
+- `suggest_checks` now distinguishes `actual_changes` from `goal_discovery`,
+  rejects Git metadata inherited from ancestor repositories and reports
+  environmental limitations without executing setup steps.
+- Verification recommendations are staged as `initial`,
+  `after_initial_success` and `before_release`, while continuing to exclude
+  mutating or undeclared scripts.
+- Atomic writes now reserve a same-directory UUID temporary file exclusively,
+  synchronize contents, rename atomically and clean up in `finally`.
+- `agentic_doctor` returns native structured data instead of serializing JSON
+  inside `data.result`.
+- `npm run eval` now builds required artifacts before evaluation; workflows that
+  already built the project can use `npm run eval:built`.
+- The supported Node runtime now starts at `22.19.0`, matching the effective
+  minimum required by runtime dependencies and CI/release validation.
+
+### Fixed
+- Atomic creation and editing of allowed dotfiles such as `.gitignore`,
+  `.prettierrc`, `.eslintrc`, `.editorconfig` and `.env.example`, while keeping
+  `.env` and `.npmrc` protected by the secret policy.
+- Public error, diagnostic and metadata payloads no longer expose absolute
+  workspace paths, including arbitrary string fields such as `stdout`, `stderr`,
+  `result`, `output` and `details`; requested relative paths remain available.
+- Lockfiles no longer trigger concurrency-domain verification by filename.
+- Goal-based verification without Git now infers the effective task type before
+  calculating risk, including multi-file refactor scope.
+- File reads containing command-like JSON are no longer misclassified as
+  failed command executions.
+- Explicitly referenced files are no longer demoted behind inferred candidates.
+- Grep-derived ranking signals are balanced before result caps are applied.
+
 ## [1.4.0] - 2026-07-30
 
 ### Added

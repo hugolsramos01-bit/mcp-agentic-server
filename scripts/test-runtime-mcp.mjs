@@ -91,8 +91,39 @@ async function run() {
     console.log("1. Initialize Workspace");
     const ws = await callTool("open_workspace", { path: fixtureRepo, mode: "worktree" });
     console.log("ws:", JSON.stringify(ws, null, 2));
-    const workspaceId = ws.structuredContent?.workspaceId || ws.content.find((c) => c.type === "text")?.text.match(/Opened workspace (ws_[a-zA-Z0-9_-]+|[a-zA-Z0-9_-]+)/)?.[1] || "default";
+    assert.equal(ws.structuredContent?.status, "success", "open_workspace must use the public envelope");
+    assert.ok(Array.isArray(ws.structuredContent?.diagnostics), "open_workspace diagnostics must be an array");
+    assert.ok(ws.structuredContent?.metrics, "open_workspace metrics must exist");
+    assert.equal(ws.structuredContent?.data?.root, ".", "open_workspace root must be public and workspace-relative");
+    assert.equal("envelope" in ws.structuredContent.data, false, "open_workspace must not nest envelopes");
+    const workspaceId = ws.structuredContent?.data?.workspaceId || ws.content.find((c) => c.type === "text")?.text.match(/(ws_[a-zA-Z0-9_-]+)/)?.[1] || "default";
     console.log("Extracted workspaceId:", workspaceId);
+
+    console.log("1.1 agentic_doctor public contract");
+    const doctor = await callTool("agentic_doctor");
+    assert.equal(doctor.structuredContent?.status, "success", "agentic_doctor must use the public envelope");
+    assert.ok(doctor.structuredContent?.data?.version, "agentic_doctor must expose native structured data");
+    assert.equal("result" in doctor.structuredContent.data, false, "agentic_doctor must not serialize JSON in data.result");
+
+    console.log("1.2 read error contract and path hygiene");
+    const missingRead = await callTool("read", {
+      workspaceId,
+      path: "src/does-not-exist.ts",
+    });
+    assert.equal(missingRead.structuredContent?.status, "error", "missing read must use an error envelope");
+    assert.ok(Array.isArray(missingRead.structuredContent?.diagnostics), "missing read diagnostics must be an array");
+    assert.ok(missingRead.structuredContent?.metrics, "missing read metrics must exist");
+    assert.equal("envelope" in missingRead.structuredContent.data, false, "missing read must not nest envelopes");
+
+    const outsideRead = await callTool("read", {
+      workspaceId,
+      path: "../outside-workspace.ts",
+    });
+    assert.equal(outsideRead.structuredContent?.status, "error", "outside-root read must fail with an envelope");
+    const outsidePublicText = JSON.stringify(outsideRead);
+    assert(!outsidePublicText.includes(fixtureRepo), "outside-root errors must not expose the absolute fixture path");
+    assert(!/[A-Za-z]:\\Users\\/i.test(outsidePublicText), "outside-root errors must not expose a Windows home path");
+    assert(outsidePublicText.includes("../outside-workspace.ts"), "outside-root errors should preserve the requested relative path");
 
     console.log("2. task_context: Directory Focus & Exclusions");
     const tc1 = await callTool("task_context", {
@@ -106,25 +137,16 @@ async function run() {
     assert(!tc1Text.includes("excluded/secret.ts"), "Excluded file should not be present");
     assert(tc1Text.includes("tests/auth.test.ts"), "Tests should be in context since they depend on focused files");
     
-    function extractTaskContextResult(response) {
-      const structured = response?.structuredContent;
-      const candidates = [
-        structured?.data,
-        structured,
-        structured?.envelope?.data,
-        structured?.result,
-        structured?.data?.envelope,
-      ];
-      return candidates.find(
-        (candidate) =>
-          candidate?.riskProfile?.version === 1 &&
-          Array.isArray(candidate?.primaryFiles) &&
-          Array.isArray(candidate?.supportingFiles)
-      );
-    }
-
-    const tc1Data = extractTaskContextResult(tc1);
+    assert.equal(tc1.structuredContent?.status, "success", "task_context must expose one top-level success envelope");
+    const tc1Data = tc1.structuredContent?.data;
     assert.ok(tc1Data, "task_context result was not found");
+    assert.equal("result" in tc1Data, false, "task_context data must not contain a serialized result copy");
+    assert.equal("envelope" in tc1Data, false, "task_context data must not contain a nested envelope");
+    assert.match(
+      tc1.content?.find((item) => item.type === "text")?.text ?? "",
+      /^task_context: success/,
+      "text content must remain a compact tool summary",
+    );
     assert.equal(tc1Data.riskProfile.version, 1, "riskProfile.version must be 1");
     assert.ok(["low", "medium", "high", "critical"].includes(tc1Data.riskProfile.level), "riskProfile.level must be valid");
     assert.equal(tc1Data.riskProfile.basis, "pre_budget", "riskProfile.basis must be pre_budget");

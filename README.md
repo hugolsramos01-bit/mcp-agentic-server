@@ -79,6 +79,26 @@ Yes. It gives ChatGPT Web full local coding capabilities: file inspection, struc
 
 ---
 
+## 🚀 Release 1.5.0 Highlights
+
+Version 1.5.0 consolidates the public tool contract and hardens the workflows
+used by coding agents in real repositories:
+
+1. **Uniform public MCP envelope** — every public tool, including
+   `open_workspace`, returns `status`, `data`, `error`, `diagnostics` and
+   `metrics` without nested or serialized envelope copies.
+2. **Deterministic semantic ranking** — explicit paths remain authoritative,
+   lexical matching respects token boundaries, and grep signals are balanced
+   before result limits are applied.
+3. **Adaptive verification planning** — `suggest_checks` distinguishes actual
+   changes from goal discovery, handles workspaces without local Git metadata,
+   and stages related checks without inventing or executing scripts.
+4. **Safe atomic dotfile writes** — allowed project dotfiles use exclusive
+   same-directory temporaries, synchronization, atomic rename and guaranteed
+   cleanup; secret files remain protected.
+5. **Public path hygiene** — absolute local paths are removed from public
+   errors, diagnostics and metadata while useful relative paths are preserved.
+
 ## 🔥 Key Innovations
 
 ### 1. Smart Context Anti-Bloat
@@ -173,10 +193,10 @@ The tool surface depends on the `AGENTIC_TOOL_MODE` setting.
 | `task_context` | Computes a `RiskProfile` (risk level, score, blast radius) from focused paths. |
 | `suggest_checks` | Advisory planner returning a deterministic `VerificationPlan`. |
 
-### Verification & Risk (New in 1.4.0)
+### Verification & Risk (Expanded in 1.5.0)
 The risk and verification pipeline enforces strict, deterministic planning.
 * **`task_context`** now produces a `RiskProfile` accounting for sensitive configuration, fan-out, test proximity, and analysis confidence.
-* **`suggest_checks`** returns a `VerificationPlan` and is **advisory only** (commands are not executed). Mutating checks and non-existent scripts are excluded. Low confidence can elevate `policyLevel` without altering the intrinsic `riskLevel`.
+* **`suggest_checks`** returns a `VerificationPlan` and is **advisory only** (commands are not executed). Mutating checks and non-existent scripts are excluded. Low confidence can elevate `policyLevel` without altering the intrinsic `riskLevel`. When local Git metadata is unavailable, the planner uses `goal_discovery` from the stated goal and focused paths instead of inheriting an ancestor repository.
 
 **Supported Inputs:**
 ```typescript
