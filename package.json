@@ -70,9 +70,9 @@
     "@agentclientprotocol/sdk": "^1.1.0",
     "@anthropic-ai/claude-agent-sdk": "^0.3.200",
     "@clack/prompts": "^1.5.1",
-    "@earendil-works/pi-coding-agent": "^0.80.3",
+    "@hugolsramos01-bit/pi-coding-agent": "0.80.7-agentic.1",
     "@modelcontextprotocol/ext-apps": "^1.7.2",
-    "@modelcontextprotocol/sdk": "^1.29.0",
+    "@modelcontextprotocol/sdk": "1.30.0",
     "@openai/codex-sdk": "^0.142.5",
     "@opencode-ai/sdk": "^1.17.13",
     "@pierre/diffs": "^1.2.5",
@@ -99,9 +99,7 @@
     "vite": "^8.0.14"
   },
   "overrides": {
-    "protobufjs": "7.6.4",
-    "ws": "8.21.0",
-    "undici": "8.5.0"
+    "ws": "8.21.0"
   },
   "optionalDependencies": {
     "node-pty": "^1.1.0"

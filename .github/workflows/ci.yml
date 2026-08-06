@@ -66,3 +66,30 @@ jobs:
       - name: Packaged MCP Runtime Test
         if: matrix.os != 'macos-latest'
         run: npm run test:runtime:built
+
+  security-audit:
+    name: Production dependency audit
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Setup Node
+        uses: actions/setup-node@v6
+        with:
+          node-version: "22.19.0"
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Audit source production tree
+        run: npm audit --omit=dev --audit-level=high
+
+      - name: Audit installed package
+        run: |
+          PACKAGE_TGZ=$(npm pack --json | node scripts/pack-name.mjs)
+          mkdir .ci-release-smoke
+          npm install --prefix .ci-release-smoke "./$PACKAGE_TGZ"
+          npm audit --prefix .ci-release-smoke --omit=dev --audit-level=high

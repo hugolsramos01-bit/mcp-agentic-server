@@ -5,10 +5,17 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { loadConfig } from "./config.js";
 import { LocalAgentStore } from "./local-agent-store.js";
+import { isSupportedNodeVersion, SUPPORTED_NODE_RANGE } from "./node-version.js";
 
 const packageJson = JSON.parse(readFileSync(new URL("../package.json", import.meta.url), "utf8")) as {
   version: string;
 };
+
+assert.equal(SUPPORTED_NODE_RANGE, ">=22.19.0 <27");
+assert.equal(isSupportedNodeVersion("22.18.0"), false);
+assert.equal(isSupportedNodeVersion("22.19.0"), true);
+assert.equal(isSupportedNodeVersion("26.9.0"), true);
+assert.equal(isSupportedNodeVersion("27.0.0"), false);
 
 for (const flag of ["-v", "--version"]) {
   const output = execFileSync("node", ["--import", "tsx", "src/cli.ts", flag], {

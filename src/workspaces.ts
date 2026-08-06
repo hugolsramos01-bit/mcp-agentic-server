@@ -3,7 +3,7 @@ import type { Stats } from "node:fs";
 import type { WorkspaceMode, WorkspaceStore } from "./workspace-store.js";
 import { mkdir, opendir, readFile, realpath, stat } from "node:fs/promises";
 import { dirname, join, relative, resolve, sep } from "node:path";
-import { loadProjectContextFiles } from "@earendil-works/pi-coding-agent";
+import { loadProjectContextFiles } from "@hugolsramos01-bit/pi-coding-agent";
 import type { ServerConfig } from "./config.js";
 import { createManagedWorktree } from "./git-worktrees.js";
 import { assertAllowedPath, isPathInsideRoot, resolveAllowedPath } from "./roots.js";

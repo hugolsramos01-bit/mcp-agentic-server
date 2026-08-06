@@ -8,8 +8,7 @@ import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import * as prompts from "@clack/prompts";
-import { getShellConfig } from "@earendil-works/pi-coding-agent";
-import { satisfies } from "semver";
+import { getShellConfig } from "@hugolsramos01-bit/pi-coding-agent";
 import { loadConfig } from "./config.js";
 import { runLocalAgentProvider } from "./local-agent-adapters.js";
 import {
@@ -39,10 +38,10 @@ import {
 } from "./user-config.js";
 import { expandHomePath } from "./roots.js";
 import { runProcess } from "./process-runner/index.js";
+import { isSupportedNodeVersion, SUPPORTED_NODE_RANGE } from "./node-version.js";
 
 type Command = "serve" | "stdio" | "init" | "doctor" | "config" | "agents" | "help" | "version";
 const require = createRequire(import.meta.url);
-const SUPPORTED_NODE_RANGE = ">=20.12 <27";
 
 async function main(argv: string[]): Promise<void> {
   assertSupportedNode();
@@ -677,7 +676,7 @@ function validatePublicBaseUrl(value: string): string | undefined {
 }
 
 function assertSupportedNode(): void {
-  if (satisfies(process.versions.node, SUPPORTED_NODE_RANGE)) return;
+  if (isSupportedNodeVersion(process.versions.node)) return;
 
   throw new Error(
     [
@@ -690,7 +689,7 @@ function assertSupportedNode(): void {
 }
 
 function nodeVersionStatus(): string {
-  return satisfies(process.versions.node, SUPPORTED_NODE_RANGE)
+  return isSupportedNodeVersion(process.versions.node)
     ? `supported ${SUPPORTED_NODE_RANGE}`
     : `unsupported, requires ${SUPPORTED_NODE_RANGE}`;
 }
