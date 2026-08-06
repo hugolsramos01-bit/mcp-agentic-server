@@ -34,6 +34,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   already built the project can use `npm run eval:built`.
 - The supported Node runtime now starts at `22.19.0`, matching the effective
   minimum required by runtime dependencies and CI/release validation.
+- The Pi coding primitives are pinned to the audited security fork
+  `@hugolsramos01-bit/pi-coding-agent@0.80.7-agentic.1`, based on upstream
+  `0.80.7` with package identity, dependency, lock tooling and generated-lock
+  corrections, without runtime behavior changes.
+- The MCP SDK is pinned to `1.30.0`, and CI/release gates now audit both the
+  source production tree and the package installed from the generated tarball.
 
 ### Fixed
 - Atomic creation and editing of allowed dotfiles such as `.gitignore`,
@@ -49,6 +55,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   failed command executions.
 - Explicitly referenced files are no longer demoted behind inferred candidates.
 - Grep-derived ranking signals are balanced before result caps are applied.
+- CLI Node compatibility now derives from `package.json` instead of a duplicated
+  hard-coded range.
+- Production tarballs no longer install the vulnerable `undici`,
+  `brace-expansion`, `fast-uri`, `ip-address` or `protobufjs` versions found
+  during the release audit.
 
 ## [1.4.0] - 2026-07-30
 

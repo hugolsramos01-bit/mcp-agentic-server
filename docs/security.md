@@ -120,6 +120,27 @@ The policy can be inspected and customized at runtime via:
 - Review shell logs if `AGENTIC_LOG_SHELL_COMMANDS=1` is enabled
 - Consider running Agentic MCP inside a container or VM for additional isolation
 
+## Production Dependency Integrity
+
+Release builds fail when the production dependency tree contains a `high` or
+`critical` npm advisory. The gate audits both forms of the software:
+
+- the repository after `npm ci`
+- the generated `.tgz` after installation in an empty consumer directory
+
+The second audit is required because published dependencies may include their own
+`npm-shrinkwrap.json`, which can override a consumer project's root lockfile.
+
+Version 1.5.0 temporarily pins the coding primitives to
+`@hugolsramos01-bit/pi-coding-agent@0.80.7-agentic.1`. This controlled fork is
+based on upstream `0.80.7` and changes only package identity, security pins,
+lock-generation tooling, generated lock artifacts and internal package
+references needed by the fork. It contains no runtime behavior refactor and
+remains exact-pinned until upstream Pi publishes an equivalently audited tree.
+
+Moderate advisories are reviewed and tracked, but the release gate currently
+blocks on `high` and `critical` findings.
+
 ## Worktrees
 
 Managed worktrees reduce accidental edits to your active checkout, but they are

@@ -34,6 +34,9 @@ jobs:
           npm test
           npm run build
 
+      - name: Audit source production tree
+        run: npm audit --omit=dev --audit-level=high
+
       - name: Packaged MCP runtime test
         run: npm run test:runtime:built
 
@@ -42,6 +45,7 @@ jobs:
           PACKAGE_TGZ=$(npm pack --json | node scripts/pack-name.mjs)
           mkdir .release-smoke
           npm install --prefix .release-smoke "./$PACKAGE_TGZ"
+          npm audit --prefix .release-smoke --omit=dev --audit-level=high
           node .release-smoke/node_modules/mcp-agentic-server/dist/cli.js doctor
 
       # NPM_TOKEN authentication does not provide the OIDC identity required by

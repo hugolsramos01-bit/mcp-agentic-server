@@ -6,7 +6,7 @@ import {
   loadSkills,
   type Skill,
   type LoadSkillsResult,
-} from "@earendil-works/pi-coding-agent";
+} from "@hugolsramos01-bit/pi-coding-agent";
 import type { ServerConfig } from "./config.js";
 import { expandHomePath, isPathInsideRoot } from "./roots.js";
 

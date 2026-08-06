@@ -15,7 +15,7 @@ import {
   type ReadToolInput,
   type WriteToolInput,
   type AgentToolResult,
-} from "@earendil-works/pi-coding-agent";
+} from "@hugolsramos01-bit/pi-coding-agent";
 import { resolveWorkspacePath } from "./security/path-resolution.js";
 import { assertPathOperationAllowed } from "./security/secret-policy.js";
 import { assertCommandAllowed } from "./security/command-executor.js";

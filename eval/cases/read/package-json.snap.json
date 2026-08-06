@@ -1,12 +1,12 @@
 {
   "name": "mcp-agentic-server",
-  "version": "1.3.1",
+  "version": "1.5.0",
   "mcpName": "io.github.hugolsramos01-bit/mcp-agentic-server",
   "description": "Agentic MCP — local coding tools for ChatGPT Developer Mode and other MCP clients. Tested with ChatGPT Plus via HTTPS tunnel; availability varies by plan and rollout. Independent project, not affiliated with OpenAI.",
   "type": "module",
   "main": "dist/server.js",
   "engines": {
-    "node": ">=22.12.0 <27"
+    "node": ">=22.19.0 <27"
   },
   "bin": {
     "agentic": "dist/cli.js"
@@ -32,10 +32,11 @@
     "smoke:package": "node scripts/smoke-package.mjs",
     "test:http": "node scripts/test-http.mjs",
     "start": "node dist/cli.js serve",
-    "test": "tsx src/regression.test.ts && tsx src/config.test.ts && tsx src/analysis-regression.test.ts && tsx src/ast-tools.test.ts && tsx src/import-resolver.test.ts && tsx src/diagnostics/log-compressor.test.ts && tsx src/ui/card-types.test.ts && tsx src/ui/patch-display.test.ts && tsx src/apply-patch.test.ts && tsx src/process-platform.test.ts && tsx src/process-sessions.test.ts && tsx src/process-runner/process-runner.test.ts && tsx src/local-agent-runtime.test.ts && tsx src/local-agent-adapters.test.ts && tsx src/local-agent-availability.test.ts && tsx src/local-agent-profiles.test.ts && tsx src/local-agent-targets.test.ts && tsx src/local-agent-store.test.ts && tsx src/roots.test.ts && tsx src/git.test.ts && tsx src/skills.test.ts && tsx src/workspaces.test.ts && tsx src/checkpoint-tools.test.ts && tsx src/review-checkpoints.test.ts && tsx src/native-dependency-verifier.test.ts && tsx src/oauth-store.test.ts && tsx src/cli.test.ts && tsx src/security/security-regression.test.ts && tsx src/check-classifier.test.ts && tsx src/tool-contracts.test.ts && tsx src/server/mutation-receipt.test.ts && tsx src/server/transport-registry.test.ts && tsx src/performance/performance-recorder.test.ts && tsx src/change-intelligence/git-change-paths.test.ts && tsx src/change-intelligence/goal-normalizer.test.ts && tsx src/change-intelligence/test-proximity.test.ts && tsx src/change-intelligence/indexed-path.test.ts && tsx src/change-intelligence/risk-profile.test.ts && tsx src/change-intelligence/task-context.test.ts && tsx src/change-intelligence/code-regions.test.ts && tsx src/change-intelligence/code-region-cache.test.ts && tsx src/change-intelligence/verification-planner.test.ts && tsx src/assistant-tools.test.ts && tsx src/change-intelligence/verification-evidence.test.ts",
+    "test": "tsx src/regression.test.ts && tsx src/config.test.ts && tsx src/analysis-regression.test.ts && tsx src/ast-tools.test.ts && tsx src/import-resolver.test.ts && tsx src/diagnostics/log-compressor.test.ts && tsx src/ui/card-types.test.ts && tsx src/ui/patch-display.test.ts && tsx src/apply-patch.test.ts && tsx src/process-platform.test.ts && tsx src/process-sessions.test.ts && tsx src/process-runner/process-runner.test.ts && tsx src/local-agent-runtime.test.ts && tsx src/local-agent-adapters.test.ts && tsx src/local-agent-availability.test.ts && tsx src/local-agent-profiles.test.ts && tsx src/local-agent-targets.test.ts && tsx src/local-agent-store.test.ts && tsx src/roots.test.ts && tsx src/git.test.ts && tsx src/skills.test.ts && tsx src/workspaces.test.ts && tsx src/checkpoint-tools.test.ts && tsx src/review-checkpoints.test.ts && tsx src/native-dependency-verifier.test.ts && tsx src/oauth-store.test.ts && tsx src/cli.test.ts && tsx src/security/security-regression.test.ts && tsx src/check-classifier.test.ts && tsx src/tool-contracts.test.ts && tsx src/server/tool-response-finalizer.test.ts && tsx src/server/atomic-mutation.test.ts && tsx src/server/mutation-receipt.test.ts && tsx src/server/transport-registry.test.ts && tsx src/performance/performance-recorder.test.ts && tsx src/change-intelligence/git-change-paths.test.ts && tsx src/change-intelligence/goal-normalizer.test.ts && tsx src/change-intelligence/candidate-ranking.test.ts && tsx src/change-intelligence/test-proximity.test.ts && tsx src/change-intelligence/indexed-path.test.ts && tsx src/change-intelligence/risk-profile.test.ts && tsx src/change-intelligence/task-context.test.ts && tsx src/change-intelligence/code-regions.test.ts && tsx src/change-intelligence/code-region-cache.test.ts && tsx src/change-intelligence/verification-planner.test.ts && tsx src/assistant-tools.test.ts && tsx src/change-intelligence/verification-evidence.test.ts",
     "typecheck": "tsc -p tsconfig.json --noEmit",
-    "eval": "node eval/run.mjs",
-    "eval:update": "node eval/run.mjs --update",
+    "eval": "npm run build && npm run eval:built",
+    "eval:built": "node eval/run.mjs",
+    "eval:update": "npm run build && node eval/run.mjs --update",
     "bench:tools": "npm run build && node perf/tool-latency.mjs",
     "bench:agent": "npm run build && node perf/agent-loop.mjs",
     "bench:server": "npm run build && node perf/server-hot-path.mjs",
@@ -69,9 +70,9 @@
     "@agentclientprotocol/sdk": "^1.1.0",
     "@anthropic-ai/claude-agent-sdk": "^0.3.200",
     "@clack/prompts": "^1.5.1",
-    "@earendil-works/pi-coding-agent": "^0.80.3",
+    "@hugolsramos01-bit/pi-coding-agent": "0.80.7-agentic.1",
     "@modelcontextprotocol/ext-apps": "^1.7.2",
-    "@modelcontextprotocol/sdk": "^1.29.0",
+    "@modelcontextprotocol/sdk": "1.30.0",
     "@openai/codex-sdk": "^0.142.5",
     "@opencode-ai/sdk": "^1.17.13",
     "@pierre/diffs": "^1.2.5",
@@ -98,9 +99,7 @@
     "vite": "^8.0.14"
   },
   "overrides": {
-    "protobufjs": "7.6.4",
-    "ws": "8.21.0",
-    "undici": "8.5.0"
+    "ws": "8.21.0"
   },
   "optionalDependencies": {
     "node-pty": "^1.1.0"
