@@ -11,6 +11,10 @@ permissions:
 jobs:
   publish:
     runs-on: ubuntu-latest
+    env:
+      AGENTIC_ALLOWED_ROOTS: ${{ github.workspace }}
+      AGENTIC_OAUTH_OWNER_TOKEN: release-owner-token-that-is-long-enough
+      AGENTIC_PUBLIC_BASE_URL: http://127.0.0.1:7676
     steps:
       - uses: actions/checkout@v6
         with:
