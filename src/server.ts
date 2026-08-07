@@ -2148,7 +2148,7 @@ function createMcpServer(
         annotations: READ_TOOL_ANNOTATIONS,
       } as any,
       async (req: any) => {
-        const assessment = assessCommand(req.command);
+        const assessment = assessCommand(req.command, "bash", config.securityMode);
         return wrap("risk_assess_command", req, { content: [{ type: "text", text: JSON.stringify(assessment, null, 2) }] });
       },
     );
@@ -2502,7 +2502,7 @@ function createMcpServer(
       } as any,
       async (req: any) => {
         const workspace = workspaces.getWorkspace(req.workspaceId);
-        return wrap("run_package_script", req, await runScriptTool(req, workspace.root));
+        return wrap("run_package_script", req, await runScriptTool(req, workspace.root, config.securityMode));
       }
     );
 
@@ -2552,7 +2552,7 @@ function createMcpServer(
         annotations: READ_TOOL_ANNOTATIONS,
       } as any,
       async (req: any) => {
-        return wrap("tournament_judge", req, await tournamentJudgeTool(req));
+        return wrap("tournament_judge", req, await tournamentJudgeTool({ ...req, securityMode: config.securityMode }));
       }
     );
     registerAppTool("tournament_cleanup",
@@ -2736,14 +2736,19 @@ function createMcpServer(
   }
 
   if (true) {
+  const shellSecurityGuidance = config.securityMode === "safe"
+    ? `Safe security mode: do not create or modify files through ${toolNames.shell}; shell redirection, heredocs, tee, in-place editors, and inline node/python execution are blocked. Use ${toolNames.edit} or ${toolNames.write} for file mutations.`
+    : config.securityMode === "trusted"
+    ? `Trusted security mode: inline node/python execution and shell file-writing constructs are permitted. Prefer typed ${toolNames.edit}/${toolNames.write} when practical; destructive commands such as recursive force deletes, force pushes, hard resets, and destructive SQL remain blocked by policy.`
+    : `Full security mode: command-policy restrictions are bypassed, including destructive shell commands. OAuth authentication and MCP workspace/file-tool root checks remain enforced, but the shell itself is not an OS sandbox and can access anything the local user account can access. Use this mode only when the user intentionally granted unrestricted command execution.`;
   registerAppTool(toolNames.shell,
     {
       title: "Bash",
       description: config.toolMode === "minimal"
-        ? `Run a shell command inside an open workspace. Use only for tests, builds, git inspection, package scripts, search, file discovery, and directory inspection. In minimal tool mode, ${toolNames.grep}, ${toolNames.glob}, and ${toolNames.ls} are disabled; use command-line tools such as grep, rg, find, ls, and tree for those read-only inspection actions. Do not use ${toolNames.shell} to create or modify files. Do not use shell redirection, heredocs, tee, sed -i, perl -i, node/python/ruby scripts, or generated scripts to write project files; use ${toolNames.edit} for targeted changes and ${toolNames.write} for new files or full rewrites. Prefer ${toolNames.read} for direct file reads. Call open_workspace first and pass workspaceId. This is powerful local execution and should only be exposed behind strong authentication.`
+        ? `Run a shell command inside an open workspace. Use for tests, builds, git inspection, package scripts, search, file discovery, and directory inspection. In minimal tool mode, ${toolNames.grep}, ${toolNames.glob}, and ${toolNames.ls} are disabled; command-line inspection tools are appropriate. Prefer ${toolNames.read} for direct file reads. ${shellSecurityGuidance} Call open_workspace first and pass workspaceId. This is powerful local execution and should only be exposed behind strong authentication.`
         : config.toolMode === "assistant"
-        ? `Run a shell command inside an open workspace. Use only for tests, builds, and complex shell interactions. Do not use ${toolNames.shell} for file inspection, discovery, git status/diff/log, or running package scripts; prefer the specialized tools (workspace_summary, tree, safe_file_preview, git_status, git_diff, git_log, run_package_script, read_many) for those read-only and targeted actions. Do not use ${toolNames.shell} to create or modify files. Do not use shell redirection, heredocs, tee, sed -i, perl -i, node/python/ruby scripts, or generated scripts to write project files; use ${toolNames.edit} for targeted changes and ${toolNames.write} for new files or full rewrites. Call open_workspace first and pass workspaceId. This is powerful local execution and should only be exposed behind strong authentication.`
-        : `Run a shell command inside an open workspace. Use only for tests, builds, git inspection, package scripts, and commands that are better executed by the shell. Do not use ${toolNames.shell} to create or modify files. Do not use shell redirection, heredocs, tee, sed -i, perl -i, node/python/ruby scripts, or generated scripts to write project files; use ${toolNames.edit} for targeted changes and ${toolNames.write} for new files or full rewrites. Prefer ${toolNames.read}, ${toolNames.grep}, ${toolNames.glob}, and ${toolNames.ls} for file inspection. Call open_workspace first and pass workspaceId. This is powerful local execution and should only be exposed behind strong authentication.`,
+        ? `Run a shell command inside an open workspace. Use only for tests, builds, database/OS interactions, and complex shell work that specialized tools cannot handle. Prefer workspace_summary, tree, safe_file_preview, git_status, git_diff, git_log, run_package_script, and read_many for their targeted jobs. ${shellSecurityGuidance} Call open_workspace first and pass workspaceId. This is powerful local execution and should only be exposed behind strong authentication.`
+        : `Run a shell command inside an open workspace for tests, builds, git inspection, package scripts, database/OS interactions, and commands that are better executed by the shell. Prefer ${toolNames.read}, ${toolNames.grep}, ${toolNames.glob}, and ${toolNames.ls} for file inspection. ${shellSecurityGuidance} Call open_workspace first and pass workspaceId. This is powerful local execution and should only be exposed behind strong authentication.`, 
       inputSchema: {
         workspaceId: z
           .string()
@@ -2751,7 +2756,7 @@ function createMcpServer(
         command: z
           .string()
           .describe(
-            `Shell command to run. Must not create or modify project files; use ${toolNames.edit} or ${toolNames.write} for file changes.`,
+            `Shell command to run. Security behavior follows AGENTIC_SECURITY_MODE=${config.securityMode}.`, 
           ),
         workingDirectory: z
           .string()
@@ -2780,6 +2785,7 @@ function createMcpServer(
       const response = await runShellTool(input, {
         cwd,
         root: workspace.root,
+        securityMode: config.securityMode,
       });
 
       if (response.isError) {

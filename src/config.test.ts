@@ -22,6 +22,9 @@ assert.equal(loadConfig({ ...baseEnv, AGENTIC_TOOL_MODE: "minimal" }).toolMode, 
 assert.equal(loadConfig({ ...baseEnv, AGENTIC_TOOL_MODE: "full" }).toolMode, "full");
 assert.equal(loadConfig({ ...baseEnv, AGENTIC_MINIMAL_TOOLS: "0" }).toolMode, "full");
 assert.equal(loadConfig({ ...baseEnv, AGENTIC_MINIMAL_TOOLS: "1" }).toolMode, "minimal");
+assert.equal(loadConfig(baseEnv).securityMode, "safe");
+assert.equal(loadConfig({ ...baseEnv, AGENTIC_SECURITY_MODE: "trusted" }).securityMode, "trusted");
+assert.equal(loadConfig({ ...baseEnv, AGENTIC_SECURITY_MODE: "full" }).securityMode, "full");
 assert.equal(loadConfig(baseEnv).skillsEnabled, true);
 assert.equal(loadConfig(baseEnv).agenticSkillsDir, join(emptyConfigDir, "skills"));
 assert.equal(loadConfig(baseEnv).agenticAgentsDir, join(emptyConfigDir, "agents"));
@@ -31,6 +34,13 @@ assert.equal(loadConfig({ ...baseEnv, AGENTIC_LEGACY_ALIASES: "1" }).legacyAlias
 const assistantInstructions = serverInstructions(loadConfig(baseEnv));
 assert.doesNotMatch(assistantInstructions, /preview_edit|next_routes_summary|payload_collections_summary|check_recommendations|git_changes_summary|workspace_summary/);
 assert.match(assistantInstructions, /edit_dry_run/);
+assert.match(assistantInstructions, /Safe security mode is active/);
+const trustedInstructions = serverInstructions(loadConfig({ ...baseEnv, AGENTIC_SECURITY_MODE: "trusted" }));
+assert.match(trustedInstructions, /Trusted security mode is active/);
+assert.match(trustedInstructions, /inline node\/python execution and shell file-writing constructs are permitted/);
+const fullSecurityInstructions = serverInstructions(loadConfig({ ...baseEnv, AGENTIC_SECURITY_MODE: "full" }));
+assert.match(fullSecurityInstructions, /Full security mode is active/);
+assert.match(fullSecurityInstructions, /shell itself is not an OS sandbox/);
 assert.equal(loadConfig({ ...baseEnv, AGENTIC_SKILLS: "0" }).skillsEnabled, false);
 assert.equal(loadConfig({ ...baseEnv, AGENTIC_SKILLS: "1" }).skillsEnabled, true);
 assert.equal(
@@ -64,6 +74,10 @@ assert.throws(
 assert.throws(
   () => loadConfig({ ...baseEnv, AGENTIC_TOOL_MODE: "invalid" }),
   /Invalid AGENTIC_TOOL_MODE: invalid/,
+);
+assert.throws(
+  () => loadConfig({ ...baseEnv, AGENTIC_SECURITY_MODE: "unsafe" }),
+  /Invalid AGENTIC_SECURITY_MODE: unsafe/,
 );
 
 assert.deepEqual(loadConfig(baseEnv).logging, {
@@ -168,6 +182,7 @@ writeFileSync(
     allowedRoots: [process.cwd()],
     publicBaseUrl: "https://agentic.example.com",
     subagents: true,
+    securityMode: "trusted",
   }),
 );
 writeFileSync(
@@ -182,6 +197,7 @@ assert.equal(fileConfig.port, 8787);
 assert.equal(fileConfig.oauth.ownerToken, "persisted-owner-token-long-enough");
 assert.equal(fileConfig.publicBaseUrl, "https://agentic.example.com");
 assert.equal(fileConfig.subagents, true);
+assert.equal(fileConfig.securityMode, "trusted");
 assert.deepEqual(fileConfig.allowedHosts, [
   "localhost",
   "127.0.0.1",

@@ -7,6 +7,7 @@ import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import { enforceSecurePath, type ToolResponse } from "./pi-tools.js";
 import { getWorkspaceGitEligibility } from "./git.js";
+import type { SecurityMode } from "./security/security-mode.js";
 
 const execFileAsync = promisify(execFile);
 
@@ -552,7 +553,7 @@ export interface RunScriptInput {
   timeoutMs?: number;
 }
 
-export async function runScriptTool(input: RunScriptInput, cwd: string): Promise<ToolResponse> {
+export async function runScriptTool(input: RunScriptInput, cwd: string, securityMode: SecurityMode = "safe"): Promise<ToolResponse> {
   try {
     const pkgPath = join(cwd, "package.json");
     if (!existsSync(pkgPath)) {
@@ -583,19 +584,22 @@ export async function runScriptTool(input: RunScriptInput, cwd: string): Promise
     const fullCommand = `${packageManager} run ${input.script}`;
 
 
-    const commandsToValidate = collectPackageScriptCommands({
-      packageJson: pkg,
-      scriptName: input.script,
-      maxDepth: 10,
-    });
-
-    for (const cmd of commandsToValidate) {
-      await assertCommandAllowed({
-        command: cmd,
-        workspaceRoot: cwd,
-        workingDirectory: cwd,
-        source: "package-script",
+    if (securityMode !== "full") {
+      const commandsToValidate = collectPackageScriptCommands({
+        packageJson: pkg,
+        scriptName: input.script,
+        maxDepth: 10,
       });
+
+      for (const cmd of commandsToValidate) {
+        await assertCommandAllowed({
+          command: cmd,
+          workspaceRoot: cwd,
+          workingDirectory: cwd,
+          source: "package-script",
+          securityMode,
+        });
+      }
     }
 
     await assertCommandAllowed({
@@ -603,6 +607,7 @@ export async function runScriptTool(input: RunScriptInput, cwd: string): Promise
       workspaceRoot: cwd,
       workingDirectory: cwd,
       source: "bash",
+      securityMode,
     });
 
     const { runProcess } = await import("./process-runner/index.js");

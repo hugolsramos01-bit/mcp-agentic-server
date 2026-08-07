@@ -120,7 +120,7 @@ export function serverInstructions(config: ServerConfig): string {
     : config.toolMode === "assistant"
     ? `Tools are organized by visibility:
 [CORE] — Always use these first: open_workspace, suggest_checks, task_context, semantic_pack, grep, read_adaptive, read, read_many, git_status, git_diff, propose_plan, edit_dry_run, checkpoint_save, edit, write, run_package_script, show_changes, tree.
-[ADVANCED] — Use when core tools are insufficient: tournament_*, knowledge_*, set_policy, reset_policy, token_audit, context_budget, safe_file_preview, apply_patch, coding_context.
+[ADVANCED] — Use when core tools are insufficient: tournament_*, knowledge_*, token_audit, context_budget, safe_file_preview, apply_patch, coding_context.
 
 Tool selection:
 - Bootstrapping a focused coding goal: task_context (minimal, fast, test proximity).
@@ -146,14 +146,19 @@ Do not edit files without first calling propose_plan and edit_dry_run. `
     : "";
   const agentsMd = `Follow instructions returned by ${toolNames.openWorkspace}. Before working under a path listed in availableAgentsFiles, use ${toolNames.read} to inspect that instruction file and follow it. `;
   const shellUsage = config.toolMode === "assistant"
-    ? `and ${toolNames.shell} ONLY for tests, builds, and complex system interactions that the specialized tools cannot handle`
-    : `and ${toolNames.shell} for tests, builds, git inspection, package scripts, and commands that are better executed by the shell`;
+    ? `and ${toolNames.shell} ONLY for tests, builds, database/OS interactions, and complex system work that the specialized tools cannot handle`
+    : `and ${toolNames.shell} for tests, builds, git inspection, package scripts, database/OS interactions, and commands that are better executed by the shell`;
+  const shellSecurityPolicy = config.securityMode === "safe"
+    ? ` Safe security mode is active: do not create or modify files with ${toolNames.shell}; shell redirection, heredocs, tee, in-place editors, and inline node/python execution are blocked.`
+    : config.securityMode === "trusted"
+    ? ` Trusted security mode is active: inline node/python execution and shell file-writing constructs are permitted, but destructive commands remain policy-blocked. Prefer ${toolNames.edit}/${toolNames.write} for auditable project file changes when practical.`
+    : ` Full security mode is active: command-policy restrictions are bypassed, including destructive commands. OAuth authentication and MCP workspace/file-tool root checks still apply, but the shell itself is not an OS sandbox and can access anything the local user account can access.`;
 
   return `${turboSpeedNote}${strictPvdlNote ? strictPvdlNote + "\n\n" : ""}Use Agentic MCP as a local coding workspace. Call ${toolNames.openWorkspace} once per project folder or worktree to obtain a workspaceId. Reuse that same workspaceId for all later file, search, edit, write, show-changes, and shell tools in that same folder.
 
 IMPORTANT — switching between projects: If the user mentions a different folder, project, codebase, or repository, call ${toolNames.openWorkspace} again with the new path. Do not try to work on multiple projects through a single workspaceId. The user's first request tells you which project to open; if they later mention another, reopen.
 
-${agentsMd}${skills}${inspection}Prefer ${toolNames.edit} for targeted modifications, ${toolNames.write} only for new files or complete rewrites, ${shellUsage}. Do not create or modify files with ${toolNames.shell}; avoid shell redirection, heredocs, tee, sed -i, perl -i, node/python/ruby scripts, or any command whose purpose is to write project files.${showChangesInstruction}`;
+${agentsMd}${skills}${inspection}Prefer ${toolNames.edit} for targeted modifications and ${toolNames.write} for new files or complete rewrites, ${shellUsage}.${shellSecurityPolicy}${showChangesInstruction}`;
 }
 
 // ─── Agent Formatting ────────────────────────────────────────
