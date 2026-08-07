@@ -39,6 +39,7 @@ import {
 import { expandHomePath } from "./roots.js";
 import { runProcess } from "./process-runner/index.js";
 import { isSupportedNodeVersion, SUPPORTED_NODE_RANGE } from "./node-version.js";
+import { parseSecurityMode } from "./security/security-mode.js";
 
 type Command = "serve" | "stdio" | "init" | "doctor" | "config" | "agents" | "help" | "version";
 const require = createRequire(import.meta.url);
@@ -165,6 +166,7 @@ async function runInit({ force }: { force: boolean }): Promise<void> {
       allowedRoots,
       publicBaseUrl,
       subagents: resolveSubagentsFlag(files.config),
+      securityMode: files.config.securityMode ?? "safe",
     };
     const auth = {
       ownerToken: files.auth.ownerToken ?? generateOwnerToken(),
@@ -299,6 +301,7 @@ async function runDoctor(): Promise<void> {
     console.log(`Public MCP URL: ${new URL("/mcp", config.publicBaseUrl).toString()}`);
     console.log(`Allowed roots: ${config.allowedRoots.join(", ")}`);
     console.log(`Allowed hosts: ${config.allowedHosts.join(", ")}`);
+    console.log(`Security mode: ${config.securityMode}`);
   } catch (error) {
     console.log(`Config status: ${error instanceof Error ? error.message : String(error)}`);
   }
@@ -316,13 +319,24 @@ function runConfigCommand(args: string[]): void {
   if (subcommand !== "set") {
     throw new Error(`Unknown config command: ${subcommand}`);
   }
-  if (key !== "publicBaseUrl") {
-    throw new Error("Only `agentic config set publicBaseUrl <url|null>` is supported right now.");
+  if (key !== "publicBaseUrl" && key !== "securityMode") {
+    throw new Error("Supported config keys: publicBaseUrl, securityMode.");
   }
 
   const value = rest.join(" ").trim();
   if (!value) {
-    throw new Error("Missing publicBaseUrl value.");
+    throw new Error(`Missing ${key} value.`);
+  }
+
+  if (key === "securityMode") {
+    const securityMode = parseSecurityMode(value);
+    writeAgenticConfig({
+      ...files.config,
+      securityMode,
+    });
+    console.log(`Updated ${files.configPath}: securityMode=${securityMode}`);
+    console.log("Restart Agentic MCP for the new security mode to take effect.");
+    return;
   }
 
   writeAgenticConfig({
@@ -345,6 +359,7 @@ function printHelp(): void {
       "  agentic doctor          Show config, runtime, and native dependency status",
       "  agentic config get      Print persisted config",
       "  agentic config set publicBaseUrl <url|null>",
+      "  agentic config set securityMode <safe|trusted|full>",
       "  agentic agents ls       List subagent sessions",
       "  agentic agents run <profile-or-provider-or-id> [--model <model>] <prompt>",
       "  agentic agents show <id>",

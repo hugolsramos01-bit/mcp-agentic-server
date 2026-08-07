@@ -8,6 +8,7 @@ import {
 import { homedir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { expandHomePath } from "./roots.js";
+import type { SecurityMode } from "./security/security-mode.js";
 
 export interface AgenticUserConfig {
   host?: string;
@@ -19,6 +20,7 @@ export interface AgenticUserConfig {
   worktreeRoot?: string;
   agentDir?: string;
   subagents?: boolean;
+  securityMode?: SecurityMode;
 }
 
 export interface AgenticAuthConfig {

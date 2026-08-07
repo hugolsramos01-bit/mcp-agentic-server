@@ -89,29 +89,44 @@ local user account. **Agentic MCP is NOT a full security sandbox.**
 - Read environment variables, network resources, and mounted volumes
 - Execute scripts, compilers, package managers, and system tools
 
-### What the shell should NOT be used for
+### Preferred shell usage
 
-The server instructs the model to **not** use the shell for:
-- Creating or modifying project files (use `edit`/`write` instead)
-- Searching code or reading files (use `read`/`grep`/`glob` instead)
-- Git status inspection (use `git_status`/`git_diff`/`git_log` instead)
+In the default `safe` mode, the server instructs the model to **not** create or modify project files through the shell; use `edit`/`write` instead. In every mode, typed tools remain preferred for code search, file reads, and Git inspection because they are narrower and easier to audit.
 
-### Security policy — risk levels
+`trusted` intentionally permits shell-based file writes and inline scripting. `full` removes command-policy restrictions altogether, so these become workflow preferences rather than enforced command-policy boundaries.
 
-Agentic MCP includes a built-in security policy that classifies shell commands
-into four risk levels:
+### Command security modes
 
-| Level | Behavior | Examples |
-|-------|----------|----------|
-| **`allow`** | Runs without restriction | `ls`, `cat`, `node --version` |
-| **`warn`** | Runs, but the model notifies you about the risk first | `git push`, `npm install`, shell redirects, `sudo` |
-| **`dangerous`** | Blocked — model must ask you for explicit confirmation | `git push --force`, `DROP TABLE`, `DELETE FROM` |
-| **`block`** | Always blocked, cannot be overridden | `rm -rf`, `mkfs`, `chmod 777`, `dd if=/dev/zero` |
+`AGENTIC_SECURITY_MODE` selects how the built-in command policy is applied. It is independent from `AGENTIC_TOOL_MODE`, which only controls which MCP tools are exposed.
 
-The policy can be inspected and customized at runtime via:
-- `risk_assess_command` — preview the assessment without running
-- `set_policy` — replace rules with custom patterns
-- `reset_policy` — restore defaults
+| Mode | Behavior |
+|------|----------|
+| **`safe`** (default) | Preserves the strict policy. Inline `python -c` / `node -e`, redirects, heredocs, `tee`, in-place shell editors, and similar shell file-writing forms are blocked. Destructive commands remain blocked or dangerous. |
+| **`trusted`** | Allows inline scripting and shell file-writing forms, and routine package installs no longer warn. Destructive commands such as recursive force delete, force push, hard reset, destructive SQL, filesystem/device operations, and broad Windows deletes remain protected. |
+| **`full`** | Bypasses command-policy regex rules entirely, including destructive-command rules. Use only when you intentionally grant the connected MCP client unrestricted shell-command authority. |
+
+Persist a mode with:
+
+```bash
+agentic config set securityMode trusted
+# or
+agentic config set securityMode full
+```
+
+Restart the server after changing the persisted mode. `AGENTIC_SECURITY_MODE` can also be set per process.
+
+The policy assessment itself still reports four verdicts in `safe`/`trusted`:
+
+| Verdict | Behavior |
+|---------|----------|
+| **`allow`** | Command passes policy checks. |
+| **`warn`** | Command is allowed but carries a policy warning, such as `git push` or `sudo`. |
+| **`dangerous`** | The current executor denies the command in `safe`/`trusted`; `risk_assess_command` marks that stronger authorization would be required. |
+| **`block`** | Command is denied in the active mode. `full` bypasses command-policy verdicts. |
+
+Use `risk_assess_command` to preview a command under the server's active mode without executing it.
+
+OAuth remains required in every mode, and workspace/file MCP tools continue to enforce `AGENTIC_ALLOWED_ROOTS`. **The shell itself is not confined by that allowlist.** A shell command can access files, credentials, network resources, and system paths available to the local user account. `trusted` and `full` therefore increase real machine-level risk, not just project-level risk.
 
 ### Recommendation for production use
 

@@ -158,6 +158,18 @@ The tool surface depends on the `AGENTIC_TOOL_MODE` setting.
 
 > **Note:** The `assistant` mode is recommended for the full agentic coding experience. Set `AGENTIC_TOOL_MODE=assistant` in your `.env` or environment.
 
+### Command security modes
+
+Tool mode and command security are separate. `AGENTIC_SECURITY_MODE` controls what shell commands may pass the policy engine:
+
+| Security mode | Behavior |
+|---|---|
+| **`safe`** (default) | Strict command policy. Blocks inline scripting/file-writing shell constructs and destructive commands. |
+| **`trusted`** | Allows `python -c`, `node -e`, redirects, heredocs and in-place shell writes, while destructive operations remain protected. |
+| **`full`** | Bypasses command-policy restrictions, including destructive-command rules. |
+
+Persist the setting with `agentic config set securityMode safe|trusted|full`, then restart the server. OAuth remains required. The shell is **not** an OS sandbox and may access anything available to the local user account, so `trusted` and especially `full` should only be enabled intentionally.
+
 ### Core tools (always available)
 
 | Tool | Description |

@@ -4,6 +4,7 @@ import { expandHomePath } from "./roots.js";
 import type { LoggingConfig, LogFormat, LogLevel } from "./logger.js";
 import type { OAuthConfig } from "./oauth-provider.js";
 import { agenticAgentsDir, agenticSkillsDir, loadAgenticFiles } from "./user-config.js";
+import { parseSecurityMode, type SecurityMode } from "./security/security-mode.js";
 
 export type ToolMode = "minimal" | "full" | "assistant";
 export type SpeedMode = "balanced" | "turbo";
@@ -19,6 +20,7 @@ export interface ServerConfig {
   allowedHosts: string[];
   publicBaseUrl: string;
   toolMode: ToolMode;
+  securityMode: SecurityMode;
   speedMode: SpeedMode;
   strictPvdl: boolean;
   widgets: WidgetMode;
@@ -236,6 +238,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): ServerConfig {
     allowedHosts: parseAllowedHosts(env.AGENTIC_ALLOWED_HOSTS, derivedAllowedHosts),
     publicBaseUrl,
     toolMode: parseToolMode(env),
+    securityMode: parseSecurityMode(env.AGENTIC_SECURITY_MODE ?? files.config.securityMode),
     speedMode: parseSpeedMode(env),
     strictPvdl: env.AGENTIC_STRICT_PVDL === undefined ? false : parseBoolean(env.AGENTIC_STRICT_PVDL),
     widgets: parseWidgetMode(env.AGENTIC_WIDGETS),
