@@ -98,6 +98,14 @@ npx mcp-agentic-server config set securityMode full
 
 Restart the Agentic MCP server after changing the persisted mode. For a one-off process, set `AGENTIC_SECURITY_MODE` in the environment instead.
 
+## Workflow Speed And PVDL
+
+`AGENTIC_SPEED_MODE=turbo` reduces orchestration overhead by favoring batched reads, direct QUICK edits, and concise verification. It does not weaken strict PVDL.
+
+When `AGENTIC_STRICT_PVDL` is unset or `0`, assistant mode uses proportional QUICK / STANDARD / CRITICAL guidance. QUICK low-risk changes may go directly from focused inspection to `edit`/`write` without mandatory planning, dry-run, checkpoint, or `suggest_checks` calls.
+
+When `AGENTIC_STRICT_PVDL=1`, strict mode wins over balanced/turbo guidance: `propose_plan` is required before `edit`/`write`, with dry-runs, checkpoints, and verification applied according to risk.
+
 ## Widgets
 
 `AGENTIC_WIDGETS` controls ChatGPT Apps iframe usage.

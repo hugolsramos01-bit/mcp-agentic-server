@@ -147,6 +147,18 @@ registered. `exec_command` returns a process session ID when a command is still
 running after its yield window. Use `write_stdin` to poll it, send input, resize
 a PTY, or send Ctrl-C. Set `tty: true` only for commands that need a terminal.
 
+## Proportional Change Workflow
+
+When `AGENTIC_STRICT_PVDL` is disabled, Agentic MCP uses proportional workflow guidance instead of requiring the full PVDL sequence for every edit:
+
+- **QUICK** — localized, low-risk, obvious changes such as labels, CSS, small JSX/conditions, comments, and tiny config adjustments. Inspect only what is necessary, edit/write directly, and run only an obvious targeted check. `propose_plan`, `edit_dry_run`, `checkpoint_save`, and `suggest_checks` are not default steps.
+- **STANDARD** — multi-file or behavioral changes with moderate blast radius. Plan when sequencing or uncertainty warrants it, dry-run ambiguous/large replacements, checkpoint when rollback would be useful, and use `suggest_checks` when verification is not obvious.
+- **CRITICAL** — authentication, permissions/RLS, database migrations or destructive data work, security policy, CI/release, dependency/supply-chain, and other high-impact changes. Use the full PVDL workflow and strong verification.
+
+Escalate to a higher level when discovery reveals more risk. Do not add governance tool calls solely because a file is being edited.
+
+`AGENTIC_STRICT_PVDL=1` always overrides this proportional guidance, including in turbo mode. In strict mode, `propose_plan` is required before `edit`/`write`; the server enforces that requirement.
+
 ## Show Changes
 
 By default, `AGENTIC_WIDGETS=full`.
