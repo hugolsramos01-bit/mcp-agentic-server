@@ -102,7 +102,7 @@ Restart the Agentic MCP server after changing the persisted mode. For a one-off 
 
 `AGENTIC_SPEED_MODE=turbo` reduces orchestration overhead by favoring batched reads, direct QUICK edits, and concise verification. It does not weaken strict PVDL.
 
-When `AGENTIC_STRICT_PVDL` is unset or `0`, assistant mode uses proportional QUICK / STANDARD / CRITICAL guidance. QUICK low-risk changes may go directly from focused inspection to `edit`/`write` without mandatory planning, dry-run, checkpoint, or `suggest_checks` calls.
+When `AGENTIC_STRICT_PVDL` is unset or `0`, assistant mode uses proportional QUICK / STANDARD / CRITICAL guidance. QUICK low-risk changes may go directly from focused inspection to `edit`/`write` without mandatory planning, dry-run, checkpoint, or `suggest_checks` calls. Verification is cheap-first: an obvious targeted static/test check is preferred, and a full build is not the default for a small source-only change. Build remains appropriate for compiler/bundler configuration, dependency metadata, release work, broad/high-risk changes, or meaningful fan-out.
 
 When `AGENTIC_STRICT_PVDL=1`, strict mode wins over balanced/turbo guidance: `propose_plan` is required before `edit`/`write`, with dry-runs, checkpoints, and verification applied according to risk.
 

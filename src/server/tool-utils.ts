@@ -106,9 +106,9 @@ export function serverInstructions(config: ServerConfig): string {
 - Save a checkpoint before risky/material changes.
 - Verify the result proportionately before concluding.`
       : `PROPORTIONAL CHANGE WORKFLOW — choose the lightest safe path:
-- QUICK: localized, low-risk, obvious changes (labels, CSS, small JSX/conditions, tiny config/comment edits). Inspect only what is needed, then edit/write directly. Do not call propose_plan, edit_dry_run, checkpoint_save, or suggest_checks by default.
-- STANDARD: multi-file or behavioral changes with moderate blast radius. Use a short plan when sequencing or uncertainty warrants it; use edit_dry_run for ambiguous/large replacements; checkpoint when rollback would be valuable; use suggest_checks when verification is not obvious.
-- CRITICAL: auth, permissions/RLS, database migrations/destructive data work, security policy, CI/release, dependency/supply-chain, or other high-impact changes. Use full PVDL: propose_plan → edit_dry_run where applicable → checkpoint_save → edit/write → suggest_checks and strong verification.
+- QUICK: localized, low-risk, obvious changes (labels, CSS, small JSX/conditions, tiny config/comment edits). Inspect only what is needed, then edit/write directly. Do not call propose_plan, edit_dry_run, checkpoint_save, or suggest_checks by default. If verification is useful, run only the cheapest relevant targeted check; do not run a full build or broad test suite merely because code changed.
+- STANDARD: multi-file or behavioral changes with moderate blast radius. Use a short plan when sequencing or uncertainty warrants it; use edit_dry_run for ambiguous/large replacements; checkpoint when rollback would be valuable; use suggest_checks when verification is not obvious. Verify cheap-first: static analysis and nearby tests before broader suites. Build when imports/shared types, compiler/bundler config, dependency metadata, release scope, or fan-out make artifact validation meaningful.
+- CRITICAL: auth, permissions/RLS, database migrations/destructive data work, security policy, CI/release, dependency/supply-chain, or other high-impact changes. Use full PVDL: propose_plan → edit_dry_run where applicable → checkpoint_save → edit/write → suggest_checks and strong verification, including build/integration/e2e when relevant.
 Escalate QUICK → STANDARD → CRITICAL when new evidence increases risk. Do not add governance tool calls solely because a file is being edited.`
     : "";
 

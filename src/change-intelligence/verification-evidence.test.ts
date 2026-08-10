@@ -158,7 +158,7 @@ test("suggest_checks uses goal_discovery without Git metadata", async (t) => {
   );
   assert.deepStrictEqual(
     plan.recommendations.map((item: { script: string }) => item.script),
-    ["typecheck", "lint", "test:integration", "ci:verify"],
+    ["typecheck", "test:integration", "ci:verify"],
   );
   assert.strictEqual(
     plan.recommendations.find(

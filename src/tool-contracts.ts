@@ -33,6 +33,6 @@ export const TOOL_CONTRACTS = {
   },
   suggestChecks: {
     title: "Suggest Checks",
-    description: "Plan proportionate verification for the current changes. Use after material code or configuration changes and before concluding a coding task. Follow the returned initial and afterInitialSuccess stages before broader or release-only checks. This tool recommends checks but does not execute them; documentation-only changes may require no code checks.",
+    description: "Plan proportionate verification for the current changes. Use after material code or configuration changes when verification is not already obvious. For QUICK low-risk edits with an obvious cheap targeted check, run that check directly instead of calling this tool. Recommendations are staged cheap-first; build is not a default and is reserved for high-risk, release, or build-sensitive scope. This tool recommends checks but does not execute them; documentation-only changes may require no code checks.",
   }
 } as const;

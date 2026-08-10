@@ -57,10 +57,13 @@ describe("TOOL_CONTRACTS", () => {
     assert.ok(desc.includes("read the relevant range with read before changing it"), "Must enforce safe edits");
   });
 
-  it("suggestChecks contract defines staging and validation without execution", () => {
+  it("suggestChecks contract defines proportional staging without redundant QUICK calls", () => {
     const desc = TOOL_CONTRACTS.suggestChecks.description;
     assert.ok(desc.includes("recommends checks but does not execute them"), "Must state it doesn't execute");
     assert.ok(desc.includes("Use after material code or configuration changes"), "Must clarify when to use");
+    assert.ok(desc.includes("QUICK low-risk"), "Must allow direct obvious QUICK verification");
+    assert.ok(desc.includes("staged cheap-first"), "Must prioritize cheap checks first");
+    assert.ok(desc.includes("build is not a default"), "Must not imply full builds for every code change");
   });
 
   it("taskContext contract defines minimal, stateless, goal-directed map", () => {
