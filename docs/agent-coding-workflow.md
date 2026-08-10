@@ -151,9 +151,9 @@ a PTY, or send Ctrl-C. Set `tty: true` only for commands that need a terminal.
 
 When `AGENTIC_STRICT_PVDL` is disabled, Agentic MCP uses proportional workflow guidance instead of requiring the full PVDL sequence for every edit:
 
-- **QUICK** — localized, low-risk, obvious changes such as labels, CSS, small JSX/conditions, comments, and tiny config adjustments. Inspect only what is necessary, edit/write directly, and run only an obvious targeted check. `propose_plan`, `edit_dry_run`, `checkpoint_save`, and `suggest_checks` are not default steps.
-- **STANDARD** — multi-file or behavioral changes with moderate blast radius. Plan when sequencing or uncertainty warrants it, dry-run ambiguous/large replacements, checkpoint when rollback would be useful, and use `suggest_checks` when verification is not obvious.
-- **CRITICAL** — authentication, permissions/RLS, database migrations or destructive data work, security policy, CI/release, dependency/supply-chain, and other high-impact changes. Use the full PVDL workflow and strong verification.
+- **QUICK** — localized, low-risk, obvious changes such as labels, CSS, small JSX/conditions, comments, and tiny config adjustments. Inspect only what is necessary, edit/write directly, and if verification is useful run only the cheapest relevant targeted check. Do not run a full build or broad suite merely because code changed. `propose_plan`, `edit_dry_run`, `checkpoint_save`, and `suggest_checks` are not default steps.
+- **STANDARD** — multi-file or behavioral changes with moderate blast radius. Plan when sequencing or uncertainty warrants it, dry-run ambiguous/large replacements, checkpoint when rollback would be useful, and use `suggest_checks` when verification is not obvious. Verify cheap-first: static analysis and nearby tests before broader suites. Build when imports/shared types, compiler/bundler configuration, dependency metadata, release scope, or fan-out make artifact validation meaningful.
+- **CRITICAL** — authentication, permissions/RLS, database migrations or destructive data work, security policy, CI/release, dependency/supply-chain, and other high-impact changes. Use the full PVDL workflow and strong verification, including build/integration/e2e where relevant.
 
 Escalate to a higher level when discovery reveals more risk. Do not add governance tool calls solely because a file is being edited.
 

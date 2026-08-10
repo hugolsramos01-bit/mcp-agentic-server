@@ -36,6 +36,9 @@ assert.doesNotMatch(assistantInstructions, /preview_edit|next_routes_summary|pay
 assert.match(assistantInstructions, /edit_dry_run/);
 assert.match(assistantInstructions, /PROPORTIONAL CHANGE WORKFLOW/);
 assert.match(assistantInstructions, /QUICK: localized, low-risk, obvious changes/);
+assert.match(assistantInstructions, /cheapest relevant targeted check/);
+assert.match(assistantInstructions, /do not run a full build or broad test suite merely because code changed/);
+assert.match(assistantInstructions, /Build when imports\/shared types/);
 assert.doesNotMatch(assistantInstructions, /Follow the PVDL flow for every change/);
 assert.doesNotMatch(assistantInstructions, /Do not edit files without first calling propose_plan/);
 assert.match(assistantInstructions, /Safe security mode is active/);

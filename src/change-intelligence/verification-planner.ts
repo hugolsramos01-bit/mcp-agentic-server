@@ -34,6 +34,18 @@ function isIntegrationTestPath(path: string): boolean {
   );
 }
 
+function isBuildSensitivePath(path: string): boolean {
+  const normalized = path.replace(/\\/g, "/").toLowerCase();
+  const base = normalized.split("/").pop() ?? normalized;
+  return (
+    base === "package.json" ||
+    base === "yarn.lock" ||
+    /(?:^|-)lock\.(?:json|yaml|yml)$/.test(base) ||
+    /^tsconfig(?:\..+)?\.json$/.test(base) ||
+    /^(?:vite|webpack|rollup|next|nuxt|astro|svelte|babel|postcss|tailwind)\.config\./.test(base)
+  );
+}
+
 function sortChecks(checks: ClassifiedCheck[]): ClassifiedCheck[] {
   return [...checks].sort((a, b) => {
     // 1. Confidence (higher is better)
@@ -118,10 +130,13 @@ export function planVerification(evidence: VerificationEvidence): VerificationPl
   );
   const hasDomainRelevantIntegrationEvidence =
     domainSignals.length > 0 && hasRelatedTests;
+  const buildSensitiveScope =
+    evidence.taskType === "release" || scopePaths.some(isBuildSensitivePath);
 
-  // Caps tracking
+  // Caps tracking. Low-risk/QUICK work gets one cheap static gate instead of
+  // stacking typecheck + lint by default.
   const caps = {
-    static_analysis: 2,
+    static_analysis: policyLevel === "low" ? 1 : 2,
     test_checks: 2, // pool for unit/general
     build: 1,
     integration: 1,
@@ -161,8 +176,14 @@ export function planVerification(evidence: VerificationEvidence): VerificationPl
     }
   };
 
-  // Build policy application
-  let needsBuild = false;
+  // Build is not a default validation for QUICK source-only changes. Reserve
+  // it for broad/high-risk or build-sensitive scopes.
+  let needsBuild = buildSensitiveScope;
+  let buildReason: string | undefined = buildSensitiveScope
+    ? evidence.taskType === "release"
+      ? "Release work should validate the declared build before broader release checks."
+      : "Build-sensitive configuration or dependency metadata changed."
+    : undefined;
   let needsIntegration = false;
   let needsSmoke = false;
   let needsE2e = false;
@@ -190,6 +211,7 @@ export function planVerification(evidence: VerificationEvidence): VerificationPl
       recommend(staticChecks, "initial", "strongly_recommended", "High risk requires strict static analysis.", "static_analysis");
       recommend(generalChecks.length > 0 ? generalChecks : unitChecks, "after_initial_success", "strongly_recommended", "High risk warrants broad regression coverage.", "test_checks");
       needsBuild = true;
+      buildReason ??= "High fan-out or broad scope requires building the artifacts.";
       needsIntegration = true;
       if (sensitiveConfiguration) {
         needsSmoke = true;
@@ -200,6 +222,7 @@ export function planVerification(evidence: VerificationEvidence): VerificationPl
       recommend(staticChecks, "initial", "strongly_recommended", "Critical risk requires strict static analysis.", "static_analysis");
       recommend(generalChecks.length > 0 ? generalChecks : unitChecks, "after_initial_success", "strongly_recommended", "Critical risk demands full test suites.", "test_checks");
       needsBuild = true;
+      buildReason ??= "Critical risk requires validating the built artifacts.";
       needsIntegration = true;
       needsE2e = true;
       if (sensitiveConfiguration) {
@@ -244,7 +267,13 @@ export function planVerification(evidence: VerificationEvidence): VerificationPl
 
   if (needsBuild) {
     if (buildChecks.length > 0) {
-      recommend(buildChecks, "after_initial_success", "strongly_recommended", "High fan-out or broad scope requires building the artifacts.", "build");
+      recommend(
+        buildChecks,
+        "after_initial_success",
+        policyLevel === "high" || policyLevel === "critical" ? "strongly_recommended" : "recommended",
+        buildReason ?? "The changed scope requires validating the built artifacts.",
+        "build",
+      );
     } else {
       limitations.push("No declared build check was found.");
     }
