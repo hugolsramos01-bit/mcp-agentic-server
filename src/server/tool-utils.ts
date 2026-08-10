@@ -98,8 +98,18 @@ export function serverInstructions(config: ServerConfig): string {
     return `Use Agentic MCP as a local coding workspace. Call ${toolNames.openWorkspace} once per project folder or worktree and reuse its workspaceId. If the user later mentions a different folder or project, call ${toolNames.openWorkspace} again with that new path. Use ${toolNames.read} for direct file reads, apply_patch for all file modifications, exec_command for inspection, tests, builds, and other commands, and write_stdin to poll or interact with running processes. Follow instructions returned by ${toolNames.openWorkspace}; read applicable instruction and skill files before working in their scope.${showChangesInstruction}`;
   }
 
-  const strictPvdlNote = config.strictPvdl && config.toolMode === "assistant"
-    ? "STRICT PVDL MODE: propose_plan is REQUIRED before edit/write. You must call propose_plan with your goal and filesToChange before any file modification. edit_dry_run is strongly recommended after the plan."
+  const changeWorkflow = config.toolMode === "assistant"
+    ? config.strictPvdl
+      ? `STRICT PVDL MODE — this overrides turbo shortcuts.
+- propose_plan is REQUIRED before edit/write.
+- Use edit_dry_run before changing ambiguous, multi-block, or risky existing text.
+- Save a checkpoint before risky/material changes.
+- Verify the result proportionately before concluding.`
+      : `PROPORTIONAL CHANGE WORKFLOW — choose the lightest safe path:
+- QUICK: localized, low-risk, obvious changes (labels, CSS, small JSX/conditions, tiny config/comment edits). Inspect only what is needed, then edit/write directly. Do not call propose_plan, edit_dry_run, checkpoint_save, or suggest_checks by default.
+- STANDARD: multi-file or behavioral changes with moderate blast radius. Use a short plan when sequencing or uncertainty warrants it; use edit_dry_run for ambiguous/large replacements; checkpoint when rollback would be valuable; use suggest_checks when verification is not obvious.
+- CRITICAL: auth, permissions/RLS, database migrations/destructive data work, security policy, CI/release, dependency/supply-chain, or other high-impact changes. Use full PVDL: propose_plan → edit_dry_run where applicable → checkpoint_save → edit/write → suggest_checks and strong verification.
+Escalate QUICK → STANDARD → CRITICAL when new evidence increases risk. Do not add governance tool calls solely because a file is being edited.`
     : "";
 
   const speedNote = config.speedMode === "turbo"
@@ -108,8 +118,9 @@ export function serverInstructions(config: ServerConfig): string {
       "• Use grep to find what you need instead of reading files line-by-line\n" +
       "  Prefer task_context with a goal to get a fast minimal map in one call\n" +
       "• Batch multiple edits to the same file into one edit call\n" +
-      "• Skip edit_dry_run for trivially obvious single-line changes\n" +
-      "• Skip checkpoint_save for non-destructive changes (config-only, comments)\n" +
+      (config.strictPvdl
+        ? "• Strict PVDL is enabled; do not skip required planning/verification gates\n"
+        : "• For QUICK changes, prefer direct edit/write and skip planning, dry-run, checkpoint, and suggest_checks unless evidence raises risk\n") +
       "• Read up to 500 lines per read call instead of conservative limits\n" +
       "• Be concise in responses — deliver findings directly without verbose commentary"
     : "BALANCED MODE — optimize for safety and thoroughness.";
@@ -131,14 +142,10 @@ Tool selection:
 - Several known files: read_many.
 - After material changes: suggest_checks.
 
-Prefer the core tools for all exploration, file inspection, and git tasks instead of using the shell. Use edit_dry_run before edit to preview changes without writing. Before risky edits, use checkpoint_save to snapshot your changes; use checkpoint_restore to revert.
+Prefer the core tools for all exploration, file inspection, and git tasks instead of using the shell. Use edit_dry_run for ambiguous, large, multi-block, or risky replacements. Use checkpoint_save when rollback would be valuable; use checkpoint_restore to revert.
 
-Follow the PVDL flow for every change:
-1. PLAN: Call propose_plan with your goal, files to change, risks, and verification steps.
-2. VERIFY: Call edit_dry_run to preview the exact changes before writing.
-3. DO: Call checkpoint_save then edit or write to apply changes.
-4. LOG: Run suggested checks (suggest_checks) to verify correctness.
-Do not edit files without first calling propose_plan and edit_dry_run. `
+${changeWorkflow}
+`
     : `Prefer ${toolNames.read}, ${toolNames.grep}, ${toolNames.glob}, and ${toolNames.ls} for file inspection. `;
 
   const skills = config.skillsEnabled
@@ -154,7 +161,7 @@ Do not edit files without first calling propose_plan and edit_dry_run. `
     ? ` Trusted security mode is active: inline node/python execution and shell file-writing constructs are permitted, but destructive commands remain policy-blocked. Prefer ${toolNames.edit}/${toolNames.write} for auditable project file changes when practical.`
     : ` Full security mode is active: command-policy restrictions are bypassed, including destructive commands. OAuth authentication and MCP workspace/file-tool root checks still apply, but the shell itself is not an OS sandbox and can access anything the local user account can access.`;
 
-  return `${turboSpeedNote}${strictPvdlNote ? strictPvdlNote + "\n\n" : ""}Use Agentic MCP as a local coding workspace. Call ${toolNames.openWorkspace} once per project folder or worktree to obtain a workspaceId. Reuse that same workspaceId for all later file, search, edit, write, show-changes, and shell tools in that same folder.
+  return `${turboSpeedNote}Use Agentic MCP as a local coding workspace. Call ${toolNames.openWorkspace} once per project folder or worktree to obtain a workspaceId. Reuse that same workspaceId for all later file, search, edit, write, show-changes, and shell tools in that same folder.
 
 IMPORTANT — switching between projects: If the user mentions a different folder, project, codebase, or repository, call ${toolNames.openWorkspace} again with the new path. Do not try to work on multiple projects through a single workspaceId. The user's first request tells you which project to open; if they later mention another, reopen.
 

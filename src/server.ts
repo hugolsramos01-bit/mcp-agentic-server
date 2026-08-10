@@ -1081,7 +1081,7 @@ function createMcpServer(
     {
       title: "Write file",
       description:
-        `Create or completely overwrite a file inside an open workspace. Prefer ${toolNames.edit} for targeted changes to existing files. Call open_workspace first and pass workspaceId.`,
+        `Create or completely overwrite a file inside an open workspace. Prefer ${toolNames.edit} for targeted changes to existing files. When strict PVDL is disabled, small low-risk writes may be applied directly; use planning/checkpoints for material or risky work. Call open_workspace first and pass workspaceId.`,
       inputSchema: {
         workspaceId: z
           .string()
@@ -1100,6 +1100,11 @@ function createMcpServer(
       const startedAt = performance.now();
       const workspace = workspaces.getWorkspace(workspaceId);
       workspaces.resolvePath(workspace, input.path);
+
+      const pvdl = checkEditAllowed(workspaceId, input.path, config.strictPvdl);
+      if (!pvdl.allowed) {
+        return { content: [{ type: "text", text: pvdl.reason! }], isError: true };
+      }
       
       let writeExistedBefore = false;
       try { await stat(join(workspace.root, input.path)); writeExistedBefore = true; } catch {}
@@ -1118,6 +1123,13 @@ function createMcpServer(
           });
         }
       });
+
+      if (pvdl.warn && !response.isError) {
+        response.content = [
+          { type: "text", text: `⚠ ${pvdl.warn}` },
+          ...response.content,
+        ];
+      }
 
       if (response.isError) {
         logFailedToolResponse(config, {
@@ -1176,7 +1188,7 @@ function createMcpServer(
     {
       title: "Edit file",
       description:
-        `Edit one file inside an open workspace by replacing exact text blocks. Prefer this over ${toolNames.write} for targeted changes. Each oldText must match a unique, non-overlapping region of the original file; merge nearby changes into one edit and keep oldText as small as possible while still unique. Call open_workspace first and pass workspaceId.`,
+        `Edit one file inside an open workspace by replacing exact text blocks. Prefer this over ${toolNames.write} for targeted changes. Each oldText must match a unique, non-overlapping region of the original file; merge nearby changes into one edit and keep oldText as small as possible while still unique. When strict PVDL is disabled, small exact low-risk edits may be applied directly; use edit_dry_run first for ambiguous, large, multi-block, or risky replacements. Call open_workspace first and pass workspaceId.`,
       inputSchema: {
         workspaceId: z
           .string()
@@ -1375,7 +1387,7 @@ function createMcpServer(
       {
         title: "[CORE] Edit Dry Run",
         description:
-          "Read-only dry run for exact-text replacement. Does not write to disk. Returns whether the replacement would match and a preview of changes.",
+          "Read-only dry run for exact-text replacement. Use before ambiguous, large, multi-block, or risky edits. It is not required for a trivial exact low-risk edit when strict PVDL is disabled. Does not write to disk and returns whether the replacement would match plus a preview.",
         inputSchema: {
           workspaceId: z.string().describe("Workspace identifier."),
           path: z.string().describe("File path to edit, relative to the workspace root."),
@@ -2316,7 +2328,7 @@ function createMcpServer(
     registerAppTool("propose_plan",
       {
         title: "[CORE] Propose Plan",
-        description: "[PVDL] Log a structured plan before making changes. Follow PVDL flow: Plan first, then Verify with edit_dry_run, then Do with checkpoint_save + edit, then Log with suggested checks. When AGENTIC_STRICT_PVDL is enabled, this tool must be called before edit/write — the server will enforce the flow.",
+        description: "[PVDL] Log a structured plan for material, multi-step, uncertain, or high-risk changes. Do not add a planning round-trip to trivial exact edits when strict PVDL is disabled. When AGENTIC_STRICT_PVDL is enabled, propose_plan is required before edit/write and the server enforces it.",
         inputSchema: {
           workspaceId: z.string().describe("Workspace ID"),
           goal: z.string().describe("What you intend to accomplish"),
