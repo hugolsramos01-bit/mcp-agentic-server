@@ -5,6 +5,29 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.6.0] - 2026-08-11
+
+### Added
+- Configurable command security modes: `safe` (default), `trusted`, and `full`, propagated across shell execution, package scripts, tournament execution, risk assessment, CLI configuration, model instructions, and documentation.
+- Trusted mode permits inline Node/Python execution and shell file-writing constructs while retaining destructive-command protections; full mode can bypass command-policy rules while OAuth and workspace/file-tool boundaries remain enforced.
+
+### Changed
+- Coding workflows now use proportional QUICK / STANDARD / CRITICAL guidance instead of full PVDL orchestration for every edit; strict PVDL remains an explicit override.
+- Verification is proportional to change scope: QUICK work is cheap-first, while build and broader suites remain required for build-sensitive, release, and higher-risk changes.
+- Assistant discovery now stops once a sufficiently strong implementation target is known, avoiding broad context/bootstrap work for explicit file targets and reducing cross-tool schema fan-out.
+- `read_many` now defaults to a 12,000-token budget while still allowing explicit larger budgets when broad context is intentional.
+- Fast task context bounds large code regions to 160-line anchor windows, recommends an 8,000-token follow-up read budget, and keeps workspace file-index snapshots warm for 60 seconds across normal reasoning gaps.
+- In `AGENTIC_WIDGETS=changes`, single-file `edit`/`write` mutations now carry their review widget directly; aggregate `show_changes` remains available for multi-file, patch/shell/external mutations and explicit aggregate review.
+
+### Fixed
+- `.agentic/knowledge` entries are no longer classified as executable workspace instructions by task context.
+- Workspace file-index snapshots are invalidated immediately when a write creates a new file.
+- Safe-mode command matching now covers aliases such as `python.exe`, versioned Python executables, `py -3`, and `node.exe` consistently.
+
+### Performance
+- On the Radar Energético `Parametros.tsx` case, fast task context now recommends two bounded 160-line regions instead of a 1,532-line component body; direct branch measurements were 149 ms cold, 6 ms warm, and 3.4 ms warm.
+- QUICK single-file edits no longer pay a redundant aggregate-review round trip, removing roughly 0.5–1.0 s of measured Windows server work plus tunnel latency in the observed workflow.
+
 ## [1.5.0] - 2026-08-07
 
 ### Added
