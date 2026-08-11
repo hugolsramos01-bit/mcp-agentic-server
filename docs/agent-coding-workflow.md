@@ -75,6 +75,19 @@ should read the relevant nested file before working under that directory.
 This keeps instructions explicit and inspectable instead of silently injecting
 new context during later tool calls.
 
+## Discovery Discipline
+
+Use the narrowest evidence path that can safely complete the request:
+
+- if the target file is already known, inspect that file directly and narrowly
+- if a symbol is known but its location is not, search for that symbol and read only the relevant match
+- use goal-directed repository discovery only when the implementation files are genuinely unknown
+- use broad architectural context only when cross-domain structure is actually required
+
+**Stop discovery once there is enough evidence to make the requested scoped change safely.** Do not inspect backend code, tests, schemas, adjacent modules, or historical knowledge merely because they might be related. Expand scope only when a concrete dependency, contract, failing check, or the user's request requires it.
+
+If reasoning is interrupted before any workspace mutation, continue from the evidence already gathered. A checkpoint should be restored only to undo an applied workspace change, not merely because reasoning was interrupted or the approach changed.
+
 ## Skills
 
 Skills are enabled by default for coding-agent workflows.

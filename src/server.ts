@@ -1000,8 +1000,8 @@ function createMcpServer(
   // the best mode for the file size and context.
   registerAppTool("read_adaptive",
     {
-      title: "[CORE] Read Adaptive",
-      description: "[CORE] Read a file with automatic compression. Small files (<300 lines) are returned in full; medium files (300-900) use balanced compression; large files (>900) use skeletal compression. Always use this instead of read or read_compressed unless you need explicit control over line ranges or compression level.",
+      title: TOOL_CONTRACTS.readAdaptive.title,
+      description: TOOL_CONTRACTS.readAdaptive.description,
       inputSchema: {
         workspaceId: z.string().describe("Workspace identifier returned by open_workspace."),
         path: z.string().describe("File path to read, relative to workspace root."),
@@ -1081,7 +1081,7 @@ function createMcpServer(
     {
       title: "Write file",
       description:
-        `Create or completely overwrite a file inside an open workspace. Prefer ${toolNames.edit} for targeted changes to existing files. When strict PVDL is disabled, small low-risk writes may be applied directly; use planning/checkpoints for material or risky work. Call open_workspace first and pass workspaceId.`,
+        "Create or completely overwrite one file in an open workspace. Small low-risk writes may be applied directly when strict PVDL is disabled; material or risky work should preserve an explicit rollback path.",
       inputSchema: {
         workspaceId: z
           .string()
@@ -1188,7 +1188,7 @@ function createMcpServer(
     {
       title: "Edit file",
       description:
-        `Edit one file inside an open workspace by replacing exact text blocks. Prefer this over ${toolNames.write} for targeted changes. Each oldText must match a unique, non-overlapping region of the original file; merge nearby changes into one edit and keep oldText as small as possible while still unique. When strict PVDL is disabled, small exact low-risk edits may be applied directly; use edit_dry_run first for ambiguous, large, multi-block, or risky replacements. Call open_workspace first and pass workspaceId.`,
+        "Apply exact unique text replacements to one existing file in an open workspace. Best for targeted changes. Small exact low-risk changes may be applied directly when strict PVDL is disabled; ambiguous, large, multi-block, or risky replacements should be previewed first.",
       inputSchema: {
         workspaceId: z
           .string()
@@ -1538,9 +1538,9 @@ function createMcpServer(
   if (config.toolMode === "full" || config.toolMode === "assistant") {
     registerAppTool(toolNames.grep,
       {
-        title: "[CORE] Grep",
+        title: TOOL_CONTRACTS.grep.title,
         description:
-          "Search file contents inside an open workspace. Use this before broad reads when looking for symbols, text, or usage sites. Respects project ignore rules. Call open_workspace first and pass workspaceId.",
+          TOOL_CONTRACTS.grep.description,
         inputSchema: {
           workspaceId: z
             .string()
@@ -2002,7 +2002,7 @@ function createMcpServer(
     registerAppTool("checkpoint_restore",
       {
         title: "Restore Checkpoint",
-        description: "[Checkpoints] Restores working tree to a previously saved checkpoint state by reverting the diff.",
+        description: "Restore a previously saved working-tree snapshot when an applied change actually needs to be undone. Do not restore merely because reasoning was interrupted or the approach changed; inspect current state first when uncertain.",
         inputSchema: { workspaceId: z.string(), id: z.string().describe("Checkpoint ID to restore (from checkpoint_list).") },
         outputSchema: resultOutputSchema(),
         ...toolWidgetDescriptorMeta(config, "edit"),
@@ -2388,7 +2388,7 @@ function createMcpServer(
     registerAppTool("workspace_summary",
       {
         title: "Workspace Summary",
-        description: "[CORE] Get a high-level, extremely compact overview of the workspace (name, version, scripts, dependencies, and top-level directories). Use this for a quick pulse-check before diving into detailed file discovery with project_bootstrap or read_many.",
+        description: "Return an extremely compact overview of the current workspace: package metadata, scripts, dependencies, repository status, and top-level directories. Use only when this high-level pulse-check is actually needed.",
         inputSchema: { workspaceId: z.string().describe("Workspace ID"), path: z.string().optional().describe("Ignored parameter to prevent schema errors") },
         outputSchema: resultOutputSchema(),
         ...toolWidgetDescriptorMeta(config, "read"),
@@ -2401,8 +2401,8 @@ function createMcpServer(
     );
     registerAppTool("read_many",
       {
-        title: "Read Many Files",
-        description: "Read the contents of multiple files in a single call. Use this instead of reading files one by one. Supports optional compressionLevel to reduce token usage: 'light' (removes large objects), 'balanced' (removes function bodies), 'aggressive', 'skeletal'. Use maxTokens to set a budget — files exceeding the budget are skipped.",
+        title: TOOL_CONTRACTS.readMany.title,
+        description: TOOL_CONTRACTS.readMany.description,
         inputSchema: {
           workspaceId: z.string(),
           paths: z.array(z.string()).optional(),
@@ -2749,18 +2749,18 @@ function createMcpServer(
 
   if (true) {
   const shellSecurityGuidance = config.securityMode === "safe"
-    ? `Safe security mode: do not create or modify files through ${toolNames.shell}; shell redirection, heredocs, tee, in-place editors, and inline node/python execution are blocked. Use ${toolNames.edit} or ${toolNames.write} for file mutations.`
+    ? "Safe security mode: shell redirection, heredocs, tee, in-place editors, inline node/python execution, and shell-based file mutation are blocked. Use dedicated file-mutation tools instead."
     : config.securityMode === "trusted"
-    ? `Trusted security mode: inline node/python execution and shell file-writing constructs are permitted. Prefer typed ${toolNames.edit}/${toolNames.write} when practical; destructive commands such as recursive force deletes, force pushes, hard resets, and destructive SQL remain blocked by policy.`
+    ? "Trusted security mode: inline node/python execution and shell file-writing constructs are permitted, while destructive commands such as recursive force deletes, force pushes, hard resets, and destructive SQL remain blocked by policy."
     : `Full security mode: command-policy restrictions are bypassed, including destructive shell commands. OAuth authentication and MCP workspace/file-tool root checks remain enforced, but the shell itself is not an OS sandbox and can access anything the local user account can access. Use this mode only when the user intentionally granted unrestricted command execution.`;
   registerAppTool(toolNames.shell,
     {
       title: "Bash",
       description: config.toolMode === "minimal"
-        ? `Run a shell command inside an open workspace. Use for tests, builds, git inspection, package scripts, search, file discovery, and directory inspection. In minimal tool mode, ${toolNames.grep}, ${toolNames.glob}, and ${toolNames.ls} are disabled; command-line inspection tools are appropriate. Prefer ${toolNames.read} for direct file reads. ${shellSecurityGuidance} Call open_workspace first and pass workspaceId. This is powerful local execution and should only be exposed behind strong authentication.`
+        ? `Run a shell command inside an open workspace. In minimal mode, terminal-native tests, builds, git inspection, package scripts, search, and directory inspection are appropriate. ${shellSecurityGuidance} Requires strong authentication.`
         : config.toolMode === "assistant"
-        ? `Run a shell command inside an open workspace. Use only for tests, builds, database/OS interactions, and complex shell work that specialized tools cannot handle. Prefer workspace_summary, tree, safe_file_preview, git_status, git_diff, git_log, run_package_script, and read_many for their targeted jobs. ${shellSecurityGuidance} Call open_workspace first and pass workspaceId. This is powerful local execution and should only be exposed behind strong authentication.`
-        : `Run a shell command inside an open workspace for tests, builds, git inspection, package scripts, database/OS interactions, and commands that are better executed by the shell. Prefer ${toolNames.read}, ${toolNames.grep}, ${toolNames.glob}, and ${toolNames.ls} for file inspection. ${shellSecurityGuidance} Call open_workspace first and pass workspaceId. This is powerful local execution and should only be exposed behind strong authentication.`, 
+        ? `Run a shell command inside an open workspace only for terminal-native tests, builds, database/OS interactions, and complex system work. Prefer specialized structured operations for ordinary inspection, git, and package-script tasks. ${shellSecurityGuidance} Requires strong authentication.`
+        : `Run a shell command inside an open workspace for terminal-native tests, builds, git inspection, package scripts, database/OS interactions, and complex system work. Prefer specialized structured operations for ordinary file inspection. ${shellSecurityGuidance} Requires strong authentication.`,  
       inputSchema: {
         workspaceId: z
           .string()
