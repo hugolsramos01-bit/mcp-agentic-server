@@ -21,6 +21,7 @@ import { assertPathOperationAllowed } from "./security/secret-policy.js";
 import { assertCommandAllowed } from "./security/command-executor.js";
 import { isAbsolute, resolve } from "node:path";
 import { expandHomePath } from "./roots.js";
+import type { SecurityMode } from "./security/security-mode.js";
 
 
 
@@ -75,6 +76,7 @@ interface ToolContext {
   cwd: string;
   root: string;
   readRoots?: string[];
+  securityMode?: SecurityMode;
 }
 
 function toMcpContent(result: AgentToolResult<unknown>): McpContent[] {
@@ -201,6 +203,7 @@ export async function runShellTool(input: BashToolInput, context: ToolContext): 
     workspaceRoot: context.root,
     workingDirectory: context.cwd,
     source: "bash",
+    securityMode: context.securityMode,
   });
   const tool = createBashTool(context.cwd);
   const timeout = input.timeout === undefined ? 30 : Math.min(input.timeout, 300);

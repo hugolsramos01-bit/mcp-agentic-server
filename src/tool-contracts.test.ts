@@ -33,15 +33,15 @@ describe("TOOL_CONTRACTS", () => {
     assert.ok(desc.includes("already-known files"), "Must mention 'already-known files'");
     assert.ok(desc.includes("shared token budget"), "Must mention 'shared token budget'");
     assert.ok(desc.includes("may be skipped"), "Must mention 'may be skipped'");
-    assert.ok(desc.includes("Do not use this tool to discover"), "Must mention not for discovery");
+    assert.ok(desc.includes("not a discovery operation"), "Must explicitly bound use to known paths");
   });
 
-  it("semanticPack contract specifies target is unknown files and token budget", () => {
+  it("semanticPack contract reserves broad discovery for genuinely unknown architecture", () => {
     const desc = TOOL_CONTRACTS.semanticPack.description;
-    assert.ok(desc.includes("relevant files are not yet known"), "Must mention 'relevant files are not yet known'");
+    assert.ok(desc.includes("broad domain structure"), "Must reserve use for broad architecture");
     assert.ok(desc.includes("goal-focused"), "Must mention 'goal-focused'");
-    assert.ok(desc.includes("token budget"), "Must mention 'token budget'");
-    assert.ok(desc.includes("Once the primary files are known, prefer"), "Must guide transition to other tools");
+    assert.ok(desc.includes("stop architectural discovery"), "Must tell the model when to stop expanding scope");
+    assert.ok(desc.includes("sufficient implementation targets are known"), "Must stop broad discovery after targets are known");
   });
 
   it("grep contract specifies lexical search and limits semantic expectations", () => {
@@ -53,14 +53,17 @@ describe("TOOL_CONTRACTS", () => {
   it("readAdaptive contract defines boundaries vs read", () => {
     const desc = TOOL_CONTRACTS.readAdaptive.description;
     assert.ok(!desc.includes("Always use this instead"), "Should not aggressively override other tools");
-    assert.ok(desc.includes("when exact line ranges are not required"), "Must bound usage against exact reads");
-    assert.ok(desc.includes("read the relevant range with read before changing it"), "Must enforce safe edits");
+    assert.ok(desc.includes("whole-file orientation"), "Must bound usage to whole-file orientation");
+    assert.ok(desc.includes("obtain exact source text before changing"), "Must require authoritative text before editing omitted regions");
   });
 
-  it("suggestChecks contract defines staging and validation without execution", () => {
+  it("suggestChecks contract defines proportional staging without redundant QUICK calls", () => {
     const desc = TOOL_CONTRACTS.suggestChecks.description;
-    assert.ok(desc.includes("recommends checks but does not execute them"), "Must state it doesn't execute");
-    assert.ok(desc.includes("Use after material code or configuration changes"), "Must clarify when to use");
+    assert.ok(desc.includes("does not execute checks"), "Must state it doesn't execute");
+    assert.ok(desc.includes("after material code or configuration changes"), "Must clarify when to use");
+    assert.ok(desc.includes("QUICK low-risk"), "Must allow direct obvious QUICK verification");
+    assert.ok(desc.includes("staged cheap-first"), "Must prioritize cheap checks first");
+    assert.ok(desc.includes("builds are reserved"), "Must not imply full builds for every code change");
   });
 
   it("taskContext contract defines minimal, stateless, goal-directed map", () => {
@@ -69,5 +72,29 @@ describe("TOOL_CONTRACTS", () => {
     assert.ok(desc.includes("stateless"), "Must mention 'stateless'");
     assert.ok(desc.includes("goal-directed"), "Must mention 'goal-directed'");
     assert.ok(desc.includes("token budget"), "Must mention token budget");
+    assert.ok(desc.includes("Skip this discovery step when the target file is already known"), "Must skip discovery for an already-known target");
+  });
+
+  it("avoids canonical tool-name cross references that inflate schema discovery", () => {
+    const canonicalNames = [
+      "read_adaptive",
+      "read_compressed",
+      "read_many",
+      "semantic_pack",
+      "task_context",
+      "coding_context",
+      "suggest_checks",
+      "workspace_summary",
+      "project_bootstrap",
+      "show_changes",
+      "checkpoint_restore",
+      "checkpoint_save",
+      "edit_dry_run",
+    ];
+    for (const [key, contract] of Object.entries(TOOL_CONTRACTS)) {
+      for (const toolName of canonicalNames) {
+        assert.ok(!contract.description.includes(toolName), `${key} description should not cross-reference ${toolName}`);
+      }
+    }
   });
 });

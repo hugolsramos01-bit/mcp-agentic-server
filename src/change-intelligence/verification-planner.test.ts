@@ -51,8 +51,56 @@ test("Um source isolado, risco low e teste próximo não recomenda build", () =>
   };
   const plan = planVerification(evidence);
   assert.strictEqual(plan.basis, "actual_changes");
-  assert.deepStrictEqual(plan.recommendations.map(r => r.script), ["typecheck", "lint", "test:unit"]); // Unit tests because nearby tests
+  assert.deepStrictEqual(plan.recommendations.map(r => r.script), ["typecheck", "test:unit"]); // QUICK: one cheap static gate + nearby test
   assert.strictEqual(plan.recommendations.every(r => r.script !== "build"), true);
+});
+
+test("QUICK source isolado sem teste próximo recomenda apenas um check estático barato", () => {
+  const evidence: VerificationEvidence = {
+    riskProfile: createMockProfile("low", "high"),
+    taskType: "bug_fix",
+    changedPaths: ["src/components/Header.tsx"],
+    candidatePaths: [],
+    nearbyTests: [],
+    dependentPaths: [],
+    availableChecks: mockChecks,
+    environment: { dependenciesInstalled: true }
+  };
+  const plan = planVerification(evidence);
+  assert.deepStrictEqual(plan.recommendations.map(r => r.script), ["typecheck"]);
+});
+
+test("Configuração de build recomenda build mesmo com risco baixo", () => {
+  const evidence: VerificationEvidence = {
+    riskProfile: createMockProfile("low", "high"),
+    taskType: "feature",
+    changedPaths: ["vite.config.ts"],
+    candidatePaths: [],
+    nearbyTests: [],
+    dependentPaths: [],
+    availableChecks: mockChecks,
+    environment: { dependenciesInstalled: true }
+  };
+  const plan = planVerification(evidence);
+  assert.deepStrictEqual(plan.recommendations.map(r => r.script), ["typecheck", "build"]);
+  assert.strictEqual(plan.recommendations.find(r => r.script === "build")?.priority, "recommended");
+  assert.strictEqual(plan.recommendations.find(r => r.script === "build")?.reason, "Build-sensitive configuration or dependency metadata changed.");
+});
+
+test("Release recomenda build mesmo quando o RiskProfile isolado é low", () => {
+  const evidence: VerificationEvidence = {
+    riskProfile: createMockProfile("low", "high"),
+    taskType: "release",
+    changedPaths: ["src/release-note.ts"],
+    candidatePaths: [],
+    nearbyTests: [],
+    dependentPaths: [],
+    availableChecks: mockChecks,
+    environment: { dependenciesInstalled: true }
+  };
+  const plan = planVerification(evidence);
+  assert.ok(plan.recommendations.some(r => r.script === "build"));
+  assert.strictEqual(plan.recommendations.find(r => r.script === "build")?.reason, "Release work should validate the declared build before broader release checks.");
 });
 
 test("Risco high por fan-out recomenda static analysis, testes e build", () => {
@@ -339,7 +387,7 @@ test("domain-sensitive change with related integration test uses staged verifica
 
   assert.deepStrictEqual(
     plan.recommendations.map((item) => item.script),
-    ["typecheck", "lint", "test:integration", "smoke:package"],
+    ["typecheck", "test:integration", "smoke:package"],
   );
   assert.strictEqual(byScript.get("typecheck")?.stage, "initial");
   assert.strictEqual(

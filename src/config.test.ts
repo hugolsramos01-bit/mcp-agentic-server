@@ -3,7 +3,7 @@ import { existsSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { loadConfig } from "./config.js";
-import { serverInstructions } from "./server/tool-utils.js";
+import { serverInstructions, toolWidgetDescriptorMeta } from "./server/tool-utils.js";
 import { ensureAgenticDefaultSkills, resolveSubagentsFlag } from "./user-config.js";
 
 const emptyConfigDir = mkdtempSync(join(tmpdir(), "agentic-empty-config-test-"));
@@ -17,11 +17,19 @@ assert.equal(loadConfig(baseEnv).widgets, "changes");
 assert.equal(loadConfig({ ...baseEnv, AGENTIC_WIDGETS: "changes" }).widgets, "changes");
 assert.equal(loadConfig({ ...baseEnv, AGENTIC_WIDGETS: "full" }).widgets, "full");
 assert.equal(loadConfig({ ...baseEnv, AGENTIC_WIDGETS: "off" }).widgets, "off");
+const changesWidgetConfig = loadConfig({ ...baseEnv, AGENTIC_WIDGETS: "changes" });
+assert.ok("ui" in toolWidgetDescriptorMeta(changesWidgetConfig, "edit")._meta);
+assert.ok("ui" in toolWidgetDescriptorMeta(changesWidgetConfig, "write")._meta);
+assert.ok("ui" in toolWidgetDescriptorMeta(changesWidgetConfig, "show_changes")._meta);
+assert.ok(!("ui" in toolWidgetDescriptorMeta(changesWidgetConfig, "shell")._meta));
 assert.equal(loadConfig(baseEnv).toolMode, "assistant");
 assert.equal(loadConfig({ ...baseEnv, AGENTIC_TOOL_MODE: "minimal" }).toolMode, "minimal");
 assert.equal(loadConfig({ ...baseEnv, AGENTIC_TOOL_MODE: "full" }).toolMode, "full");
 assert.equal(loadConfig({ ...baseEnv, AGENTIC_MINIMAL_TOOLS: "0" }).toolMode, "full");
 assert.equal(loadConfig({ ...baseEnv, AGENTIC_MINIMAL_TOOLS: "1" }).toolMode, "minimal");
+assert.equal(loadConfig(baseEnv).securityMode, "safe");
+assert.equal(loadConfig({ ...baseEnv, AGENTIC_SECURITY_MODE: "trusted" }).securityMode, "trusted");
+assert.equal(loadConfig({ ...baseEnv, AGENTIC_SECURITY_MODE: "full" }).securityMode, "full");
 assert.equal(loadConfig(baseEnv).skillsEnabled, true);
 assert.equal(loadConfig(baseEnv).agenticSkillsDir, join(emptyConfigDir, "skills"));
 assert.equal(loadConfig(baseEnv).agenticAgentsDir, join(emptyConfigDir, "agents"));
@@ -29,8 +37,44 @@ assert.equal(loadConfig(baseEnv).subagents, false);
 assert.equal(loadConfig(baseEnv).legacyAliases, false);
 assert.equal(loadConfig({ ...baseEnv, AGENTIC_LEGACY_ALIASES: "1" }).legacyAliases, true);
 const assistantInstructions = serverInstructions(loadConfig(baseEnv));
-assert.doesNotMatch(assistantInstructions, /preview_edit|next_routes_summary|payload_collections_summary|check_recommendations|git_changes_summary|workspace_summary/);
+assert.doesNotMatch(assistantInstructions, /preview_edit|next_routes_summary|payload_collections_summary|check_recommendations|git_changes_summary/);
 assert.match(assistantInstructions, /edit_dry_run/);
+assert.match(assistantInstructions, /PROPORTIONAL CHANGE WORKFLOW/);
+assert.match(assistantInstructions, /QUICK: localized, low-risk, obvious changes/);
+assert.match(assistantInstructions, /cheapest relevant targeted check/);
+assert.match(assistantInstructions, /do not run a full build or broad test suite merely because code changed/);
+assert.match(assistantInstructions, /Build when imports\/shared types/);
+assert.match(assistantInstructions, /STOP DISCOVERY/);
+assert.match(assistantInstructions, /Known file path: inspect that file narrowly/);
+assert.match(assistantInstructions, /do not run broader bootstrap or context discovery merely to reconfirm it/);
+assert.match(assistantInstructions, /Do not restore a checkpoint solely because reasoning was interrupted/);
+assert.doesNotMatch(assistantInstructions, /Always use these first/);
+assert.doesNotMatch(assistantInstructions, /read_many|task_context|semantic_pack|workspace_summary|project_bootstrap|read_adaptive|token_audit|context_budget|safe_file_preview|coding_context/);
+assert.match(assistantInstructions, /QUICK change confined to one file/);
+assert.match(assistantInstructions, /do not call show_changes just to repeat the same diff/);
+assert.match(assistantInstructions, /changes multiple files/);
+assert.doesNotMatch(assistantInstructions, /call show_changes exactly once.*final related file change/);
+assert.doesNotMatch(assistantInstructions, /Follow the PVDL flow for every change/);
+assert.doesNotMatch(assistantInstructions, /Do not edit files without first calling propose_plan/);
+assert.match(assistantInstructions, /Safe security mode is active/);
+const turboInstructions = serverInstructions(loadConfig({ ...baseEnv, AGENTIC_SPEED_MODE: "turbo" }));
+assert.match(turboInstructions, /TURBO MODE/);
+assert.match(turboInstructions, /For QUICK changes, mutate directly/);
+assert.match(turboInstructions, /PROPORTIONAL CHANGE WORKFLOW/);
+const strictInstructions = serverInstructions(loadConfig({ ...baseEnv, AGENTIC_STRICT_PVDL: "1" }));
+assert.match(strictInstructions, /STRICT PVDL MODE/);
+assert.match(strictInstructions, /propose_plan is REQUIRED before edit\/write/);
+assert.doesNotMatch(strictInstructions, /PROPORTIONAL CHANGE WORKFLOW/);
+const strictTurboInstructions = serverInstructions(loadConfig({ ...baseEnv, AGENTIC_STRICT_PVDL: "1", AGENTIC_SPEED_MODE: "turbo" }));
+assert.match(strictTurboInstructions, /Strict PVDL is enabled; do not skip required planning\/verification gates/);
+assert.match(strictTurboInstructions, /STRICT PVDL MODE — this overrides turbo shortcuts/);
+assert.doesNotMatch(strictTurboInstructions, /For QUICK changes, mutate directly/);
+const trustedInstructions = serverInstructions(loadConfig({ ...baseEnv, AGENTIC_SECURITY_MODE: "trusted" }));
+assert.match(trustedInstructions, /Trusted security mode is active/);
+assert.match(trustedInstructions, /inline node\/python execution and shell file-writing constructs are permitted/);
+const fullSecurityInstructions = serverInstructions(loadConfig({ ...baseEnv, AGENTIC_SECURITY_MODE: "full" }));
+assert.match(fullSecurityInstructions, /Full security mode is active/);
+assert.match(fullSecurityInstructions, /shell itself is not an OS sandbox/);
 assert.equal(loadConfig({ ...baseEnv, AGENTIC_SKILLS: "0" }).skillsEnabled, false);
 assert.equal(loadConfig({ ...baseEnv, AGENTIC_SKILLS: "1" }).skillsEnabled, true);
 assert.equal(
@@ -64,6 +108,10 @@ assert.throws(
 assert.throws(
   () => loadConfig({ ...baseEnv, AGENTIC_TOOL_MODE: "invalid" }),
   /Invalid AGENTIC_TOOL_MODE: invalid/,
+);
+assert.throws(
+  () => loadConfig({ ...baseEnv, AGENTIC_SECURITY_MODE: "unsafe" }),
+  /Invalid AGENTIC_SECURITY_MODE: unsafe/,
 );
 
 assert.deepEqual(loadConfig(baseEnv).logging, {
@@ -168,6 +216,7 @@ writeFileSync(
     allowedRoots: [process.cwd()],
     publicBaseUrl: "https://agentic.example.com",
     subagents: true,
+    securityMode: "trusted",
   }),
 );
 writeFileSync(
@@ -182,6 +231,7 @@ assert.equal(fileConfig.port, 8787);
 assert.equal(fileConfig.oauth.ownerToken, "persisted-owner-token-long-enough");
 assert.equal(fileConfig.publicBaseUrl, "https://agentic.example.com");
 assert.equal(fileConfig.subagents, true);
+assert.equal(fileConfig.securityMode, "trusted");
 assert.deepEqual(fileConfig.allowedHosts, [
   "localhost",
   "127.0.0.1",

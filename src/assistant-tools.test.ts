@@ -21,6 +21,47 @@ describe("runScriptTool", () => {
     } catch {}
   });
 
+  it("security modes control inline package-script execution", async () => {
+    const testCwd = join(cwd, "agentic-security-mode-script-" + Math.random().toString(36).slice(2));
+    mkdirSync(testCwd, { recursive: true });
+    writeFileSync(join(testCwd, "package.json"), JSON.stringify({
+      scripts: {
+        inline: "node -e \"console.log('inline-ok')\"",
+      },
+    }));
+
+    const safe = await runScriptTool({ script: "inline", outputMode: "summary" }, testCwd, "safe");
+    assert.equal(safe.isError, true);
+    assert.equal(safe.structuredContent?.status, "policy_blocked");
+
+    const trusted = await runScriptTool({ script: "inline", outputMode: "summary" }, testCwd, "trusted");
+    assert.notEqual(trusted.isError, true);
+    assert.match((trusted.content[0] as any).text, /inline-ok/);
+
+    const full = await runScriptTool({ script: "inline", outputMode: "summary" }, testCwd, "full");
+    assert.notEqual(full.isError, true);
+    assert.match((full.content[0] as any).text, /inline-ok/);
+  });
+
+  it("full mode skips fail-closed nested-script policy parsing", async () => {
+    const testCwd = join(cwd, "agentic-full-script-" + Math.random().toString(36).slice(2));
+    mkdirSync(testCwd, { recursive: true });
+    writeFileSync(join(testCwd, "package.json"), JSON.stringify({
+      scripts: {
+        target: "node -e \"console.log('target-ok')\"",
+        wrapper: "npm --if-present run target",
+      },
+    }));
+
+    const safe = await runScriptTool({ script: "wrapper", outputMode: "summary" }, testCwd, "safe");
+    assert.equal(safe.isError, true);
+    assert.match((safe.content[0] as any).text, /Unsupported (?:npm option|package-manager script syntax)/i);
+
+    const full = await runScriptTool({ script: "wrapper", outputMode: "summary" }, testCwd, "full");
+    assert.notEqual(full.isError, true);
+    assert.match((full.content[0] as any).text, /target-ok/);
+  });
+
   it("should enforce the provided timeoutMs", async () => {
     // Setup a script that sleeps for 2 seconds
     const testCwd = join(cwd, "agentic-test-timeout-" + Math.random().toString(36).slice(2));
@@ -150,6 +191,33 @@ describe("readManyTool — P3 ranged reads", () => {
     assert.equal(data.files.length, 1);
     assert.ok(data.files[0].content.includes("alpha"));
     assert.ok(data.files[0].content.includes("epsilon"));
+  });
+
+  it("uses a bounded 12k-token default budget", async () => {
+    const largeFile = "large-default-budget.ts";
+    writeFileSync(join(TMP, largeFile), "x".repeat(48_100), "utf8");
+
+    const result = await readManyTool({ items: [{ path: largeFile }] }, TMP, [TMP]);
+    const data = JSON.parse((result.content[0] as any).text);
+
+    assert.equal(result.isError, false);
+    assert.equal(data.files.length, 0);
+    assert.equal(data.skipped[0]?.code, "budget_exceeded");
+    assert.equal(data.warning, "budget_exhausted");
+  });
+
+  it("allows an explicit larger budget when broad context is intentional", async () => {
+    const largeFile = "large-explicit-budget.ts";
+    writeFileSync(join(TMP, largeFile), "x".repeat(48_100), "utf8");
+
+    const result = await readManyTool({
+      items: [{ path: largeFile }],
+      maxTokens: 16_000,
+    }, TMP, [TMP]);
+    const data = JSON.parse((result.content[0] as any).text);
+
+    assert.equal(data.files.length, 1);
+    assert.equal(data.skipped.length, 0);
   });
 
   it("throws error if both paths and items are provided", async () => {

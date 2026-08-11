@@ -75,6 +75,21 @@ should read the relevant nested file before working under that directory.
 This keeps instructions explicit and inspectable instead of silently injecting
 new context during later tool calls.
 
+## Discovery Discipline
+
+Use the narrowest evidence path that can safely complete the request:
+
+- if the target file is already known, inspect that file directly and narrowly
+- if a symbol is known but its location is not, search for that symbol and read only the relevant match
+- use goal-directed repository discovery only when the implementation files are genuinely unknown
+- use broad architectural context only when cross-domain structure is actually required
+
+**Stop discovery once there is enough evidence to make the requested scoped change safely.** Do not inspect backend code, tests, schemas, adjacent modules, or historical knowledge merely because they might be related. Expand scope only when a concrete dependency, contract, failing check, or the user's request requires it.
+
+If reasoning is interrupted before any workspace mutation, continue from the evidence already gathered. A checkpoint should be restored only to undo an applied workspace change, not merely because reasoning was interrupted or the approach changed.
+
+Fast context is intentionally bounded for model latency. Multi-file reads default to roughly 12k tokens unless a caller explicitly requests more. Fast task discovery carries an 8k read budget in its next step and caps oversized code regions to focused 160-line windows around goal anchors instead of recommending an entire giant component or function. Historical `.agentic/knowledge` entries are knowledge, not executable instruction files.
+
 ## Skills
 
 Skills are enabled by default for coding-agent workflows.
@@ -146,6 +161,18 @@ In this mode, `write`, `edit`, `bash`, `grep`, `glob`, and `ls` are not
 registered. `exec_command` returns a process session ID when a command is still
 running after its yield window. Use `write_stdin` to poll it, send input, resize
 a PTY, or send Ctrl-C. Set `tty: true` only for commands that need a terminal.
+
+## Proportional Change Workflow
+
+When `AGENTIC_STRICT_PVDL` is disabled, Agentic MCP uses proportional workflow guidance instead of requiring the full PVDL sequence for every edit:
+
+- **QUICK** — localized, low-risk, obvious changes such as labels, CSS, small JSX/conditions, comments, and tiny config adjustments. Inspect only what is necessary, edit/write directly, and if verification is useful run only the cheapest relevant targeted check. Do not run a full build or broad suite merely because code changed. `propose_plan`, `edit_dry_run`, `checkpoint_save`, and `suggest_checks` are not default steps.
+- **STANDARD** — multi-file or behavioral changes with moderate blast radius. Plan when sequencing or uncertainty warrants it, dry-run ambiguous/large replacements, checkpoint when rollback would be useful, and use `suggest_checks` when verification is not obvious. Verify cheap-first: static analysis and nearby tests before broader suites. Build when imports/shared types, compiler/bundler configuration, dependency metadata, release scope, or fan-out make artifact validation meaningful.
+- **CRITICAL** — authentication, permissions/RLS, database migrations or destructive data work, security policy, CI/release, dependency/supply-chain, and other high-impact changes. Use the full PVDL workflow and strong verification, including build/integration/e2e where relevant.
+
+Escalate to a higher level when discovery reveals more risk. Do not add governance tool calls solely because a file is being edited.
+
+`AGENTIC_STRICT_PVDL=1` always overrides this proportional guidance, including in turbo mode. In strict mode, `propose_plan` is required before `edit`/`write`; the server enforces that requirement.
 
 ## Show Changes
 

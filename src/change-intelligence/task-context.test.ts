@@ -286,6 +286,30 @@ describe("task-context", () => {
     assert.equal(inst!.scope, "workspace");
   });
 
+  it("does not classify .agentic knowledge as executable workspace instructions", async () => {
+    const root = await makeWorkspace();
+    await mkdir(join(root, ".agentic", "knowledge", "decisions"), { recursive: true });
+    await writeFile(join(root, "AGENTS.md"), "# Rules\nKeep changes focused.");
+    await writeFile(
+      join(root, ".agentic", "knowledge", "decisions", "old-decision.md"),
+      "Historical decision, not an instruction file.",
+    );
+
+    await gitAddAll(root);
+    const res = await buildTaskContext({
+      workspaceId: "instruction-filter",
+      cwd: root,
+      allowedRoots: [root],
+      goal: "update focused behavior",
+    });
+
+    assert.ok(res.applicableInstructions.some((item) => item.path === "AGENTS.md"));
+    assert.ok(
+      !res.applicableInstructions.some((item) => item.path.includes(".agentic/knowledge/")),
+      "knowledge entries must not be promoted to applicable instructions",
+    );
+  });
+
   // ─── 13. Budget truncation consistency ───────────────────────
   it("removes omitted candidates from derived structures (dependents, nearby tests, next steps)", async () => {
     const root = await makeWorkspace();
@@ -970,6 +994,49 @@ describe("task-context", () => {
 
     // Max 5 items total
     assert.ok(items.length <= 5, `suggestedNextSteps items must be at most 5, got ${items.length}`);
+  });
+
+  it("fast context never recommends reading an entire giant component", async () => {
+    const root = await makeWorkspace();
+    const body = Array.from({ length: 450 }, (_, index) =>
+      index === 299
+        ? "  const sourceHistory = 'target';"
+        : `  const filler${index} = ${index};`,
+    );
+    await writeFile(
+      join(root, "src", "Parametros.tsx"),
+      ["export function Parametros() {", ...body, "  return null;", "}"].join("\n"),
+    );
+    await gitAddAll(root);
+
+    const res = await buildTaskContext({
+      workspaceId: "bounded-fast-context",
+      cwd: root,
+      allowedRoots: [root],
+      goal: "adjust source history in Parametros.tsx",
+      type: "frontend",
+      depth: "fast",
+      focusPaths: ["src/Parametros.tsx"],
+    });
+
+    const readStep = res.suggestedNextSteps.find((step) => step.tool === "read_many");
+    assert.ok(readStep, "fast context must still recommend a focused read");
+    const args = readStep.arguments as any;
+    assert.equal(args.maxTokens, 8_000, "fast suggested reads must carry an explicit small budget");
+    assert.ok(args.items.length > 0);
+    for (const item of args.items) {
+      if (item.startLine === undefined || item.endLine === undefined) continue;
+      assert.ok(
+        item.endLine - item.startLine + 1 <= 160,
+        `fast range must be bounded, got ${item.startLine}-${item.endLine}`,
+      );
+    }
+    assert.ok(
+      args.items.some((item: any) =>
+        item.startLine !== undefined && item.startLine <= 301 && item.endLine >= 301,
+      ),
+      "a bounded read window must retain the anchor location",
+    );
   });
 
   // ─── Directory-Aware Focus Scope Boundaries ─────────────────────

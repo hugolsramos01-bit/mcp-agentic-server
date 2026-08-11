@@ -73,7 +73,7 @@ export const toolNames = {
 function shouldAttachWidget(mode: WidgetMode, kind: ToolWidgetKind): boolean {
   switch (mode) {
     case "off": return false;
-    case "changes": return kind === "workspace" || kind === "show_changes";
+    case "changes": return kind === "workspace" || kind === "edit" || kind === "write" || kind === "show_changes";
     case "full": return true;
   }
 }
@@ -91,26 +91,37 @@ export function toolWidgetDescriptorMeta(
 export function serverInstructions(config: ServerConfig): string {
   const showChangesInstruction =
     config.widgets === "changes"
-      ? " If the turn successfully modifies files by creating, editing, overwriting, deleting, moving, or applying patches, call show_changes exactly once for that workspace after the final related file change and before your final response so the user can inspect the aggregate diff for that turn. Do not call it after every individual file change; do not skip it because individual file-change tools already returned diffs."
+      ? " In changes-widget mode, edit/write mutations already carry their own review widget. For a QUICK change confined to one file and performed only through edit/write, do not call show_changes just to repeat the same diff. Call show_changes once when the turn changes multiple files, uses patch/shell/external mutation paths, needs aggregate review, or the user explicitly asks to inspect all changes together."
       : "";
 
   if (false) {
     return `Use Agentic MCP as a local coding workspace. Call ${toolNames.openWorkspace} once per project folder or worktree and reuse its workspaceId. If the user later mentions a different folder or project, call ${toolNames.openWorkspace} again with that new path. Use ${toolNames.read} for direct file reads, apply_patch for all file modifications, exec_command for inspection, tests, builds, and other commands, and write_stdin to poll or interact with running processes. Follow instructions returned by ${toolNames.openWorkspace}; read applicable instruction and skill files before working in their scope.${showChangesInstruction}`;
   }
 
-  const strictPvdlNote = config.strictPvdl && config.toolMode === "assistant"
-    ? "STRICT PVDL MODE: propose_plan is REQUIRED before edit/write. You must call propose_plan with your goal and filesToChange before any file modification. edit_dry_run is strongly recommended after the plan."
+  const changeWorkflow = config.toolMode === "assistant"
+    ? config.strictPvdl
+      ? `STRICT PVDL MODE — this overrides turbo shortcuts.
+- propose_plan is REQUIRED before edit/write.
+- Use edit_dry_run before changing ambiguous, multi-block, or risky existing text.
+- Save a checkpoint before risky/material changes.
+- Verify the result proportionately before concluding.`
+      : `PROPORTIONAL CHANGE WORKFLOW — choose the lightest safe path:
+- QUICK: localized, low-risk, obvious changes (labels, CSS, small JSX/conditions, tiny config/comment edits). Inspect only what is needed, then edit/write directly. Do not call propose_plan, edit_dry_run, checkpoint_save, or suggest_checks by default. If verification is useful, run only the cheapest relevant targeted check; do not run a full build or broad test suite merely because code changed.
+- STANDARD: multi-file or behavioral changes with moderate blast radius. Use a short plan when sequencing or uncertainty warrants it; use edit_dry_run for ambiguous/large replacements; checkpoint when rollback would be valuable; use suggest_checks when verification is not obvious. Verify cheap-first: static analysis and nearby tests before broader suites. Build when imports/shared types, compiler/bundler config, dependency metadata, release scope, or fan-out make artifact validation meaningful.
+- CRITICAL: auth, permissions/RLS, database migrations/destructive data work, security policy, CI/release, dependency/supply-chain, or other high-impact changes. Use full PVDL: propose_plan → edit_dry_run where applicable → checkpoint_save → edit/write → suggest_checks and strong verification, including build/integration/e2e when relevant.
+Escalate QUICK → STANDARD → CRITICAL when new evidence increases risk. Do not add governance tool calls solely because a file is being edited.`
     : "";
 
   const speedNote = config.speedMode === "turbo"
-    ? "TURBO MODE — optimize for SPEED, not token cost:\n" +
-      "• Read MULTIPLE files at once using read_many (batch up to 5-10 files per call)\n" +
-      "• Use grep to find what you need instead of reading files line-by-line\n" +
-      "  Prefer task_context with a goal to get a fast minimal map in one call\n" +
-      "• Batch multiple edits to the same file into one edit call\n" +
-      "• Skip edit_dry_run for trivially obvious single-line changes\n" +
-      "• Skip checkpoint_save for non-destructive changes (config-only, comments)\n" +
-      "• Read up to 500 lines per read call instead of conservative limits\n" +
+    ? "TURBO MODE — optimize for end-to-end latency, not just tool-call count:\n" +
+      "• Batch only already-known related reads when that avoids round-trips; keep each response tightly scoped\n" +
+      "• Use narrow lexical search instead of broad file reads when locating known symbols or text\n" +
+      "• Use goal-directed repository discovery only when relevant implementation paths are genuinely unknown\n" +
+      "• Batch multiple exact mutations to the same file into one call\n" +
+      (config.strictPvdl
+        ? "• Strict PVDL is enabled; do not skip required planning/verification gates\n"
+        : "• For QUICK changes, mutate directly and skip planning, preview, checkpoint, and verification-planning calls unless evidence raises risk\n") +
+      "• Read the smallest authoritative ranges sufficient for the requested change\n" +
       "• Be concise in responses — deliver findings directly without verbose commentary"
     : "BALANCED MODE — optimize for safety and thoroughness.";
   const turboSpeedNote = config.speedMode === "turbo" ? speedNote + "\n\n" : "";
@@ -119,26 +130,27 @@ export function serverInstructions(config: ServerConfig): string {
     ? `In minimal tool mode, ${toolNames.grep}, ${toolNames.glob}, and ${toolNames.ls} are disabled; use ${toolNames.shell} with command-line tools such as grep, rg, find, ls, and tree for search and directory inspection. `
     : config.toolMode === "assistant"
     ? `Tools are organized by visibility:
-[CORE] — Always use these first: open_workspace, suggest_checks, task_context, semantic_pack, grep, read_adaptive, read, read_many, git_status, git_diff, propose_plan, edit_dry_run, checkpoint_save, edit, write, run_package_script, show_changes, tree.
-[ADVANCED] — Use when core tools are insufficient: tournament_*, knowledge_*, set_policy, reset_policy, token_audit, context_budget, safe_file_preview, apply_patch, coding_context.
+Use the narrowest operation justified by evidence; do not start broad discovery when the target is already known.
+Advanced architecture, knowledge, budget, patching, or tournament operations are not default steps.
 
 Tool selection:
-- Bootstrapping a focused coding goal: task_context (minimal, fast, test proximity).
-- Understanding broad architecture: semantic_pack (deep, inter-file relationships).
-- Known symbol or text: grep.
-- One known file, general inspection: read_adaptive.
-- One known file, exact ranges or pre-edit source: read.
-- Several known files: read_many.
-- After material changes: suggest_checks.
+- Relevant implementation files genuinely unknown: obtain one minimal goal-directed repository map, then work from its strongest candidates.
+- Broad architecture or cross-domain relationships genuinely required: obtain one bounded architecture overview.
+- Known file path: inspect that file narrowly with an exact-range read or path-scoped lexical search; do not run broader bootstrap or context discovery merely to reconfirm it.
+- Known symbol or text with unknown location: run a narrow lexical search, then read only the matching implementation range.
+- One known file needing whole-file orientation: use bounded adaptive inspection.
+- One known file with a known relevant region: read only that exact authoritative range.
+- Several already-known related files: use one bounded multi-file/range read.
+- Material changes with non-obvious verification: use the verification planner.
 
-Prefer the core tools for all exploration, file inspection, and git tasks instead of using the shell. Use edit_dry_run before edit to preview changes without writing. Before risky edits, use checkpoint_save to snapshot your changes; use checkpoint_restore to revert.
+STOP DISCOVERY: once there is enough evidence to make the requested scoped change safely, stop exploring and make the change. Do not inspect backend, tests, schemas, adjacent modules, or historical knowledge merely because they might be related; expand scope only when a concrete import, API contract, schema, runtime dependency, failing check, or the user's request requires it.
 
-Follow the PVDL flow for every change:
-1. PLAN: Call propose_plan with your goal, files to change, risks, and verification steps.
-2. VERIFY: Call edit_dry_run to preview the exact changes before writing.
-3. DO: Call checkpoint_save then edit or write to apply changes.
-4. LOG: Run suggested checks (suggest_checks) to verify correctness.
-Do not edit files without first calling propose_plan and edit_dry_run. `
+If reasoning is interrupted before any workspace mutation, resume from the evidence already gathered. Do not restore a checkpoint solely because reasoning was interrupted or the approach changed. Restore only when an applied workspace change actually needs to be undone.
+
+Prefer specialized structured operations for ordinary inspection instead of the shell. Preview ambiguous, large, multi-block, or risky replacements. Save checkpoints only when rollback would be materially useful.
+
+${changeWorkflow}
+`
     : `Prefer ${toolNames.read}, ${toolNames.grep}, ${toolNames.glob}, and ${toolNames.ls} for file inspection. `;
 
   const skills = config.skillsEnabled
@@ -146,14 +158,19 @@ Do not edit files without first calling propose_plan and edit_dry_run. `
     : "";
   const agentsMd = `Follow instructions returned by ${toolNames.openWorkspace}. Before working under a path listed in availableAgentsFiles, use ${toolNames.read} to inspect that instruction file and follow it. `;
   const shellUsage = config.toolMode === "assistant"
-    ? `and ${toolNames.shell} ONLY for tests, builds, and complex system interactions that the specialized tools cannot handle`
-    : `and ${toolNames.shell} for tests, builds, git inspection, package scripts, and commands that are better executed by the shell`;
+    ? `and ${toolNames.shell} ONLY for tests, builds, database/OS interactions, and complex system work that the specialized tools cannot handle`
+    : `and ${toolNames.shell} for tests, builds, git inspection, package scripts, database/OS interactions, and commands that are better executed by the shell`;
+  const shellSecurityPolicy = config.securityMode === "safe"
+    ? ` Safe security mode is active: do not create or modify files with ${toolNames.shell}; shell redirection, heredocs, tee, in-place editors, and inline node/python execution are blocked.`
+    : config.securityMode === "trusted"
+    ? ` Trusted security mode is active: inline node/python execution and shell file-writing constructs are permitted, but destructive commands remain policy-blocked. Prefer ${toolNames.edit}/${toolNames.write} for auditable project file changes when practical.`
+    : ` Full security mode is active: command-policy restrictions are bypassed, including destructive commands. OAuth authentication and MCP workspace/file-tool root checks still apply, but the shell itself is not an OS sandbox and can access anything the local user account can access.`;
 
-  return `${turboSpeedNote}${strictPvdlNote ? strictPvdlNote + "\n\n" : ""}Use Agentic MCP as a local coding workspace. Call ${toolNames.openWorkspace} once per project folder or worktree to obtain a workspaceId. Reuse that same workspaceId for all later file, search, edit, write, show-changes, and shell tools in that same folder.
+  return `${turboSpeedNote}Use Agentic MCP as a local coding workspace. Call ${toolNames.openWorkspace} once per project folder or worktree to obtain a workspaceId. Reuse that same workspaceId for all later file, search, edit, write, show-changes, and shell tools in that same folder.
 
 IMPORTANT — switching between projects: If the user mentions a different folder, project, codebase, or repository, call ${toolNames.openWorkspace} again with the new path. Do not try to work on multiple projects through a single workspaceId. The user's first request tells you which project to open; if they later mention another, reopen.
 
-${agentsMd}${skills}${inspection}Prefer ${toolNames.edit} for targeted modifications, ${toolNames.write} only for new files or complete rewrites, ${shellUsage}. Do not create or modify files with ${toolNames.shell}; avoid shell redirection, heredocs, tee, sed -i, perl -i, node/python/ruby scripts, or any command whose purpose is to write project files.${showChangesInstruction}`;
+${agentsMd}${skills}${inspection}Prefer ${toolNames.edit} for targeted modifications and ${toolNames.write} for new files or complete rewrites, ${shellUsage}.${shellSecurityPolicy}${showChangesInstruction}`;
 }
 
 // ─── Agent Formatting ────────────────────────────────────────

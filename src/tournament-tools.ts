@@ -1,6 +1,7 @@
 import { join } from "node:path";
 import { existsSync, writeFileSync, readFileSync } from "node:fs";
 import type { ServerConfig } from "./config.js";
+import type { SecurityMode } from "./security/security-mode.js";
 import { createManagedWorktree, removeManagedWorktree, type ManagedWorktree } from "./git-worktrees.js";
 import type { ToolResponse } from "./pi-tools.js";
 import { assertCommandAllowed } from "./security/command-executor.js";
@@ -105,6 +106,7 @@ export async function tournamentSpawnTool(input: TournamentSpawnInput): Promise<
             workspaceRoot: worktree.path,
             workingDirectory: worktree.path,
             source: "dependency-install",
+            securityMode: config.securityMode,
           });
           await runProcess(cmd, args, { cwd: worktree.path, timeoutMs: 300_000 });
         } catch {
@@ -176,6 +178,7 @@ export async function tournamentSpawnTool(input: TournamentSpawnInput): Promise<
 export interface TournamentJudgeInput {
   tournamentId: string;
   verificationScripts?: string[];
+  securityMode?: SecurityMode;
 }
 
 export async function tournamentJudgeTool(input: TournamentJudgeInput): Promise<ToolResponse> {
@@ -263,20 +266,24 @@ export async function tournamentJudgeTool(input: TournamentJudgeInput): Promise<
           continue;
         }
 
-        // Fail-closed: let cycle / depth errors propagate — do NOT catch them
-        const commandsToValidate = collectPackageScriptCommands({
-          packageJson: pkg,
-          scriptName,
-          maxDepth: 10,
-        });
-
-        for (const cmd of commandsToValidate) {
-          await assertCommandAllowed({
-            command: cmd,
-            workspaceRoot: cwd,
-            workingDirectory: cwd,
-            source: "tournament",
+        // Safe/trusted inspect nested scripts fail-closed before execution.
+        // Full mode intentionally bypasses command-policy inspection.
+        if (input.securityMode !== "full") {
+          const commandsToValidate = collectPackageScriptCommands({
+            packageJson: pkg,
+            scriptName,
+            maxDepth: 10,
           });
+
+          for (const cmd of commandsToValidate) {
+            await assertCommandAllowed({
+              command: cmd,
+              workspaceRoot: cwd,
+              workingDirectory: cwd,
+              source: "tournament",
+              securityMode: input.securityMode,
+            });
+          }
         }
 
         const result = await runProcess(packageManager, ["run", scriptName], { cwd, timeoutMs: 300_000 });

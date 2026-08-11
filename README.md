@@ -79,25 +79,27 @@ Yes. It gives ChatGPT Web full local coding capabilities: file inspection, struc
 
 ---
 
-## 🚀 Release 1.5.0 Highlights
+## 🚀 Release 1.6.0 Highlights
 
-Version 1.5.0 consolidates the public tool contract and hardens the workflows
-used by coding agents in real repositories:
+Version 1.6.0 focuses on lower-latency coding loops without weakening the
+security and verification boundaries introduced in 1.5.0:
 
-1. **Uniform public MCP envelope** — every public tool, including
-   `open_workspace`, returns `status`, `data`, `error`, `diagnostics` and
-   `metrics` without nested or serialized envelope copies.
-2. **Deterministic semantic ranking** — explicit paths remain authoritative,
-   lexical matching respects token boundaries, and grep signals are balanced
-   before result limits are applied.
-3. **Adaptive verification planning** — `suggest_checks` distinguishes actual
-   changes from goal discovery, handles workspaces without local Git metadata,
-   and stages related checks without inventing or executing scripts.
-4. **Safe atomic dotfile writes** — allowed project dotfiles use exclusive
-   same-directory temporaries, synchronization, atomic rename and guaranteed
-   cleanup; secret files remain protected.
-5. **Public path hygiene** — absolute local paths are removed from public
-   errors, diagnostics and metadata while useful relative paths are preserved.
+1. **Three command security modes** — `safe` remains the default, `trusted`
+   enables practical inline scripting and shell file writes while retaining
+   destructive-command protections, and `full` is available for explicitly
+   unrestricted local execution.
+2. **Proportional coding workflow** — QUICK, STANDARD and CRITICAL changes no
+   longer pay the same PVDL and verification cost; strict PVDL remains an
+   explicit override for environments that require it.
+3. **Stop-discovery discipline** — known files and symbols are inspected
+   directly instead of triggering broad bootstrap/context exploration merely
+   to reconfirm an already strong target.
+4. **Bounded fast context** — `read_many` defaults to 12k tokens, fast task
+   context caps large code-region reads at 160-line anchor windows, and file
+   indexes stay warm across normal model reasoning gaps.
+5. **Faster QUICK review** — with `AGENTIC_WIDGETS=changes`, single-file
+   `edit`/`write` mutations carry their review UI directly and no longer need a
+   redundant aggregate `show_changes` round trip.
 
 ## 🔥 Key Innovations
 
@@ -157,6 +159,18 @@ The tool surface depends on the `AGENTIC_TOOL_MODE` setting.
 | **`minimal`** | `open_workspace`, `read`, `write`, `edit`, `bash` | Restricted surface |
 
 > **Note:** The `assistant` mode is recommended for the full agentic coding experience. Set `AGENTIC_TOOL_MODE=assistant` in your `.env` or environment.
+
+### Command security modes
+
+Tool mode and command security are separate. `AGENTIC_SECURITY_MODE` controls what shell commands may pass the policy engine:
+
+| Security mode | Behavior |
+|---|---|
+| **`safe`** (default) | Strict command policy. Blocks inline scripting/file-writing shell constructs and destructive commands. |
+| **`trusted`** | Allows `python -c`, `node -e`, redirects, heredocs and in-place shell writes, while destructive operations remain protected. |
+| **`full`** | Bypasses command-policy restrictions, including destructive-command rules. |
+
+Persist the setting with `agentic config set securityMode safe|trusted|full`, then restart the server. OAuth remains required. The shell is **not** an OS sandbox and may access anything available to the local user account, so `trusted` and especially `full` should only be enabled intentionally.
 
 ### Core tools (always available)
 

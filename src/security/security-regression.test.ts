@@ -8,6 +8,8 @@ import { tmpdir } from 'node:os';
 import { enforceSecurePath } from '../pi-tools.js';
 import { collectPackageScriptCommands } from './script-resolver.js';
 import type { TournamentJudgeInput } from '../tournament-tools.js';
+import { assessCommand } from '../policy-tools.js';
+import { assertCommandAllowed } from './command-executor.js';
 
 // ─── enforceSecurePath regression tests ─────────────────────────────────────
 test('Security Regression: enforceSecurePath', async (t) => {
@@ -151,6 +153,100 @@ test('Security Regression: enforceSecurePath', async (t) => {
     }
   });
 
+});
+
+// ─── Command security modes ──────────────────────────────────────────────────
+test('Command security modes: safe, trusted, and full', async (t) => {
+  await t.test('safe preserves current shell restrictions', () => {
+    assert.strictEqual(assessCommand('python -c "print(1)"', 'bash', 'safe').verdict, 'block');
+    assert.strictEqual(assessCommand('python.exe -c "print(1)"', 'bash', 'safe').verdict, 'block');
+    assert.strictEqual(assessCommand('python3.12 -c "print(1)"', 'bash', 'safe').verdict, 'block');
+    assert.strictEqual(assessCommand('py -3 -c "print(1)"', 'bash', 'safe').verdict, 'block');
+    assert.strictEqual(assessCommand('node -e "console.log(1)"', 'bash', 'safe').verdict, 'block');
+    assert.strictEqual(assessCommand('node.exe -e "console.log(1)"', 'bash', 'safe').verdict, 'block');
+    assert.strictEqual(assessCommand('echo hello > output.txt', 'bash', 'safe').verdict, 'block');
+    assert.strictEqual(assessCommand('npm install', 'bash', 'safe').verdict, 'warn');
+    assert.strictEqual(assessCommand('rm -rf ./tmp', 'bash', 'safe').verdict, 'block');
+  });
+
+  await t.test('trusted permits inline scripting and shell writes but retains destructive policy', () => {
+    assert.strictEqual(assessCommand('python -c "print(1)"', 'bash', 'trusted').verdict, 'allow');
+    assert.strictEqual(assessCommand('node -e "console.log(1)"', 'bash', 'trusted').verdict, 'allow');
+    assert.strictEqual(assessCommand('echo hello > output.txt', 'bash', 'trusted').verdict, 'allow');
+    assert.strictEqual(assessCommand('npm install', 'bash', 'trusted').verdict, 'allow');
+    assert.strictEqual(assessCommand('git push', 'bash', 'trusted').verdict, 'warn');
+    assert.strictEqual(assessCommand('rm -rf ./tmp', 'bash', 'trusted').verdict, 'block');
+    assert.strictEqual(assessCommand('DROP TABLE users', 'bash', 'trusted').verdict, 'dangerous');
+  });
+
+  await t.test('full bypasses command-policy rules', () => {
+    for (const command of [
+      'python -c "print(1)"',
+      'echo hello > output.txt',
+      'git push --force origin main',
+      'DROP TABLE users',
+      'rm -rf /',
+    ]) {
+      const assessment = assessCommand(command, 'bash', 'full');
+      assert.strictEqual(assessment.securityMode, 'full');
+      assert.strictEqual(assessment.verdict, 'allow');
+      assert.deepStrictEqual(assessment.blocked, []);
+      assert.deepStrictEqual(assessment.dangerous, []);
+    }
+  });
+
+  await t.test('executor honors mode without bypassing workspace confinement', async () => {
+    const root = realpathSync(mkdtempSync(join(tmpdir(), 'agentic-security-mode-')));
+
+    await assert.rejects(
+      () => assertCommandAllowed({
+        command: 'python -c "print(1)"',
+        workspaceRoot: root,
+        source: 'bash',
+        securityMode: 'safe',
+      }),
+      /blocked by safe security policy/i,
+    );
+
+    await assert.doesNotReject(() => assertCommandAllowed({
+      command: 'python -c "print(1)"',
+      workspaceRoot: root,
+      source: 'bash',
+      securityMode: 'trusted',
+    }));
+
+    await assert.doesNotReject(() => assertCommandAllowed({
+      command: 'rm -rf /',
+      workspaceRoot: root,
+      source: 'bash',
+      securityMode: 'full',
+    }));
+
+    for (const command of ['python.exe', 'python3.12', 'py', 'node.exe']) {
+      await assert.rejects(
+        () => assertCommandAllowed({
+          command,
+          workspaceRoot: root,
+          source: 'bash',
+          securityMode: 'full',
+        }),
+        /Interactive interpreters are blocked/i,
+        `${command} must remain non-interactive even in full mode`,
+      );
+    }
+
+    await assert.rejects(
+      () => assertCommandAllowed({
+        command: 'echo ok',
+        workspaceRoot: root,
+        workingDirectory: '../outside',
+        source: 'bash',
+        securityMode: 'full',
+      }),
+      /outside|escapes|does not exist/i,
+      'Full mode must not bypass workspace confinement',
+    );
+  });
 });
 
 // ─── Tournament Judge integration tests ─────────────────────────────────────

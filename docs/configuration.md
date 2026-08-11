@@ -25,6 +25,7 @@ npx mcp-agentic-server stdio
 npx mcp-agentic-server doctor
 npx mcp-agentic-server config get
 npx mcp-agentic-server config set publicBaseUrl https://agentic.example.com
+npx mcp-agentic-server config set securityMode trusted
 ```
 
 ## Core Environment Variables
@@ -40,6 +41,7 @@ npx mcp-agentic-server config set publicBaseUrl https://agentic.example.com
 | `AGENTIC_WORKTREE_ROOT` | Directory for managed Git worktrees. Defaults to `~/.agentic/worktrees`. |
 | `AGENTIC_STATE_DIR` | Directory for SQLite state. Defaults to `~/.local/share/agentic`. |
 | `AGENTIC_STRICT_PVDL` | When `1`, requires `propose_plan` before `edit`/`write`. Defaults to `0`. |
+| `AGENTIC_SECURITY_MODE` | Command-policy level: `safe`, `trusted`, or `full`. Defaults to `safe`. |
 
 ## OAuth
 
@@ -72,6 +74,38 @@ MCP clients discover metadata from:
 `AGENTIC_MINIMAL_TOOLS` remains a backward-compatible alias when
 `AGENTIC_TOOL_MODE` is unset: `1` selects `minimal` and `0` selects `full`.
 
+Tool mode controls **which tools are exposed**. It does not change command-security behavior.
+
+## Security Modes
+
+`AGENTIC_SECURITY_MODE` controls command-policy enforcement independently from `AGENTIC_TOOL_MODE`.
+
+| Value | Command behavior |
+| --- | --- |
+| `safe` | Default. Preserves the strict policy: inline `python -c` / `node -e`, redirects, heredocs, `tee`, in-place shell editors, and similar shell file-writing forms are blocked. Destructive commands remain blocked or dangerous. |
+| `trusted` | Allows inline scripting and shell file-writing forms, and stops warning on routine package installs. Destructive operations such as recursive force deletion, force pushes, hard resets, destructive SQL, device/filesystem operations, and broad Windows deletes remain protected. |
+| `full` | Bypasses command-policy regex restrictions, including destructive-command rules. Use only when you intentionally grant unrestricted command execution. |
+
+All three modes still enforce OAuth authentication and the normal workspace/file-tool `AGENTIC_ALLOWED_ROOTS` checks. Those checks are **not an operating-system shell sandbox**: shell commands run as your local user account and can reference paths outside the opened workspace if that account can access them. `trusted` and especially `full` should therefore be treated as real local-machine command access.
+
+Persist a mode with:
+
+```bash
+npx mcp-agentic-server config set securityMode trusted
+# or
+npx mcp-agentic-server config set securityMode full
+```
+
+Restart the Agentic MCP server after changing the persisted mode. For a one-off process, set `AGENTIC_SECURITY_MODE` in the environment instead.
+
+## Workflow Speed And PVDL
+
+`AGENTIC_SPEED_MODE=turbo` reduces orchestration overhead by favoring bounded batched reads, direct QUICK edits, and concise verification. It does not weaken strict PVDL. Assistant guidance also stops broad discovery once a sufficient implementation target is known; an explicit file path should be inspected directly instead of being re-discovered through broader context tools. Multi-file reads default to a 12k-token guard, while fast task-context next steps use an 8k read budget and bounded code-region windows; callers can still request a larger explicit budget for intentional broad work.
+
+When `AGENTIC_STRICT_PVDL` is unset or `0`, assistant mode uses proportional QUICK / STANDARD / CRITICAL guidance. QUICK low-risk changes may go directly from focused inspection to `edit`/`write` without mandatory planning, dry-run, checkpoint, or `suggest_checks` calls. Verification is cheap-first: an obvious targeted static/test check is preferred, and a full build is not the default for a small source-only change. Build remains appropriate for compiler/bundler configuration, dependency metadata, release work, broad/high-risk changes, or meaningful fan-out.
+
+When `AGENTIC_STRICT_PVDL=1`, strict mode wins over balanced/turbo guidance: `propose_plan` is required before `edit`/`write`, with dry-runs, checkpoints, and verification applied according to risk.
+
 ## Widgets
 
 `AGENTIC_WIDGETS` controls ChatGPT Apps iframe usage.
@@ -79,7 +113,7 @@ MCP clients discover metadata from:
 | Value | Behavior |
 | --- | --- |
 | `full` | Default. Widget UI is attached to exposed workspace, file, edit, and shell tools. |
-| `changes` | Enables the aggregate `show_changes` tool and attaches widget UI to `open_workspace` and `show_changes`. |
+| `changes` | Attaches review UI to `open_workspace`, `edit`, and `write`. `show_changes` remains available for multi-file, patch/shell/external, or explicitly requested aggregate review, so QUICK single-file edits do not need a redundant review round trip. |
 | `off` | Disables widget UI. |
 
 ## Skills
@@ -154,6 +188,7 @@ AGENTIC_ALLOWED_ROOTS="$HOME/personal,$HOME/work" \
 AGENTIC_PUBLIC_BASE_URL="https://agentic.example.com" \
 AGENTIC_WORKTREE_ROOT="$HOME/.agentic/worktrees" \
 AGENTIC_TOOL_MODE="assistant" \
+AGENTIC_SECURITY_MODE="safe" \
 AGENTIC_WIDGETS="full" \
 npx mcp-agentic-server serve
 ```

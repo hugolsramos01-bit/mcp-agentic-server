@@ -49,6 +49,22 @@ If your tunnel URL changes mid-session, override it without rewriting config:
 AGENTIC_PUBLIC_BASE_URL="https://new-tunnel.example.com" npx mcp-agentic-server serve
 ```
 
+### Choose command security level
+
+The default is `safe`. For a trusted local workflow that needs commands such as `python -c`, `node -e`, redirects, or shell-based file generation while still blocking destructive operations:
+
+```bash
+npx mcp-agentic-server config set securityMode trusted
+```
+
+For an intentionally unrestricted command policy:
+
+```bash
+npx mcp-agentic-server config set securityMode full
+```
+
+Restart the server after changing the persisted mode. `full` does not disable OAuth, but remember that the shell is not an OS sandbox: commands run with your local account permissions and may access resources outside the opened workspace.
+
 ## Connect Your Client
 
 Point your MCP client to:
