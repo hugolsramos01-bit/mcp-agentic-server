@@ -88,6 +88,8 @@ Use the narrowest evidence path that can safely complete the request:
 
 If reasoning is interrupted before any workspace mutation, continue from the evidence already gathered. A checkpoint should be restored only to undo an applied workspace change, not merely because reasoning was interrupted or the approach changed.
 
+Fast context is intentionally bounded for model latency. Multi-file reads default to roughly 12k tokens unless a caller explicitly requests more. Fast task discovery carries an 8k read budget in its next step and caps oversized code regions to focused 160-line windows around goal anchors instead of recommending an entire giant component or function. Historical `.agentic/knowledge` entries are knowledge, not executable instruction files.
+
 ## Skills
 
 Skills are enabled by default for coding-agent workflows.

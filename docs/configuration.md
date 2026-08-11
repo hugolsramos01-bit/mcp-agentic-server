@@ -100,7 +100,7 @@ Restart the Agentic MCP server after changing the persisted mode. For a one-off 
 
 ## Workflow Speed And PVDL
 
-`AGENTIC_SPEED_MODE=turbo` reduces orchestration overhead by favoring batched reads, direct QUICK edits, and concise verification. It does not weaken strict PVDL. Assistant guidance also stops broad discovery once a sufficient implementation target is known; an explicit file path should be inspected directly instead of being re-discovered through broader context tools.
+`AGENTIC_SPEED_MODE=turbo` reduces orchestration overhead by favoring bounded batched reads, direct QUICK edits, and concise verification. It does not weaken strict PVDL. Assistant guidance also stops broad discovery once a sufficient implementation target is known; an explicit file path should be inspected directly instead of being re-discovered through broader context tools. Multi-file reads default to a 12k-token guard, while fast task-context next steps use an 8k read budget and bounded code-region windows; callers can still request a larger explicit budget for intentional broad work.
 
 When `AGENTIC_STRICT_PVDL` is unset or `0`, assistant mode uses proportional QUICK / STANDARD / CRITICAL guidance. QUICK low-risk changes may go directly from focused inspection to `edit`/`write` without mandatory planning, dry-run, checkpoint, or `suggest_checks` calls. Verification is cheap-first: an obvious targeted static/test check is preferred, and a full build is not the default for a small source-only change. Build remains appropriate for compiler/bundler configuration, dependency metadata, release work, broad/high-risk changes, or meaningful fan-out.
 

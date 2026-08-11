@@ -361,16 +361,11 @@ export async function buildTaskContext(
         (f) =>
           f.endsWith("AGENTS.md") ||
           f.endsWith("CLAUDE.md") ||
-          f.endsWith(".cursorrules") ||
-          f.includes(".agentic/") ||
-          f.includes(".agents/"),
+          f.endsWith(".cursorrules"),
       )
       .map((f) => ({
         path: f,
-        scope:
-          f.includes(".agentic/") || f.includes(".agents/")
-            ? "workspace"
-            : "global",
+        scope: "workspace",
         reason: "Instruction file detected in workspace",
       }));
 
@@ -733,9 +728,9 @@ export async function buildTaskContext(
 
   // 11.5 Extract code regions for primary files adaptively
   const depthConfig = {
-    fast: { maxFiles: 1, maxRegions: 4 },
-    balanced: { maxFiles: 2, maxRegions: 6 },
-    deep: { maxFiles: 3, maxRegions: 8 },
+    fast: { maxFiles: 1, maxRegions: 4, maxRegionLines: 160 },
+    balanced: { maxFiles: 2, maxRegions: 6, maxRegionLines: 320 },
+    deep: { maxFiles: 3, maxRegions: 8, maxRegionLines: undefined },
   };
   const config = depthConfig[effectiveDepth];
   const regionTargets = primaryFiles
@@ -753,6 +748,7 @@ export async function buildTaskContext(
           path: candidate.path,
           anchorKeywords,
           maxRegions: config.maxRegions,
+          maxRegionLines: config.maxRegionLines,
         }).catch((err) => {
           if (!(err instanceof CodeRegionSkippedError)) {
             limitations.push(
@@ -916,7 +912,15 @@ function buildSuggestedNextSteps(
 
     steps.push({
       tool: "read_many",
-      arguments: { items: allItems },
+      arguments: {
+        items: allItems,
+        maxTokens:
+          result.effectiveDepth === "fast"
+            ? 8_000
+            : result.effectiveDepth === "balanced"
+              ? 12_000
+              : 16_000,
+      },
       reason:
         "Read the strongest implementation candidates and their relevant regions.",
     });

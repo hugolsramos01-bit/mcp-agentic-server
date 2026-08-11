@@ -32,6 +32,8 @@ export class CodeRegionSkippedError extends Error {
 export interface LoadCodeRegionsOptions extends ExtractCodeRegionsOptions {
   workspaceRoot: string;
   path: string;
+  /** Bound returned regions to focused line windows for low-latency agent context. */
+  maxRegionLines?: number;
 }
 
 // ─── Clone helper ─────────────────────────────────────────────────────
@@ -51,18 +53,84 @@ function cloneRegions(regions: IndexedCodeRegion[]): IndexedCodeRegion[] {
 // Apply anchorKeyword scoring and maxRegions slicing to a raw region list.
 // This mirrors extractCodeRegions() but operates on already-parsed data.
 
-  function rankAndSlice(
+function toPublicRegion(region: IndexedCodeRegion): CodeRegion {
+  const { score, originalIndex, signature, body, isExported, ...publicRegion } = region;
+  return publicRegion;
+}
+
+function boundRegionToAnchorWindows(
+  region: IndexedCodeRegion,
+  anchorKeywords: string[],
+  maxRegionLines: number | undefined,
+): CodeRegion[] {
+  const base = toPublicRegion(region);
+  const span = region.endLine - region.startLine + 1;
+  if (!maxRegionLines || span <= maxRegionLines) return [base];
+
+  const declarationLines = `${region.signature ?? ""}${region.body ?? ""}`
+    .replace(/\r\n/g, "\n")
+    .split("\n");
+  const anchorOffsets: number[] = [];
+
+  for (const keyword of anchorKeywords.map((item) => item.toLowerCase())) {
+    const offset = declarationLines.findIndex((line) => line.toLowerCase().includes(keyword));
+    if (offset >= 0 && !anchorOffsets.includes(offset)) anchorOffsets.push(offset);
+  }
+
+  if (anchorOffsets.length === 0) {
+    return [{
+      ...base,
+      endLine: Math.min(region.endLine, region.startLine + maxRegionLines - 1),
+    }];
+  }
+
+  const halfWindow = Math.floor(maxRegionLines / 2);
+  const windows = anchorOffsets
+    .sort((a, b) => a - b)
+    .map((offset) => {
+      const anchorLine = region.startLine + offset;
+      const latestStart = Math.max(region.startLine, region.endLine - maxRegionLines + 1);
+      const startLine = Math.min(
+        latestStart,
+        Math.max(region.startLine, anchorLine - halfWindow),
+      );
+      return {
+        startLine,
+        endLine: Math.min(region.endLine, startLine + maxRegionLines - 1),
+      };
+    });
+
+  const merged: Array<{ startLine: number; endLine: number }> = [];
+  for (const window of windows) {
+    const previous = merged[merged.length - 1];
+    const mergedEnd = previous ? Math.max(previous.endLine, window.endLine) : window.endLine;
+    const mergedSpan = previous ? mergedEnd - previous.startLine + 1 : 0;
+    if (
+      previous &&
+      window.startLine <= previous.endLine + 1 &&
+      mergedSpan <= maxRegionLines
+    ) {
+      previous.endLine = Math.min(region.endLine, mergedEnd);
+    } else {
+      merged.push({ ...window });
+    }
+  }
+
+  return merged.slice(0, 2).map((window) => ({ ...base, ...window }));
+}
+
+function rankAndSlice(
     rawRegions: IndexedCodeRegion[],
     anchorKeywords: string[],
     maxRegions: number | undefined,
+    maxRegionLines?: number,
   ): CodeRegion[] {
     if (anchorKeywords.length === 0) {
       // No keywords — preserve source order and apply limit only
       const sliced = rawRegions.slice(0, maxRegions ?? rawRegions.length);
-      return cloneRegions(sliced).map(r => {
-        const { score, originalIndex, signature, body, isExported, ...rest } = r;
-        return rest;
-      });
+      return cloneRegions(sliced)
+        .flatMap((region) => boundRegionToAnchorWindows(region, [], maxRegionLines))
+        .slice(0, maxRegions ?? sliced.length);
     }
   
     const lowerKeywords = anchorKeywords.map(k => k.toLowerCase());
@@ -110,7 +178,12 @@ function cloneRegions(regions: IndexedCodeRegion[]): IndexedCodeRegion[] {
   });
 
   const limit = maxRegions ?? scored.length;
-  return scored.slice(0, limit).map(({ _score, _idx, score, originalIndex, signature, body, isExported, ...rest }) => rest);
+  return scored
+    .slice(0, limit)
+    .flatMap(({ _score, _idx, ...region }) =>
+      boundRegionToAnchorWindows(region, anchorKeywords, maxRegionLines),
+    )
+    .slice(0, limit);
 }
 
 // ─── Public API ───────────────────────────────────────────────────────
@@ -118,7 +191,7 @@ function cloneRegions(regions: IndexedCodeRegion[]): IndexedCodeRegion[] {
 export async function loadAndExtractCodeRegions(
   options: LoadCodeRegionsOptions
 ): Promise<{ path: string; codeRegions: CodeRegion[] }> {
-  const { workspaceRoot, path, anchorKeywords, maxRegions, ...rest } = options;
+  const { workspaceRoot, path, anchorKeywords, maxRegions, maxRegionLines, ...rest } = options;
   void rest; // absorb any extra ExtractCodeRegionsOptions fields
 
   const { canonicalPath } = resolveWorkspacePath(workspaceRoot, path, false);
@@ -159,7 +232,7 @@ export async function loadAndExtractCodeRegions(
   }
 
   // ── Rank and slice in-memory, return defensive clone ─────────────────
-  const codeRegions = rankAndSlice(rawRegions, anchorKeywords ?? [], maxRegions);
+  const codeRegions = rankAndSlice(rawRegions, anchorKeywords ?? [], maxRegions, maxRegionLines);
   return { path, codeRegions };
 }
 

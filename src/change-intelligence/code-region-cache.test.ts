@@ -173,6 +173,34 @@ test("code-region-cache", async (t) => {
     assert.equal(res2.codeRegions.length, 2, "should re-extract after file change");
   });
 
+  await t.test("bounds giant function regions around anchor lines", async () => {
+    clearCodeRegionCache();
+    const body = Array.from({ length: 500 }, (_, index) =>
+      index === 349
+        ? "  const sourceHistory = 'anchor';"
+        : `  const filler${index} = ${index};`,
+    );
+    makeTempFile("giant.ts", ["export function GiantComponent() {", ...body, "}"].join("\n"));
+
+    const res = await loadAndExtractCodeRegions({
+      workspaceRoot: TMP_DIR,
+      path: "giant.ts",
+      anchorKeywords: ["source", "history"],
+      maxRegions: 2,
+      maxRegionLines: 120,
+    });
+
+    assert.ok(res.codeRegions.length >= 1);
+    assert.ok(
+      res.codeRegions.every((region) => region.endLine - region.startLine + 1 <= 120),
+      "bounded context must never return the full giant function",
+    );
+    assert.ok(
+      res.codeRegions.some((region) => region.startLine <= 351 && region.endLine >= 351),
+      "at least one bounded window must contain the anchor line",
+    );
+  });
+
   await t.test("P3: anchor keyword found in signature/body outranks other regions (cache neutrality)", async () => {
     // Create a file where the keyword is in the body/signature but not the name
     const tsCode = `

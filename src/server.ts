@@ -1140,6 +1140,10 @@ function createMcpServer(
         return response;
       }
 
+      if (!writeExistedBefore) {
+        invalidateWorkspaceFileSnapshot(workspaceId, workspace.root);
+      }
+
       const patch = newFilePatch(input.path, input.content);
       const stats = countDiffStats(patch);
       const summary = {
@@ -2418,7 +2422,7 @@ function createMcpServer(
             { message: "startLine must be less than or equal to endLine." }
           )).optional(),
           compressionLevel: z.enum(["none", "light", "balanced", "aggressive", "skeletal"]).optional().describe("Optional compression level to reduce token usage"),
-          maxTokens: z.number().optional().describe("Optional token budget (default 64000) — files are skipped once budget is exceeded"),
+          maxTokens: z.number().positive().max(64_000).optional().describe("Optional token budget (default 12000, max 64000) — files are skipped once budget is exceeded"),
         },
         outputSchema: resultOutputSchema(),
         ...toolWidgetDescriptorMeta(config, "read"),
