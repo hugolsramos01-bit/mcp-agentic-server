@@ -113,15 +113,15 @@ Escalate QUICK → STANDARD → CRITICAL when new evidence increases risk. Do no
     : "";
 
   const speedNote = config.speedMode === "turbo"
-    ? "TURBO MODE — optimize for SPEED, not token cost:\n" +
-      "• Read MULTIPLE files at once using read_many (batch up to 5-10 files per call)\n" +
-      "• Use grep to find what you need instead of reading files line-by-line\n" +
-      "  Prefer task_context with a goal to get a fast minimal map in one call\n" +
-      "• Batch multiple edits to the same file into one edit call\n" +
+    ? "TURBO MODE — optimize for end-to-end latency, not just tool-call count:\n" +
+      "• Batch only already-known related reads when that avoids round-trips; keep each response tightly scoped\n" +
+      "• Use narrow lexical search instead of broad file reads when locating known symbols or text\n" +
+      "• Use goal-directed repository discovery only when relevant implementation paths are genuinely unknown\n" +
+      "• Batch multiple exact mutations to the same file into one call\n" +
       (config.strictPvdl
         ? "• Strict PVDL is enabled; do not skip required planning/verification gates\n"
-        : "• For QUICK changes, prefer direct edit/write and skip planning, dry-run, checkpoint, and suggest_checks unless evidence raises risk\n") +
-      "• Read up to 500 lines per read call instead of conservative limits\n" +
+        : "• For QUICK changes, mutate directly and skip planning, preview, checkpoint, and verification-planning calls unless evidence raises risk\n") +
+      "• Read the smallest authoritative ranges sufficient for the requested change\n" +
       "• Be concise in responses — deliver findings directly without verbose commentary"
     : "BALANCED MODE — optimize for safety and thoroughness.";
   const turboSpeedNote = config.speedMode === "turbo" ? speedNote + "\n\n" : "";
@@ -130,19 +130,24 @@ Escalate QUICK → STANDARD → CRITICAL when new evidence increases risk. Do no
     ? `In minimal tool mode, ${toolNames.grep}, ${toolNames.glob}, and ${toolNames.ls} are disabled; use ${toolNames.shell} with command-line tools such as grep, rg, find, ls, and tree for search and directory inspection. `
     : config.toolMode === "assistant"
     ? `Tools are organized by visibility:
-[CORE] — Always use these first: open_workspace, suggest_checks, task_context, semantic_pack, grep, read_adaptive, read, read_many, git_status, git_diff, propose_plan, edit_dry_run, checkpoint_save, edit, write, run_package_script, show_changes, tree.
-[ADVANCED] — Use when core tools are insufficient: tournament_*, knowledge_*, token_audit, context_budget, safe_file_preview, apply_patch, coding_context.
+Use the narrowest operation justified by evidence; do not start broad discovery when the target is already known.
+Advanced architecture, knowledge, budget, patching, or tournament operations are not default steps.
 
 Tool selection:
-- Bootstrapping a focused coding goal: task_context (minimal, fast, test proximity).
-- Understanding broad architecture: semantic_pack (deep, inter-file relationships).
-- Known symbol or text: grep.
-- One known file, general inspection: read_adaptive.
-- One known file, exact ranges or pre-edit source: read.
-- Several known files: read_many.
-- After material changes: suggest_checks.
+- Relevant implementation files genuinely unknown: obtain one minimal goal-directed repository map, then work from its strongest candidates.
+- Broad architecture or cross-domain relationships genuinely required: obtain one bounded architecture overview.
+- Known file path: inspect that file narrowly with an exact-range read or path-scoped lexical search; do not run broader bootstrap or context discovery merely to reconfirm it.
+- Known symbol or text with unknown location: run a narrow lexical search, then read only the matching implementation range.
+- One known file needing whole-file orientation: use bounded adaptive inspection.
+- One known file with a known relevant region: read only that exact authoritative range.
+- Several already-known related files: use one bounded multi-file/range read.
+- Material changes with non-obvious verification: use the verification planner.
 
-Prefer the core tools for all exploration, file inspection, and git tasks instead of using the shell. Use edit_dry_run for ambiguous, large, multi-block, or risky replacements. Use checkpoint_save when rollback would be valuable; use checkpoint_restore to revert.
+STOP DISCOVERY: once there is enough evidence to make the requested scoped change safely, stop exploring and make the change. Do not inspect backend, tests, schemas, adjacent modules, or historical knowledge merely because they might be related; expand scope only when a concrete import, API contract, schema, runtime dependency, failing check, or the user's request requires it.
+
+If reasoning is interrupted before any workspace mutation, resume from the evidence already gathered. Do not restore a checkpoint solely because reasoning was interrupted or the approach changed. Restore only when an applied workspace change actually needs to be undone.
+
+Prefer specialized structured operations for ordinary inspection instead of the shell. Preview ambiguous, large, multi-block, or risky replacements. Save checkpoints only when rollback would be materially useful.
 
 ${changeWorkflow}
 `
