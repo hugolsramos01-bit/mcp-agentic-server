@@ -1483,7 +1483,7 @@ function createMcpServer(
       {
         title: "Show changes",
         description:
-          "Show aggregate file changes for an open workspace. If the current turn successfully modified files, call this exactly once after the final related file change and before your final response so the user can inspect the combined diff for the turn. Do not call it after every individual file change, and do not skip it because prior file-change tools already displayed per-tool diffs.",
+          "Show aggregate file changes for an open workspace. Use when a turn changes multiple files, includes patch/shell/external mutations, needs an aggregate review, or the user explicitly asks to inspect all changes together. QUICK single-file edit/write mutations already carry their own review widget and do not need this extra call solely to repeat the same diff.",
         inputSchema: {
           workspaceId: z
             .string()

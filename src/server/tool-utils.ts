@@ -73,7 +73,7 @@ export const toolNames = {
 function shouldAttachWidget(mode: WidgetMode, kind: ToolWidgetKind): boolean {
   switch (mode) {
     case "off": return false;
-    case "changes": return kind === "workspace" || kind === "show_changes";
+    case "changes": return kind === "workspace" || kind === "edit" || kind === "write" || kind === "show_changes";
     case "full": return true;
   }
 }
@@ -91,7 +91,7 @@ export function toolWidgetDescriptorMeta(
 export function serverInstructions(config: ServerConfig): string {
   const showChangesInstruction =
     config.widgets === "changes"
-      ? " If the turn successfully modifies files by creating, editing, overwriting, deleting, moving, or applying patches, call show_changes exactly once for that workspace after the final related file change and before your final response so the user can inspect the aggregate diff for that turn. Do not call it after every individual file change; do not skip it because individual file-change tools already returned diffs."
+      ? " In changes-widget mode, edit/write mutations already carry their own review widget. For a QUICK change confined to one file and performed only through edit/write, do not call show_changes just to repeat the same diff. Call show_changes once when the turn changes multiple files, uses patch/shell/external mutation paths, needs aggregate review, or the user explicitly asks to inspect all changes together."
       : "";
 
   if (false) {

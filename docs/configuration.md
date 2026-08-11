@@ -113,7 +113,7 @@ When `AGENTIC_STRICT_PVDL=1`, strict mode wins over balanced/turbo guidance: `pr
 | Value | Behavior |
 | --- | --- |
 | `full` | Default. Widget UI is attached to exposed workspace, file, edit, and shell tools. |
-| `changes` | Enables the aggregate `show_changes` tool and attaches widget UI to `open_workspace` and `show_changes`. |
+| `changes` | Attaches review UI to `open_workspace`, `edit`, and `write`. `show_changes` remains available for multi-file, patch/shell/external, or explicitly requested aggregate review, so QUICK single-file edits do not need a redundant review round trip. |
 | `off` | Disables widget UI. |
 
 ## Skills
