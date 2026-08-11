@@ -8,7 +8,9 @@ export interface WorkspaceFileSnapshot {
   createdAt: number;
 }
 
-const CACHE_TTL_MS = 5000;
+// Agent turns routinely exceed 5 seconds. Keep the file-index snapshot warm across
+// normal reasoning gaps while retaining an eventual refresh for external shell/git changes.
+const CACHE_TTL_MS = 60_000;
 const cacheMap = new Map<string, WorkspaceFileSnapshot>();
 
 export function getWorkspaceFileCacheKey(workspaceId: string, root: string): string {

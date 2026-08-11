@@ -105,7 +105,7 @@ function safeReadFailure(error: unknown): SafeReadFailure {
 export async function readManyTool(input: ReadManyInput, cwd: string, allowedRoots: string[]): Promise<ToolResponse> {
   const resultFiles: any[] = [];
   let totalTokens = 0;
-  const maxTokens = input.maxTokens ?? 64000;
+  const maxTokens = input.maxTokens ?? 12_000;
 
   if ((input.paths && input.items) || (!input.paths && !input.items)) {
     throw new Error("read_many requires exactly one of 'paths' or 'items'.");
@@ -124,7 +124,7 @@ export async function readManyTool(input: ReadManyInput, cwd: string, allowedRoo
   const bloatWarning =
     itemCount >= 5 && (!input.compressionLevel || input.compressionLevel === "none")
       ? `⚠️  CONTEXT BLOAT WARNING: ${itemCount} files requested without compression. ` +
-        `Consider setting compressionLevel to 'light' or 'balanced', or using semantic_pack for a goal-focused overview. ` +
+        `Prefer fewer exact ranges or set compressionLevel to 'light' or 'balanced'. ` +
         `Proceeding with maxTokens=${maxTokens} budget guard.\n\n`
       : "";
 

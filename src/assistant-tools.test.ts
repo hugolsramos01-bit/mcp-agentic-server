@@ -193,6 +193,33 @@ describe("readManyTool — P3 ranged reads", () => {
     assert.ok(data.files[0].content.includes("epsilon"));
   });
 
+  it("uses a bounded 12k-token default budget", async () => {
+    const largeFile = "large-default-budget.ts";
+    writeFileSync(join(TMP, largeFile), "x".repeat(48_100), "utf8");
+
+    const result = await readManyTool({ items: [{ path: largeFile }] }, TMP, [TMP]);
+    const data = JSON.parse((result.content[0] as any).text);
+
+    assert.equal(result.isError, false);
+    assert.equal(data.files.length, 0);
+    assert.equal(data.skipped[0]?.code, "budget_exceeded");
+    assert.equal(data.warning, "budget_exhausted");
+  });
+
+  it("allows an explicit larger budget when broad context is intentional", async () => {
+    const largeFile = "large-explicit-budget.ts";
+    writeFileSync(join(TMP, largeFile), "x".repeat(48_100), "utf8");
+
+    const result = await readManyTool({
+      items: [{ path: largeFile }],
+      maxTokens: 16_000,
+    }, TMP, [TMP]);
+    const data = JSON.parse((result.content[0] as any).text);
+
+    assert.equal(data.files.length, 1);
+    assert.equal(data.skipped.length, 0);
+  });
+
   it("throws error if both paths and items are provided", async () => {
     await assert.rejects(
       readManyTool({ paths: [FILE], items: [{ path: FILE }] }, TMP, [TMP]),
