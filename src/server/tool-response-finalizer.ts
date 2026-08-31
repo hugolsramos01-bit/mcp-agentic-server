@@ -450,6 +450,17 @@ export function finalizeToolResponse(
         )
       : publicMeta;
 
+  // Text responses are intentionally collapsed into a compact public summary,
+  // but binary image content must survive the finalizer so MCP hosts can pass
+  // screenshots and other visual evidence directly to the model. Keep images
+  // out of structuredContent to avoid duplicating large base64 payloads.
+  const imageContent = (response.content ?? []).filter(
+    (item: any) =>
+      item?.type === "image" &&
+      typeof item.data === "string" &&
+      typeof item.mimeType === "string",
+  );
+
   if (instrumentation) instrumentation.increment("jsonStringifies");
   const finalSummaryText = `${toolName}: ${status}${workspaceSuffix}${errorSuffix} (${JSON.stringify(envelope).length} chars, ${envelope.metrics.durationMs}ms)`;
 
@@ -458,7 +469,10 @@ export function finalizeToolResponse(
     ...(sanitizedMeta && Object.keys(sanitizedMeta).length > 0
       ? { _meta: sanitizedMeta }
       : {}),
-    content: [{ type: "text" as const, text: finalSummaryText }],
+    content: [
+      { type: "text" as const, text: finalSummaryText },
+      ...imageContent,
+    ],
     isError: status === "error",
     structuredContent: envelope,
   };
