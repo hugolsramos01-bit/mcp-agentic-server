@@ -3,6 +3,7 @@ import assert from "node:assert";
 import { finalizeToolResponse } from "./server/tool-response-finalizer.js";
 import {
   buildVisualReviewBrowserArgs,
+  DEFAULT_VISUAL_REVIEW_VIEWPORTS,
   normalizeVisualReviewUrl,
   resolveVisualReviewViewports,
   VISUAL_REVIEW_VIEWPORTS,
@@ -30,17 +31,54 @@ test("visual review rejects non-local and non-http URLs", () => {
   );
 });
 
-test("visual review defaults to desktop and mobile", () => {
+test("visual review defaults to the core responsive UX suite", () => {
+  assert.deepStrictEqual(DEFAULT_VISUAL_REVIEW_VIEWPORTS, [
+    "desktop",
+    "laptop",
+    "tablet",
+    "mobile",
+  ]);
   assert.deepStrictEqual(resolveVisualReviewViewports(), [
     VISUAL_REVIEW_VIEWPORTS.desktop,
+    VISUAL_REVIEW_VIEWPORTS.laptop,
+    VISUAL_REVIEW_VIEWPORTS.tablet,
     VISUAL_REVIEW_VIEWPORTS.mobile,
   ]);
 });
 
-test("visual review de-duplicates explicitly requested viewports", () => {
-  assert.deepStrictEqual(resolveVisualReviewViewports(["mobile", "mobile"]), [
-    VISUAL_REVIEW_VIEWPORTS.mobile,
+test("visual review exposes wider desktop and compact mobile presets", () => {
+  assert.deepStrictEqual(resolveVisualReviewViewports(["wide-desktop", "compact-mobile"]), [
+    VISUAL_REVIEW_VIEWPORTS["wide-desktop"],
+    VISUAL_REVIEW_VIEWPORTS["compact-mobile"],
   ]);
+});
+
+test("visual review de-duplicates equal viewport dimensions", () => {
+  assert.deepStrictEqual(
+    resolveVisualReviewViewports(
+      ["mobile", "mobile"],
+      [{ name: "same-as-mobile", width: 390, height: 844 }],
+    ),
+    [{ preset: "same-as-mobile", width: 390, height: 844 }],
+  );
+});
+
+test("visual review supports bounded custom viewport dimensions", () => {
+  assert.deepStrictEqual(
+    resolveVisualReviewViewports(["desktop"], [
+      { name: "problem-breakpoint", width: 1024, height: 768 },
+    ]),
+    [
+      VISUAL_REVIEW_VIEWPORTS.desktop,
+      { preset: "problem-breakpoint", width: 1024, height: 768 },
+    ],
+  );
+  assert.throws(
+    () => resolveVisualReviewViewports(["desktop"], [
+      { name: "too-small", width: 200, height: 768 },
+    ]),
+    /width must be an integer between/,
+  );
 });
 
 test("browser arguments use the requested viewport and screenshot target", () => {
