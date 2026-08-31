@@ -1,5 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert";
+import { finalizeToolResponse } from "./server/tool-response-finalizer.js";
 import {
   buildVisualReviewBrowserArgs,
   normalizeVisualReviewUrl,
@@ -56,4 +57,35 @@ test("browser arguments use the requested viewport and screenshot target", () =>
   assert.ok(args.includes("--user-data-dir=C:/tmp/profile"));
   assert.ok(args.includes("--virtual-time-budget=500"));
   assert.strictEqual(args.at(-1), "http://localhost:3000/");
+});
+
+test("tool response finalizer preserves image content without duplicating base64 into structured data", () => {
+  const image = {
+    type: "image" as const,
+    data: "iVBORw0KGgoAAAANSUhEUgAAAAEAAAAB",
+    mimeType: "image/png",
+  };
+
+  const result = finalizeToolResponse(
+    {
+      content: [
+        { type: "text", text: "captured desktop" },
+        image,
+      ],
+      structuredContent: {
+        captures: [{ preset: "desktop", width: 1440, height: 900 }],
+      },
+    },
+    {
+      toolName: "visual_review",
+      startedAt: performance.now(),
+      inlineOutputCharacters: 12_000,
+      hasWidget: false,
+    },
+  );
+
+  assert.strictEqual(result.content.length, 2);
+  assert.strictEqual(result.content[1].type, "image");
+  assert.strictEqual(result.content[1].data, image.data);
+  assert.doesNotMatch(JSON.stringify(result.structuredContent), /iVBOR/);
 });
