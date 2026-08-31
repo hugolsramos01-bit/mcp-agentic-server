@@ -1,0 +1,89 @@
+name: Wire visual review feature
+
+on:
+  push:
+    branches:
+      - feature/visual-review
+    paths:
+      - .github/workflows/wire-visual-review.yml
+
+permissions:
+  contents: write
+
+jobs:
+  wire:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: feature/visual-review
+          fetch-depth: 0
+
+      - name: Register visual_review tool
+        shell: bash
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+
+          path = Path("src/server.ts")
+          source = path.read_text(encoding="utf-8")
+
+          import_anchor = 'import { finalizeToolResponse } from "./server/tool-response-finalizer.js";'
+          visual_import = 'import { visualReviewTool } from "./visual-review.js";'
+          if visual_import not in source:
+              if import_anchor not in source:
+                  raise SystemExit("server import anchor not found")
+              source = source.replace(import_anchor, import_anchor + "\n" + visual_import, 1)
+
+          registration_anchor = '    registerAppTool("worktree_teardown",'
+          registration = '''  registerAppTool("visual_review",
+            {
+              title: "[CORE] Visual Review",
+              description: "[Visual] Capture the running local web app at several responsive viewport sizes and return the screenshots directly to the model for UX/UI evaluation. Defaults to desktop, laptop, tablet, and mobile. Use customViewports for a specific breakpoint. The URL must be local (localhost, 127.0.0.1, or ::1).",
+              inputSchema: {
+                workspaceId: z.string().describe("Workspace ID"),
+                url: z.string().describe("Absolute local application URL, for example http://localhost:3000/dashboard"),
+                viewports: z.array(z.enum(["wide-desktop", "desktop", "laptop", "tablet", "mobile", "compact-mobile"])).max(6).optional().describe("Responsive presets to capture. Defaults to desktop, laptop, tablet, and mobile."),
+                customViewports: z.array(z.object({
+                  name: z.string().min(1).max(80),
+                  width: z.number().int().min(320).max(2560),
+                  height: z.number().int().min(480).max(1600),
+                })).max(6).optional().describe("Optional custom viewport sizes for breakpoint-specific inspection."),
+                waitMs: z.number().int().min(0).max(10000).optional().describe("Virtual time budget before each screenshot. Defaults to 750ms."),
+              },
+              outputSchema: resultOutputSchema(),
+              ...toolWidgetDescriptorMeta(config, "read"),
+              annotations: READ_TOOL_ANNOTATIONS,
+            } as any,
+            async (req: any) => {
+              workspaces.getWorkspace(req.workspaceId);
+              return visualReviewTool({
+                url: req.url,
+                viewports: req.viewports,
+                customViewports: req.customViewports,
+                waitMs: req.waitMs,
+              });
+            },
+          );
+
+'''
+          if 'registerAppTool("visual_review"' not in source:
+              if registration_anchor not in source:
+                  raise SystemExit("server registration anchor not found")
+              source = source.replace(registration_anchor, registration + registration_anchor, 1)
+
+          path.write_text(source, encoding="utf-8")
+          PY
+
+      - name: Remove one-off wiring workflow
+        shell: bash
+        run: rm .github/workflows/wire-visual-review.yml
+
+      - name: Commit wiring
+        shell: bash
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add src/server.ts .github/workflows/wire-visual-review.yml
+          git commit -m "feat: register visual review MCP tool"
+          git push origin HEAD:feature/visual-review
