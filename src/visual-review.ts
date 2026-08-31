@@ -8,11 +8,24 @@ import type { ToolResponse } from "./pi-tools.js";
 
 const execFileAsync = promisify(execFile);
 
-export type VisualReviewViewport = "desktop" | "mobile";
+export type VisualReviewViewport =
+  | "wide-desktop"
+  | "desktop"
+  | "laptop"
+  | "tablet"
+  | "mobile"
+  | "compact-mobile";
+
+export interface CustomVisualReviewViewport {
+  name: string;
+  width: number;
+  height: number;
+}
 
 export interface VisualReviewInput {
   url: string;
   viewports?: VisualReviewViewport[];
+  customViewports?: CustomVisualReviewViewport[];
   waitMs?: number;
 }
 
@@ -21,19 +34,35 @@ interface BrowserExecutable {
   name: string;
 }
 
-interface ViewportSpec {
-  preset: VisualReviewViewport;
+export interface ViewportSpec {
+  preset: string;
   width: number;
   height: number;
 }
 
 export const VISUAL_REVIEW_VIEWPORTS: Record<VisualReviewViewport, ViewportSpec> = {
+  "wide-desktop": { preset: "wide-desktop", width: 1600, height: 1000 },
   desktop: { preset: "desktop", width: 1440, height: 900 },
+  laptop: { preset: "laptop", width: 1366, height: 768 },
+  tablet: { preset: "tablet", width: 768, height: 1024 },
   mobile: { preset: "mobile", width: 390, height: 844 },
+  "compact-mobile": { preset: "compact-mobile", width: 360, height: 800 },
 };
+
+export const DEFAULT_VISUAL_REVIEW_VIEWPORTS: VisualReviewViewport[] = [
+  "desktop",
+  "laptop",
+  "tablet",
+  "mobile",
+];
 
 const DEFAULT_WAIT_MS = 750;
 const MAX_WAIT_MS = 10_000;
+const MAX_CUSTOM_VIEWPORTS = 6;
+const MIN_VIEWPORT_WIDTH = 320;
+const MAX_VIEWPORT_WIDTH = 2560;
+const MIN_VIEWPORT_HEIGHT = 480;
+const MAX_VIEWPORT_HEIGHT = 1600;
 const LOCAL_HOSTS = new Set(["localhost", "127.0.0.1", "::1", "[::1]"]);
 
 export function normalizeVisualReviewUrl(value: string): string {
@@ -59,12 +88,42 @@ export function normalizeVisualReviewUrl(value: string): string {
   return url.toString();
 }
 
+function normalizeCustomViewport(viewport: CustomVisualReviewViewport): ViewportSpec {
+  const name = viewport.name.trim();
+  if (!name) throw new Error("visual_review custom viewport names cannot be empty.");
+  if (!Number.isInteger(viewport.width) || viewport.width < MIN_VIEWPORT_WIDTH || viewport.width > MAX_VIEWPORT_WIDTH) {
+    throw new Error(
+      `visual_review custom viewport width must be an integer between ${MIN_VIEWPORT_WIDTH} and ${MAX_VIEWPORT_WIDTH}.`,
+    );
+  }
+  if (!Number.isInteger(viewport.height) || viewport.height < MIN_VIEWPORT_HEIGHT || viewport.height > MAX_VIEWPORT_HEIGHT) {
+    throw new Error(
+      `visual_review custom viewport height must be an integer between ${MIN_VIEWPORT_HEIGHT} and ${MAX_VIEWPORT_HEIGHT}.`,
+    );
+  }
+  return { preset: name, width: viewport.width, height: viewport.height };
+}
+
 export function resolveVisualReviewViewports(
   requested?: VisualReviewViewport[],
+  customViewports?: CustomVisualReviewViewport[],
 ): ViewportSpec[] {
-  const presets = requested?.length ? requested : ["desktop", "mobile"];
-  const unique = [...new Set(presets)];
-  return unique.map((preset) => VISUAL_REVIEW_VIEWPORTS[preset]);
+  const presets = requested?.length ? requested : DEFAULT_VISUAL_REVIEW_VIEWPORTS;
+  const resolved = [...new Set(presets)].map((preset) => VISUAL_REVIEW_VIEWPORTS[preset]);
+
+  if ((customViewports?.length ?? 0) > MAX_CUSTOM_VIEWPORTS) {
+    throw new Error(`visual_review accepts at most ${MAX_CUSTOM_VIEWPORTS} custom viewports.`);
+  }
+
+  for (const custom of customViewports ?? []) {
+    resolved.push(normalizeCustomViewport(custom));
+  }
+
+  const unique = new Map<string, ViewportSpec>();
+  for (const viewport of resolved) {
+    unique.set(`${viewport.width}x${viewport.height}`, viewport);
+  }
+  return [...unique.values()];
 }
 
 function normalizeWaitMs(waitMs?: number): number {
@@ -168,6 +227,10 @@ export function buildVisualReviewBrowserArgs(
   ];
 }
 
+function safeScreenshotName(value: string): string {
+  return value.toLowerCase().replace(/[^a-z0-9_-]+/g, "-").replace(/^-+|-+$/g, "") || "viewport";
+}
+
 async function captureViewport(
   browser: BrowserExecutable,
   url: string,
@@ -175,7 +238,7 @@ async function captureViewport(
   waitMs: number,
 ): Promise<{ data: string; bytes: number }> {
   const tempDir = await mkdtemp(join(tmpdir(), "agentic-visual-review-"));
-  const screenshotPath = join(tempDir, `${viewport.preset}.png`);
+  const screenshotPath = join(tempDir, `${safeScreenshotName(viewport.preset)}-${viewport.width}x${viewport.height}.png`);
   const profilePath = join(tempDir, "profile");
 
   try {
@@ -211,7 +274,7 @@ async function captureViewport(
 export async function visualReviewTool(input: VisualReviewInput): Promise<ToolResponse> {
   const url = normalizeVisualReviewUrl(input.url);
   const waitMs = normalizeWaitMs(input.waitMs);
-  const viewports = resolveVisualReviewViewports(input.viewports);
+  const viewports = resolveVisualReviewViewports(input.viewports, input.customViewports);
   const browser = findVisualReviewBrowser();
 
   if (!browser) {
@@ -229,7 +292,7 @@ export async function visualReviewTool(input: VisualReviewInput): Promise<ToolRe
   }
 
   const captures: Array<{
-    preset: VisualReviewViewport;
+    preset: string;
     width: number;
     height: number;
     mimeType: "image/png";
@@ -274,7 +337,7 @@ export async function visualReviewTool(input: VisualReviewInput): Promise<ToolRe
     content: [
       {
         type: "text",
-        text: `Captured ${captures.length} visual review screenshot(s) with ${browser.name}. Image order: ${order}. Review the images directly for layout, hierarchy, spacing, responsiveness, and visible regressions.`,
+        text: `Captured ${captures.length} visual review screenshot(s) with ${browser.name}. Image order: ${order}. Review the images directly for visual hierarchy, spacing, density, responsive behavior, touch ergonomics, clipping/overflow, and visible regressions. Compare breakpoints rather than judging each image in isolation.`,
       },
       ...imageContent,
     ],
