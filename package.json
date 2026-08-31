@@ -40,9 +40,9 @@
     "bench:tools": "npm run build && node perf/tool-latency.mjs",
     "bench:agent": "npm run build && node perf/agent-loop.mjs",
     "bench:server": "npm run build && node perf/server-hot-path.mjs",
-    "bench:regions": "npm run build && node perf/code-regions.mjs",
     "test:runtime": "npm run build && node scripts/test-runtime-mcp.mjs",
-    "test:runtime:built": "node scripts/test-runtime-mcp.mjs"
+    "test:runtime:built": "node scripts/test-runtime-mcp.mjs",
+    "bench:regions": "npm run build && node perf/code-regions.mjs"
   },
   "keywords": [
     "chatgpt",
@@ -63,7 +63,7 @@
   "author": "Hugo Ramos",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/hugolsramos01-bit/mcp-agentic-server.git"
+    "url": "https://github.com/hugolsramos01-bit/mcp-agentic-server.git"
   },
   "license": "MIT",
   "dependencies": {
