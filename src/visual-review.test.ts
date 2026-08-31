@@ -1,11 +1,14 @@
 import { test } from "node:test";
 import assert from "node:assert";
+import { createServer } from "node:http";
 import { finalizeToolResponse } from "./server/tool-response-finalizer.js";
 import {
   buildVisualReviewBrowserArgs,
   DEFAULT_VISUAL_REVIEW_VIEWPORTS,
+  findVisualReviewBrowser,
   normalizeVisualReviewUrl,
   resolveVisualReviewViewports,
+  visualReviewTool,
   VISUAL_REVIEW_VIEWPORTS,
 } from "./visual-review.js";
 
@@ -94,7 +97,48 @@ test("browser arguments use the requested viewport and screenshot target", () =>
   assert.ok(args.includes("--screenshot=C:/tmp/mobile.png"));
   assert.ok(args.includes("--user-data-dir=C:/tmp/profile"));
   assert.ok(args.includes("--virtual-time-budget=500"));
+  assert.ok(args.includes("--run-all-compositor-stages-before-draw"));
+  assert.ok(!args.includes("--hide-scrollbars"));
   assert.strictEqual(args.at(-1), "http://localhost:3000/");
+});
+
+test("visual review captures a real local page when a supported browser is available", async (t) => {
+  if (!findVisualReviewBrowser()) {
+    t.skip("No supported browser installed on this runner");
+    return;
+  }
+
+  const server = createServer((_req, res) => {
+    res.writeHead(200, { "content-type": "text/html; charset=utf-8" });
+    res.end(`<!doctype html><html><body><main style="width:1200px"><h1>Agentic visual review smoke</h1></main></body></html>`);
+  });
+
+  await new Promise<void>((resolve, reject) => {
+    server.once("error", reject);
+    server.listen(0, "127.0.0.1", () => resolve());
+  });
+
+  try {
+    const address = server.address();
+    assert.ok(address && typeof address !== "string");
+
+    const response = await visualReviewTool({
+      url: `http://127.0.0.1:${address.port}/`,
+      viewports: ["mobile"],
+      waitMs: 100,
+    });
+
+    assert.notStrictEqual(response.isError, true);
+    assert.strictEqual(response.content.length, 2);
+    assert.strictEqual(response.content[1].type, "image");
+    if (response.content[1].type === "image") {
+      assert.strictEqual(response.content[1].mimeType, "image/png");
+      assert.ok(response.content[1].data.length > 100);
+    }
+    assert.deepStrictEqual(response.structuredContent?.captures?.[0]?.preset, "mobile");
+  } finally {
+    await new Promise<void>((resolve) => server.close(() => resolve()));
+  }
 });
 
 test("tool response finalizer preserves image content without duplicating base64 into structured data", () => {
