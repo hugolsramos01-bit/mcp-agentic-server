@@ -181,6 +181,7 @@ Persist the setting with `agentic config set securityMode safe|trusted|full`, th
 | `write` | Create or overwrite files. |
 | `edit` | Targeted string replacements. |
 | `bash` | Fallback for shell interactions that have no typed tool; prefer `run_package_script` for package scripts and the Git tools for Git. |
+| `visual_review` | Capture a local web app at responsive desktop/laptop/tablet/mobile viewports and return PNG screenshots directly to the model. Supports custom viewports; local URLs only. |
 
 ### Assistant tools (mode: `assistant`)
 

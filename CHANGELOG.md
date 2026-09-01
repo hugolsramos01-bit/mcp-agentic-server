@@ -5,6 +5,18 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.7.0] - 2026-09-01
+
+### Added
+- New `visual_review` core MCP tool for capturing a running local web app and returning responsive PNG screenshots directly to the model for UX/UI evaluation.
+- Responsive presets for wide desktop, desktop, laptop, tablet, mobile, and compact mobile, plus bounded custom viewport support.
+- Local Chrome, Edge, and Chromium discovery with optional `AGENTIC_BROWSER_EXECUTABLE` override and local-development URL enforcement.
+- Real-browser regression coverage for screenshot capture and image delivery through the MCP response pipeline.
+
+### Changed
+- The public tool-response finalizer now preserves MCP image content while keeping base64 image payloads out of `structuredContent`, avoiding duplicate large binary payloads.
+- The default visual review suite captures desktop, laptop, tablet, and mobile breakpoints so responsive behavior can be compared in one tool call.
+
 ## [1.6.0] - 2026-08-11
 
 ### Added
