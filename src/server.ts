@@ -79,6 +79,7 @@ import { stat } from "node:fs/promises";
 import { basename, join } from "node:path";
 import { agenticDoctor } from "./diagnostics.js";
 import { finalizeToolResponse } from "./server/tool-response-finalizer.js";
+import { visualReviewTool } from "./visual-review.js";
 
 type Transport = StreamableHTTPServerTransport;
 
@@ -258,6 +259,36 @@ function createMcpServer(
         content: [textBlock(JSON.stringify(report, null, 2))],
         structuredContent: report,
       };
+    },
+  );
+
+  registerAppTool("visual_review",
+    {
+      title: "[CORE] Visual Review",
+      description: "[Visual] Capture a running local web app at multiple responsive viewport sizes and return screenshots directly to the model for UX/UI evaluation. Defaults to desktop, laptop, tablet, and mobile. Use customViewports for breakpoint-specific inspection. The URL must be local (localhost, 127.0.0.1, or ::1).",
+      inputSchema: {
+        workspaceId: z.string().describe("Workspace ID"),
+        url: z.string().describe("Absolute local application URL, for example http://localhost:3000/dashboard"),
+        viewports: z.array(z.enum(["wide-desktop", "desktop", "laptop", "tablet", "mobile", "compact-mobile"])).max(6).optional().describe("Responsive presets to capture. Defaults to desktop, laptop, tablet, and mobile."),
+        customViewports: z.array(z.object({
+          name: z.string().min(1).max(80),
+          width: z.number().int().min(320).max(2560),
+          height: z.number().int().min(480).max(1600),
+        })).max(6).optional().describe("Optional custom viewport sizes for breakpoint-specific inspection."),
+        waitMs: z.number().int().min(0).max(10000).optional().describe("Virtual time budget before each screenshot. Defaults to 750ms."),
+      },
+      outputSchema: resultOutputSchema(),
+      ...toolWidgetDescriptorMeta(config, "read"),
+      annotations: READ_TOOL_ANNOTATIONS,
+    } as any,
+    async (req: any) => {
+      workspaces.getWorkspace(req.workspaceId);
+      return visualReviewTool({
+        url: req.url,
+        viewports: req.viewports,
+        customViewports: req.customViewports,
+        waitMs: req.waitMs,
+      });
     },
   );
 
