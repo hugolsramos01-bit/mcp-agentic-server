@@ -28,12 +28,16 @@ describe("TOOL_CONTRACTS", () => {
     }
   });
 
-  it("readMany contract specifies already-known files and token budget constraints", () => {
+  it("readMany contract specifies composite inspection, ordered priority, and shared budgets", () => {
     const desc = TOOL_CONTRACTS.readMany.description;
-    assert.ok(desc.includes("already-known files"), "Must mention 'already-known files'");
-    assert.ok(desc.includes("shared token budget"), "Must mention 'shared token budget'");
-    assert.ok(desc.includes("may be skipped"), "Must mention 'may be skipped'");
-    assert.ok(desc.includes("not a discovery operation"), "Must explicitly bound use to known paths");
+    assert.ok(desc.includes("one round trip"), "Must emphasize batching related inspection");
+    assert.ok(desc.includes("lexical matches"), "Must expose match+context capability");
+    assert.ok(desc.includes("scoped globs"), "Must expose scoped glob capability");
+    assert.ok(desc.includes("Items execute in order as priority"), "Must define ordered priority semantics");
+    assert.ok(desc.includes("shared serialized-evidence, line, and file budgets"), "Must describe all shared budgets");
+    assert.ok(desc.includes("final payload cost is estimated separately"), "Must distinguish evidence budget from envelope overhead");
+    assert.ok(desc.includes("regex is an explicitly bounded opt-in"), "Must describe bounded regex semantics");
+    assert.ok(desc.includes("not for project-wide architectural discovery"), "Must bound broad discovery");
   });
 
   it("semanticPack contract reserves broad discovery for genuinely unknown architecture", () => {
@@ -42,6 +46,7 @@ describe("TOOL_CONTRACTS", () => {
     assert.ok(desc.includes("goal-focused"), "Must mention 'goal-focused'");
     assert.ok(desc.includes("stop architectural discovery"), "Must tell the model when to stop expanding scope");
     assert.ok(desc.includes("sufficient implementation targets are known"), "Must stop broad discovery after targets are known");
+    assert.ok(desc.includes("composite inspection"), "Must hand off from broad discovery to narrower inspection");
   });
 
   it("grep contract specifies lexical search and limits semantic expectations", () => {

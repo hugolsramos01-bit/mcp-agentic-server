@@ -922,7 +922,7 @@ function buildSuggestedNextSteps(
               : 16_000,
       },
       reason:
-        "Read the strongest implementation candidates and their relevant regions.",
+        "Inspect the strongest implementation candidates in one bounded pass; broaden again only if needed.",
     });
   } else {
     const fallbackCandidates = result.supportingFiles.filter(

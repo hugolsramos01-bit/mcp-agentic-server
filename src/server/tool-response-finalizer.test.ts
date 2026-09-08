@@ -211,6 +211,43 @@ test("large payload truncation", () => {
   assert.ok(result.structuredContent.metrics.omittedCharacters > 0);
 });
 
+test("read_many preserves internally budgeted evidence while generic metadata remains capped", () => {
+  const instr = createMockInstrumentation();
+  const evidence = "e".repeat(20_000);
+  const metadata = "m".repeat(500);
+  const response = {
+    structuredContent: {
+      status: "success",
+      data: {
+        files: [{ path: "src/example.ts", content: evidence }],
+        matches: [
+          {
+            pattern: "example",
+            regions: [{ path: "src/example.ts", startLine: 1, endLine: 1, content: evidence }],
+          },
+        ],
+        globs: [],
+        warning: metadata,
+        budget: { maxTokens: 10_000, usedTokens: 9_500 },
+      },
+      error: null,
+      diagnostics: [],
+      metrics: { durationMs: 1 },
+    },
+  };
+
+  const result = finalizeToolResponse(
+    response,
+    { ...defaultOptions, toolName: "read_many", inlineOutputCharacters: 100 },
+    instr,
+  );
+
+  assert.strictEqual(result.structuredContent.data.files[0].content, evidence);
+  assert.strictEqual(result.structuredContent.data.matches[0].regions[0].content, evidence);
+  assert.match(result.structuredContent.data.warning, /characters omitted/);
+  assert.strictEqual(result.structuredContent.metrics.truncated, true);
+});
+
 test("top-level outputSchema shape", () => {
   const instr = createMockInstrumentation();
   const response = {

@@ -1,6 +1,6 @@
 import { assertCommandAllowed } from "./security/command-executor.js";
 import { collectPackageScriptCommands } from "./security/script-resolver.js";
-import { join, resolve } from "node:path";
+import { join, relative, resolve, sep } from "node:path";
 import { existsSync, readFileSync } from "node:fs";
 import { readdir } from "node:fs/promises";
 import { execFile } from "node:child_process";
@@ -49,10 +49,22 @@ export async function workspaceSummaryTool(cwd: string): Promise<ToolResponse> {
   };
 }
 
+export type ReadManyOperation = "read" | "match" | "glob";
+
 export interface ReadManyItem {
   path: string;
+  operation?: ReadManyOperation;
   startLine?: number;
   endLine?: number;
+  pattern?: string;
+  matchMode?: "regex" | "literal";
+  caseSensitive?: boolean;
+  beforeLines?: number;
+  afterLines?: number;
+  maxMatches?: number;
+  include?: string;
+  glob?: string;
+  maxFiles?: number;
 }
 
 export interface ReadManyInput {
@@ -60,14 +72,21 @@ export interface ReadManyInput {
   items?: ReadManyItem[];
   compressionLevel?: "none" | "light" | "balanced" | "aggressive" | "skeletal";
   maxTokens?: number;
+  maxLines?: number;
+  maxFiles?: number;
 }
 
 export type ReadManySkipCode =
   | "budget_exceeded"
+  | "line_budget_exceeded"
+  | "file_budget_exceeded"
   | "file_not_found"
   | "path_is_directory"
   | "permission_denied"
   | "invalid_range"
+  | "invalid_item"
+  | "invalid_pattern"
+  | "resource_limit"
   | "path_resolution_failed"
   | "read_failed";
 
@@ -97,15 +116,358 @@ function safeReadFailure(error: unknown): SafeReadFailure {
     case "EACCES":
     case "EPERM":
       return { code: "permission_denied", reason: "Permission was denied." };
+    case "AGENTIC_READ_MANY_RESOURCE_LIMIT":
+      return {
+        code: "resource_limit",
+        reason: error instanceof Error ? error.message : "Composite read resource limit exceeded.",
+      };
     default:
       return { code: "path_resolution_failed", reason: "Path could not be resolved safely." };
   }
 }
 
+const READ_MANY_DEFAULT_MAX_TOKENS = 12_000;
+const READ_MANY_DEFAULT_MAX_LINES = 5_000;
+const READ_MANY_DEFAULT_MAX_FILES = 100;
+const READ_MANY_MAX_ITEMS = 100;
+const READ_MANY_MAX_PATH_LENGTH = 4_096;
+const READ_MANY_MAX_PATTERN_LENGTH = 500;
+const READ_MANY_MAX_MATCHES = 200;
+const READ_MANY_MAX_CONTEXT_LINES = 200;
+const READ_MANY_MAX_SCAN_FILES = 10_000;
+const READ_MANY_MAX_MATCH_FILE_BYTES = 2 * 1024 * 1024;
+const READ_MANY_MAX_MATCH_SCAN_BYTES = 64 * 1024 * 1024;
+const READ_MANY_MAX_READ_FILE_BYTES = 32 * 1024 * 1024;
+const READ_MANY_MAX_LOADED_BYTES = 96 * 1024 * 1024;
+const READ_MANY_MAX_REGEX_LINE_LENGTH = 32 * 1024;
+const READ_MANY_MAX_SKIPPED_DETAILS = 50;
+const READ_MANY_MAX_DIAGNOSTIC_STRING_LENGTH = 512;
+const READ_MANY_IGNORED_DIRS = new Set([
+  ".git",
+  "node_modules",
+  "dist",
+  "build",
+  ".next",
+  ".cache",
+  ".turbo",
+  "coverage",
+]);
+
+function normalizeWorkspacePath(path: string): string {
+  return path.split(sep).join("/").replace(/^\.\//, "");
+}
+
+function workspaceRelativePath(cwd: string, fullPath: string): string {
+  const rel = relative(cwd, fullPath);
+  return normalizeWorkspacePath(rel || ".");
+}
+
+function globToRegExp(pattern: string): RegExp {
+  const normalized = pattern.replace(/\\/g, "/").replace(/^\.\//, "");
+  let source = "^";
+  for (let index = 0; index < normalized.length; index += 1) {
+    const char = normalized[index];
+    if (char === "*") {
+      if (normalized[index + 1] === "*") {
+        index += 1;
+        if (normalized[index + 1] === "/") {
+          index += 1;
+          source += "(?:.*/)?";
+        } else {
+          source += ".*";
+        }
+      } else {
+        source += "[^/]*";
+      }
+      continue;
+    }
+    if (char === "?") {
+      source += "[^/]";
+      continue;
+    }
+    source += char.replace(/[|\\{}()[\]^$+?.]/g, "\\$&");
+  }
+  source += "$";
+  return new RegExp(source);
+}
+
+function validateBoundedRegexSource(pattern: string): string | null {
+  if (/\\[1-9]/.test(pattern)) {
+    return "regex backreferences are not supported because they can cause unbounded backtracking";
+  }
+  if (/\(\?<([=!])/.test(pattern)) {
+    return "regex lookbehind is not supported in bounded match mode";
+  }
+  const quantifiedGroup = /\((?:\\.|[^()])*(?:[+*]|\{\d+(?:,\d*)?\}|\|)(?:\\.|[^()])*\)(?:[+*]|\{\d+(?:,\d*)?\})/;
+  if (quantifiedGroup.test(pattern)) {
+    return "regex contains a nested or ambiguous quantified group that may cause excessive backtracking";
+  }
+  return null;
+}
+
+function compileReadManyPattern(item: ReadManyItem): RegExp {
+  const pattern = item.pattern ?? "";
+  if (!pattern) throw new Error("match operation requires a non-empty pattern");
+  if (pattern.length > READ_MANY_MAX_PATTERN_LENGTH) {
+    throw new Error(`match pattern must be <= ${READ_MANY_MAX_PATTERN_LENGTH} characters`);
+  }
+  const flags = item.caseSensitive === false ? "i" : "";
+  if ((item.matchMode ?? "literal") === "literal") {
+    const escaped = pattern.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    return new RegExp(escaped, flags);
+  }
+  const unsafeReason = validateBoundedRegexSource(pattern);
+  if (unsafeReason) throw new Error(unsafeReason);
+  return new RegExp(pattern, flags);
+}
+
+function readManyOperation(item: ReadManyItem): ReadManyOperation {
+  if (item.operation) return item.operation;
+  if (item.pattern !== undefined) return "match";
+  if (item.glob !== undefined) return "glob";
+  return "read";
+}
+
+function validateReadManyItem(item: ReadManyItem): string | null {
+  const operation = readManyOperation(item);
+  if (item.path.length > READ_MANY_MAX_PATH_LENGTH) {
+    return `path must be <= ${READ_MANY_MAX_PATH_LENGTH} characters`;
+  }
+  const hasStart = item.startLine !== undefined;
+  const hasEnd = item.endLine !== undefined;
+  const incompatible = (fields: Array<keyof ReadManyItem>): string | null => {
+    const present = fields.filter((field) => item[field] !== undefined);
+    return present.length > 0
+      ? `${operation} operation cannot include ${present.join(", ")}`
+      : null;
+  };
+
+  if (operation === "read") {
+    const invalidFields = incompatible([
+      "pattern", "matchMode", "caseSensitive", "beforeLines", "afterLines",
+      "maxMatches", "include", "glob", "maxFiles",
+    ]);
+    if (invalidFields) return invalidFields;
+    if (hasStart !== hasEnd) return "range requires both startLine and endLine";
+    return null;
+  }
+
+  if (operation === "match") {
+    const invalidFields = incompatible(["startLine", "endLine", "glob", "maxFiles"]);
+    if (invalidFields) return invalidFields;
+    if (!item.pattern) return "match operation requires a non-empty pattern";
+    if (item.pattern.length > READ_MANY_MAX_PATTERN_LENGTH) {
+      return `match pattern must be <= ${READ_MANY_MAX_PATTERN_LENGTH} characters`;
+    }
+    if (item.include !== undefined && item.include.length > READ_MANY_MAX_PATTERN_LENGTH) {
+      return `match include glob must be <= ${READ_MANY_MAX_PATTERN_LENGTH} characters`;
+    }
+    if ((item.beforeLines ?? 0) < 0 || (item.afterLines ?? 0) < 0) {
+      return "match context lines must be >= 0";
+    }
+    if ((item.beforeLines ?? 0) > READ_MANY_MAX_CONTEXT_LINES || (item.afterLines ?? 0) > READ_MANY_MAX_CONTEXT_LINES) {
+      return `match context lines must be <= ${READ_MANY_MAX_CONTEXT_LINES}`;
+    }
+    if ((item.maxMatches ?? 20) <= 0 || (item.maxMatches ?? 20) > READ_MANY_MAX_MATCHES) {
+      return `maxMatches must be between 1 and ${READ_MANY_MAX_MATCHES}`;
+    }
+    return null;
+  }
+
+  const invalidFields = incompatible([
+    "startLine", "endLine", "pattern", "matchMode", "caseSensitive",
+    "beforeLines", "afterLines", "maxMatches", "include",
+  ]);
+  if (invalidFields) return invalidFields;
+  if (!item.glob) return "glob operation requires a non-empty glob";
+  if (item.glob.length > READ_MANY_MAX_PATTERN_LENGTH) {
+    return `glob must be <= ${READ_MANY_MAX_PATTERN_LENGTH} characters`;
+  }
+  if ((item.maxFiles ?? 50) <= 0) return "glob maxFiles must be >= 1";
+  return null;
+}
+
+function looksBinary(buffer: Buffer): boolean {
+  const sample = buffer.subarray(0, Math.min(buffer.length, 8_192));
+  return sample.includes(0);
+}
+
+interface ReadManyWorkspaceFileList {
+  files: string[];
+  truncated: boolean;
+}
+
+async function listReadManyWorkspaceFiles(cwd: string, scopeRel = "."): Promise<ReadManyWorkspaceFileList> {
+  try {
+    const args = ["ls-files", "-co", "--exclude-standard", "-z"];
+    if (scopeRel !== ".") args.push("--", scopeRel);
+    const { stdout } = await execFileAsync("git", args, {
+      cwd,
+      encoding: "buffer",
+      maxBuffer: 8 * 1024 * 1024,
+    } as any);
+    const raw = Buffer.isBuffer(stdout) ? stdout.toString("utf8") : String(stdout);
+    const allFiles = raw.split("\0").filter(Boolean);
+    const files = allFiles.slice(0, READ_MANY_MAX_SCAN_FILES);
+    return {
+      files: files.map(normalizeWorkspacePath),
+      truncated: allFiles.length > files.length,
+    };
+  } catch (error) {
+    const code = typeof error === "object" && error !== null && "code" in error
+      ? String((error as any).code)
+      : "";
+    const hasGitMetadata = existsSync(join(cwd, ".git"));
+    if (hasGitMetadata || code === "ERR_CHILD_PROCESS_STDIO_MAXBUFFER") {
+      return { files: [], truncated: true };
+    }
+    // Recursive walk is only for workspaces that are genuinely non-Git.
+  }
+
+  const { readdir } = await import("node:fs/promises");
+  const files: string[] = [];
+  let truncated = false;
+  async function walk(fullDir: string): Promise<void> {
+    if (files.length >= READ_MANY_MAX_SCAN_FILES) {
+      truncated = true;
+      return;
+    }
+    let entries;
+    try {
+      entries = await readdir(fullDir, { withFileTypes: true });
+    } catch {
+      return;
+    }
+    for (const entry of entries) {
+      if (files.length >= READ_MANY_MAX_SCAN_FILES) {
+        truncated = true;
+        break;
+      }
+      if (entry.name === "." || entry.name === "..") continue;
+      const fullPath = join(fullDir, entry.name);
+      if (entry.isDirectory()) {
+        if (!READ_MANY_IGNORED_DIRS.has(entry.name)) await walk(fullPath);
+      } else if (entry.isFile()) {
+        files.push(workspaceRelativePath(cwd, fullPath));
+      }
+    }
+  }
+  await walk(scopeRel === "." ? cwd : resolve(cwd, scopeRel));
+  return { files, truncated };
+}
+
+interface ReadManyBudgetState {
+  maxTokens: number;
+  maxLines: number;
+  maxFiles: number;
+  usedTokens: number;
+  usedLines: number;
+  returnedFiles: Set<string>;
+}
+
+function estimateTokens(content: string): number {
+  return Math.ceil(content.length / 4);
+}
+
+function estimateJsonTokens(value: unknown): number {
+  return estimateTokens(JSON.stringify(value));
+}
+
+function lineCount(content: string): number {
+  if (!content) return 0;
+  return content.split("\n").length;
+}
+
+function budgetBlockReason(
+  budget: ReadManyBudgetState,
+  content: string,
+  files: string[],
+  serializedTokenCost = estimateTokens(content),
+): { code: ReadManySkipCode; reason: string } | null {
+  const newFiles = files.filter((path) => !budget.returnedFiles.has(path));
+  if (budget.returnedFiles.size + new Set(newFiles).size > budget.maxFiles) {
+    return {
+      code: "file_budget_exceeded",
+      reason: `exceeds remaining file budget of ${Math.max(0, budget.maxFiles - budget.returnedFiles.size)}`,
+    };
+  }
+  const lines = lineCount(content);
+  if (budget.usedLines + lines > budget.maxLines) {
+    return {
+      code: "line_budget_exceeded",
+      reason: `exceeds remaining line budget of ${Math.max(0, budget.maxLines - budget.usedLines)} lines`,
+    };
+  }
+  if (budget.usedTokens + serializedTokenCost > budget.maxTokens) {
+    return {
+      code: "budget_exceeded",
+      reason: `exceeds remaining token budget of ~${Math.max(0, budget.maxTokens - budget.usedTokens)} tokens (estimated serialized cost ~${serializedTokenCost})`,
+    };
+  }
+  return null;
+}
+
+function consumeBudget(
+  budget: ReadManyBudgetState,
+  content: string,
+  files: string[],
+  serializedTokenCost = estimateTokens(content),
+): void {
+  budget.usedTokens += serializedTokenCost;
+  budget.usedLines += lineCount(content);
+  for (const path of files) budget.returnedFiles.add(path);
+}
+
+interface MatchRegion {
+  path: string;
+  startLine: number;
+  endLine: number;
+  matchedLines: number[];
+  content: string;
+  contentHash: string;
+}
+
+function mergeMatchWindows(
+  lineNumbers: number[],
+  lineTotal: number,
+  beforeLines: number,
+  afterLines: number,
+): Array<{ startLine: number; endLine: number; matchedLines: number[] }> {
+  const windows = lineNumbers.map((line) => ({
+    startLine: Math.max(1, line - beforeLines),
+    endLine: Math.min(lineTotal, line + afterLines),
+    matchedLines: [line],
+  }));
+  const merged: Array<{ startLine: number; endLine: number; matchedLines: number[] }> = [];
+  for (const window of windows) {
+    const previous = merged.at(-1);
+    if (previous && window.startLine <= previous.endLine + 1) {
+      previous.endLine = Math.max(previous.endLine, window.endLine);
+      previous.matchedLines.push(...window.matchedLines);
+    } else {
+      merged.push({ ...window });
+    }
+  }
+  return merged;
+}
+
 export async function readManyTool(input: ReadManyInput, cwd: string, allowedRoots: string[]): Promise<ToolResponse> {
   const resultFiles: any[] = [];
-  let totalTokens = 0;
-  const maxTokens = input.maxTokens ?? 12_000;
+  const matchResults: any[] = [];
+  const globResults: any[] = [];
+  const maxTokens = input.maxTokens ?? READ_MANY_DEFAULT_MAX_TOKENS;
+  const maxLines = input.maxLines ?? READ_MANY_DEFAULT_MAX_LINES;
+  const maxFiles = input.maxFiles ?? READ_MANY_DEFAULT_MAX_FILES;
+
+  if (!Number.isFinite(maxTokens) || maxTokens <= 0 || maxTokens > 64_000) {
+    throw new Error("read_many maxTokens must be between 1 and 64000.");
+  }
+  if (!Number.isInteger(maxLines) || maxLines <= 0 || maxLines > 20_000) {
+    throw new Error("read_many maxLines must be an integer between 1 and 20000.");
+  }
+  if (!Number.isInteger(maxFiles) || maxFiles <= 0 || maxFiles > 2_000) {
+    throw new Error("read_many maxFiles must be an integer between 1 and 2000.");
+  }
 
   if ((input.paths && input.items) || (!input.paths && !input.items)) {
     throw new Error("read_many requires exactly one of 'paths' or 'items'.");
@@ -116,16 +478,26 @@ export async function readManyTool(input: ReadManyInput, cwd: string, allowedRoo
   if (input.items && input.items.length === 0) {
     throw new Error("read_many requires non-empty 'items' array.");
   }
+  const rawItemCount = input.items?.length ?? input.paths?.length ?? 0;
+  if (rawItemCount > READ_MANY_MAX_ITEMS) {
+    throw new Error(`read_many accepts at most ${READ_MANY_MAX_ITEMS} items per call.`);
+  }
 
-  const items: ReadManyItem[] = input.items || (input.paths || []).map(p => ({ path: p }));
+  const items: ReadManyItem[] = input.items || (input.paths || []).map(p => ({ path: p, operation: "read" }));
   const itemCount = items.length;
 
-  // Proactive bloat warning: 5+ files without compression is a context risk
+  // Proactive bloat warning only applies to broad full-file reads. Match/glob
+  // operations are already bounded and are intended to replace shell slicing.
+  const broadReadCount = items.filter((item) =>
+    readManyOperation(item) === "read"
+    && item.startLine === undefined
+    && item.endLine === undefined
+  ).length;
   const bloatWarning =
-    itemCount >= 5 && (!input.compressionLevel || input.compressionLevel === "none")
-      ? `⚠️  CONTEXT BLOAT WARNING: ${itemCount} files requested without compression. ` +
+    broadReadCount >= 5 && (!input.compressionLevel || input.compressionLevel === "none")
+      ? `⚠️  CONTEXT BLOAT WARNING: ${broadReadCount} full files requested without compression. ` +
         `Prefer fewer exact ranges or set compressionLevel to 'light' or 'balanced'. ` +
-        `Proceeding with maxTokens=${maxTokens} budget guard.\n\n`
+        `Proceeding with shared token/line/file budget guards.\n\n`
       : "";
 
   const { statSync, readFileSync } = await import("node:fs");
@@ -163,10 +535,27 @@ export async function readManyTool(input: ReadManyInput, cwd: string, allowedRoo
     mtimeNs: number;
   }
   const loadedFiles = new Map<string, CachedFile>();
+  let loadedBytes = 0;
+
+  function resourceLimitError(message: string): Error {
+    const error = new Error(message) as NodeJS.ErrnoException;
+    error.code = "AGENTIC_READ_MANY_RESOURCE_LIMIT";
+    return error;
+  }
 
   function loadFile(resolved: ResolvedFile): CachedFile {
     const existing = loadedFiles.get(resolved.fullPath);
     if (existing) return existing;
+    if (resolved.sizeBytes > READ_MANY_MAX_READ_FILE_BYTES) {
+      throw resourceLimitError(
+        `File is too large for composite read (${resolved.sizeBytes} bytes; max ${READ_MANY_MAX_READ_FILE_BYTES}). Use a specialized reader or narrower source artifact.`,
+      );
+    }
+    if (loadedBytes + resolved.sizeBytes > READ_MANY_MAX_LOADED_BYTES) {
+      throw resourceLimitError(
+        `Composite read would exceed the ${READ_MANY_MAX_LOADED_BYTES}-byte in-memory file budget. Split the inspection into smaller calls.`,
+      );
+    }
     const rawBytes = readFileSync(resolved.fullPath);
     const content = rawBytes.toString("utf8");
     const lines = content.replace(/\r\n/g, "\n").split("\n");
@@ -179,127 +568,431 @@ export async function readManyTool(input: ReadManyInput, cwd: string, allowedRoo
       mtimeNs: resolved.mtimeNs,
     };
     loadedFiles.set(resolved.fullPath, entry);
+    loadedBytes += resolved.sizeBytes;
     return entry;
   }
 
-  // ── Resolve paths (keep insertion order for items) ──
-  type FileEntry = { item: ReadManyItem; resolved: ResolvedFile };
-  const files: FileEntry[] = [];
   const skipped: ReadManySkippedItem[] = [];
-
-  for (const item of items) {
-    try {
-      const resolved = resolveFile(item);
-      files.push({ item, resolved });
-    } catch (e: any) {
-      const failure = safeReadFailure(e);
-      skipped.push({ path: item.path, ...failure });
+  const skipCounts: Partial<Record<ReadManySkipCode, number>> = {};
+  const skippedDetailLimit = Math.max(
+    1,
+    Math.min(READ_MANY_MAX_SKIPPED_DETAILS, Math.floor(maxTokens / 200) || 1),
+  );
+  let skippedOmitted = 0;
+  function compactDiagnosticString(value: string): string {
+    if (value.length <= READ_MANY_MAX_DIAGNOSTIC_STRING_LENGTH) return value;
+    const marker = "... [diagnostic truncated]";
+    return `${value.slice(0, READ_MANY_MAX_DIAGNOSTIC_STRING_LENGTH - marker.length)}${marker}`;
+  }
+  function recordSkip(item: ReadManySkippedItem): void {
+    skipCounts[item.code] = (skipCounts[item.code] ?? 0) + 1;
+    if (skipped.length < skippedDetailLimit) {
+      skipped[skipped.length] = {
+        ...item,
+        path: compactDiagnosticString(item.path),
+        reason: compactDiagnosticString(item.reason),
+      };
+    } else {
+      skippedOmitted += 1;
     }
   }
 
-  // For paths-mode, sort smallest-first to maximise budget fit.
-  // For items-mode, preserve order (order = priority from task_context).
-  if (!input.items) {
-    files.sort((a, b) => a.resolved.sizeBytes - b.resolved.sizeBytes);
-  }
-  for (const file of files) {
-    const p = file.item.path;
-    const { startLine, endLine } = file.item;
+  const budget: ReadManyBudgetState = {
+    maxTokens,
+    maxLines,
+    maxFiles,
+    usedTokens: 0,
+    usedLines: 0,
+    returnedFiles: new Set<string>(),
+  };
+  const workspaceFilesCache = new Map<string, ReadManyWorkspaceFileList>();
 
-    // ── Range validation: require both or neither ──
-    const hasStart = startLine !== undefined;
-    const hasEnd = endLine !== undefined;
-    if (hasStart !== hasEnd) {
-      skipped.push({ path: p, code: "invalid_range", reason: "range requires both startLine and endLine" });
+  async function workspaceFiles(scopeRel = "."): Promise<ReadManyWorkspaceFileList> {
+    const cached = workspaceFilesCache.get(scopeRel);
+    if (cached) return cached;
+    const listed = await listReadManyWorkspaceFiles(cwd, scopeRel);
+    workspaceFilesCache.set(scopeRel, listed);
+    return listed;
+  }
+
+  async function scopedFiles(itemPath: string): Promise<ReadManyWorkspaceFileList> {
+    const fullScope = enforceSecurePath(itemPath, cwd, allowedRoots, false);
+    const { statSync } = await import("node:fs");
+    const stat = statSync(fullScope);
+    if (stat.isFile()) return { files: [workspaceRelativePath(cwd, fullScope)], truncated: false };
+    if (!stat.isDirectory()) return { files: [], truncated: false };
+    const scopeRel = workspaceRelativePath(cwd, fullScope);
+    const prefix = scopeRel === "." ? "" : `${scopeRel.replace(/\/$/, "")}/`;
+    const listed = await workspaceFiles(scopeRel);
+    return {
+      files: listed.files.filter((path) => !prefix || path.startsWith(prefix)),
+      truncated: listed.truncated,
+    };
+  }
+
+  // For legacy paths-mode, preserve the old smallest-first behavior. Composite
+  // items-mode always preserves caller order: order is explicit priority.
+  let orderedItems = items;
+  if (!input.items) {
+    const sortable: Array<{ item: ReadManyItem; sizeBytes: number }> = [];
+    for (const item of items) {
+      const invalid = validateReadManyItem(item);
+      if (invalid) {
+        recordSkip({ path: item.path, code: invalid.includes("range") ? "invalid_range" : "invalid_item", reason: invalid });
+        continue;
+      }
+      try {
+        sortable.push({ item, sizeBytes: resolveFile(item).sizeBytes });
+      } catch (error) {
+        const failure = safeReadFailure(error);
+        recordSkip({ path: item.path, ...failure });
+      }
+    }
+    orderedItems = sortable.sort((a, b) => a.sizeBytes - b.sizeBytes).map((entry) => entry.item);
+  }
+
+  for (const item of orderedItems) {
+    const p = item.path;
+    const operation = readManyOperation(item);
+    const invalid = validateReadManyItem(item);
+    if (invalid) {
+      recordSkip({ path: p, code: operation === "read" && invalid.includes("range") ? "invalid_range" : "invalid_item", reason: invalid });
       continue;
     }
 
-    const isRanged = hasStart && hasEnd;
+    if (operation === "read") {
+      try {
+        const resolved = resolveFile(item);
+        const cached = loadFile(resolved);
+        const startLine = item.startLine;
+        const endLine = item.endLine;
+        const isRanged = startLine !== undefined && endLine !== undefined;
+
+        if (isRanged) {
+          const sl = startLine as number;
+          const el = endLine as number;
+          if (sl <= 0 || el <= 0) {
+            recordSkip({ path: p, code: "invalid_range", reason: `range startLine/endLine must be >= 1 (got ${sl}..${el})` });
+            continue;
+          }
+          if (sl > el) {
+            recordSkip({ path: p, code: "invalid_range", reason: `startLine (${sl}) must be <= endLine (${el})` });
+            continue;
+          }
+          if (sl > cached.lines.length) {
+            recordSkip({ path: p, code: "invalid_range", reason: `startLine (${sl}) exceeds file length (${cached.lines.length} lines)` });
+            continue;
+          }
+        }
+
+        let content: string;
+        if (isRanged) {
+          content = cached.lines.slice((startLine as number) - 1, endLine as number).join("\n");
+        } else if (input.compressionLevel && input.compressionLevel !== "none") {
+          const { compressAST } = await import("./context-engine/compressors.js");
+          const rawContent = cached.rawBytes.toString("utf8");
+          const compressed = compressAST(rawContent, input.compressionLevel, undefined, {
+            cacheKey: resolved.fullPath,
+            displayPath: item.path,
+            mtime: cached.mtimeNs / 1_000_000,
+          });
+          content = compressed.output;
+        } else {
+          content = cached.rawBytes.toString("utf8");
+        }
+
+        const relativePath = workspaceRelativePath(cwd, resolved.fullPath);
+        const readResult = {
+          operation: "read",
+          path: p,
+          contentHash: cached.contentHash,
+          sizeBytes: cached.sizeBytes,
+          mtimeNs: cached.mtimeNs,
+          startLine: item.startLine,
+          endLine: item.endLine,
+          content,
+        };
+        const serializedTokenCost = estimateJsonTokens(readResult);
+        const blocked = budgetBlockReason(budget, content, [relativePath], serializedTokenCost);
+        if (blocked) {
+          recordSkip({ path: p, ...blocked });
+          continue;
+        }
+        consumeBudget(budget, content, [relativePath], serializedTokenCost);
+        resultFiles.push(readResult);
+      } catch (error) {
+        const failure = safeReadFailure(error);
+        recordSkip({ path: p, ...failure });
+      }
+      continue;
+    }
+
+    if (operation === "glob") {
+      try {
+        const scopeFull = enforceSecurePath(p, cwd, allowedRoots, false);
+        const { statSync } = await import("node:fs");
+        if (!statSync(scopeFull).isDirectory()) {
+          recordSkip({ path: p, code: "invalid_item", reason: "Glob scope must be a directory." });
+          continue;
+        }
+        const matcher = globToRegExp(item.glob as string);
+        const globBaseResult = {
+          operation: "glob",
+          path: p,
+          glob: item.glob,
+          files: [] as string[],
+          returned: 0,
+          truncated: false,
+          scanTruncated: false,
+        };
+        const globBaseTokenCost = estimateJsonTokens(globBaseResult);
+        const globBaseBlocked = budgetBlockReason(budget, "", [], globBaseTokenCost);
+        if (globBaseBlocked) {
+          recordSkip({ path: p, ...globBaseBlocked });
+          continue;
+        }
+        consumeBudget(budget, "", [], globBaseTokenCost);
+        const scopeRel = workspaceRelativePath(cwd, scopeFull);
+        const prefix = scopeRel === "." ? "" : `${scopeRel.replace(/\/$/, "")}/`;
+        const perItemMax = Math.min(item.maxFiles ?? 50, maxFiles);
+        const scoped = await scopedFiles(p);
+        const allMatched = scoped.files
+          .map((path) => prefix ? path.slice(prefix.length) : path)
+          .filter((path) => matcher.test(path));
+        const workspacePaths: string[] = [];
+        let budgetTruncated = false;
+        for (const matchedPath of allMatched.slice(0, perItemMax)) {
+          const workspacePath = prefix ? `${prefix}${matchedPath}` : matchedPath;
+          const serializedTokenCost = estimateJsonTokens(workspacePath);
+          const blocked = budgetBlockReason(budget, workspacePath, [workspacePath], serializedTokenCost);
+          if (blocked) {
+            recordSkip({ path: `${p}:${workspacePath}`, ...blocked });
+            budgetTruncated = true;
+            break;
+          }
+          consumeBudget(budget, workspacePath, [workspacePath], serializedTokenCost);
+          workspacePaths.push(workspacePath);
+        }
+        globResults.push({
+          operation: "glob",
+          path: p,
+          glob: item.glob,
+          files: workspacePaths,
+          returned: workspacePaths.length,
+          truncated: scoped.truncated || budgetTruncated || allMatched.length > workspacePaths.length,
+          scanTruncated: scoped.truncated,
+        });
+      } catch (error) {
+        const failure = safeReadFailure(error);
+        recordSkip({ path: p, ...failure });
+      }
+      continue;
+    }
 
     try {
-      const cached = loadFile(file.resolved);
-
-      // ── Bounds validation ──
-      if (isRanged) {
-        const sl = startLine as number;
-        const el = endLine as number;
-        if (sl <= 0 || el <= 0) {
-          skipped.push({ path: p, code: "invalid_range", reason: `range startLine/endLine must be >= 1 (got ${sl}..${el})` });
-          continue;
-        }
-        if (sl > el) {
-          skipped.push({ path: p, code: "invalid_range", reason: `startLine (${sl}) must be <= endLine (${el})` });
-          continue;
-        }
-        if (sl > cached.lines.length) {
-          skipped.push({ path: p, code: "invalid_range", reason: `startLine (${sl}) exceeds file length (${cached.lines.length} lines)` });
-          continue;
-        }
-      }
-
-      // ── Content extraction ──
-      let content: string;
-      if (isRanged) {
-        const sl = startLine as number;
-        const el = endLine as number;
-        content = cached.lines.slice(sl - 1, el).join("\n");
-      } else if (input.compressionLevel && input.compressionLevel !== "none") {
-        const { compressAST } = await import("./context-engine/compressors.js");
-        const rawContent = cached.rawBytes.toString("utf8");
-        const compressed = compressAST(rawContent, input.compressionLevel, undefined, {
-          cacheKey: file.resolved.fullPath,
-          displayPath: file.item.path,
-          mtime: cached.mtimeNs / 1_000_000
-        });
-        content = compressed.output;
-      } else {
-        content = cached.rawBytes.toString("utf8");
-      }
-
-      const estimatedTokens = Math.ceil(content.length / 4);
-      if (totalTokens + estimatedTokens > maxTokens) {
-        skipped.push({ path: p, code: "budget_exceeded", reason: `exceeds remaining budget of ~${Math.max(0, maxTokens - totalTokens)} tokens (estimated ~${estimatedTokens})` });
+      let matcher: RegExp;
+      try {
+        matcher = compileReadManyPattern(item);
+      } catch (error) {
+        recordSkip({ path: p, code: "invalid_pattern", reason: error instanceof Error ? error.message : String(error) });
         continue;
       }
 
-      totalTokens += estimatedTokens;
-
-      resultFiles.push({
+      const beforeLines = item.beforeLines ?? 0;
+      const afterLines = item.afterLines ?? 0;
+      const maxMatchesPerItem = item.maxMatches ?? 20;
+      const scopeFull = enforceSecurePath(p, cwd, allowedRoots, false);
+      const { statSync } = await import("node:fs");
+      const scopeIsFile = statSync(scopeFull).isFile();
+      const matchBaseResult = {
+        operation: "match",
         path: p,
-        contentHash: cached.contentHash,
-        sizeBytes: cached.sizeBytes,
-        mtimeNs: cached.mtimeNs,
-        startLine: file.item.startLine,
-        endLine: file.item.endLine,
-        content,
+        pattern: item.pattern,
+        matchMode: item.matchMode ?? "literal",
+        include: item.include,
+        caseSensitive: item.caseSensitive !== false,
+        beforeLines,
+        afterLines,
+        matchCount: 0,
+        regions: [] as MatchRegion[],
+        scannedFiles: 0,
+        scannedBytes: 0,
+        skippedBinaryFiles: 0,
+        skippedLargeFiles: 0,
+        skippedLongRegexLines: 0,
+        truncated: false,
+        scanTruncated: false,
+      };
+      const matchBaseTokenCost = estimateJsonTokens(matchBaseResult);
+      const matchBaseBlocked = budgetBlockReason(budget, "", [], matchBaseTokenCost);
+      if (matchBaseBlocked) {
+        recordSkip({ path: p, ...matchBaseBlocked });
+        continue;
+      }
+      consumeBudget(budget, "", [], matchBaseTokenCost);
+      const scoped = await scopedFiles(p);
+      const scopeRel = workspaceRelativePath(cwd, scopeFull);
+      const scopePrefix = scopeRel === "." || scopeIsFile ? "" : `${scopeRel.replace(/\/$/, "")}/`;
+      const includeMatcher = item.include ? globToRegExp(item.include) : null;
+      const candidates = includeMatcher
+        ? scoped.files.filter((candidate) => {
+            const scopedCandidate = scopeIsFile
+              ? (candidate.split("/").at(-1) ?? candidate)
+              : scopePrefix && candidate.startsWith(scopePrefix)
+                ? candidate.slice(scopePrefix.length)
+                : candidate;
+            return includeMatcher.test(scopedCandidate);
+          })
+        : scoped.files;
+      let matchCount = 0;
+      let scannedFiles = 0;
+      let skippedBinaryFiles = 0;
+      let skippedLargeFiles = 0;
+      let skippedLongRegexLines = 0;
+      let scannedBytes = 0;
+      let truncated = scoped.truncated;
+      let budgetStopped = false;
+      const regions: MatchRegion[] = [];
+
+      for (const candidate of candidates) {
+        if (matchCount >= maxMatchesPerItem) {
+          truncated = true;
+          break;
+        }
+        if (scannedFiles >= READ_MANY_MAX_SCAN_FILES) {
+          truncated = true;
+          break;
+        }
+        scannedFiles += 1;
+        let resolved: ResolvedFile;
+        try {
+          resolved = resolveFile({ path: candidate });
+        } catch {
+          continue;
+        }
+        if (resolved.sizeBytes > READ_MANY_MAX_MATCH_FILE_BYTES) {
+          skippedLargeFiles += 1;
+          continue;
+        }
+        if (scannedBytes + resolved.sizeBytes > READ_MANY_MAX_MATCH_SCAN_BYTES) {
+          truncated = true;
+          break;
+        }
+        scannedBytes += resolved.sizeBytes;
+        const cached = loadFile(resolved);
+        if (looksBinary(cached.rawBytes)) {
+          skippedBinaryFiles += 1;
+          continue;
+        }
+
+        const matchedLines: number[] = [];
+        for (let lineIndex = 0; lineIndex < cached.lines.length; lineIndex += 1) {
+          const line = cached.lines[lineIndex];
+          if ((item.matchMode ?? "literal") === "regex" && line.length > READ_MANY_MAX_REGEX_LINE_LENGTH) {
+            skippedLongRegexLines += 1;
+            continue;
+          }
+          matcher.lastIndex = 0;
+          if (!matcher.test(line)) continue;
+          matchedLines.push(lineIndex + 1);
+          matchCount += 1;
+          if (matchCount >= maxMatchesPerItem) {
+            truncated = true;
+            break;
+          }
+        }
+        if (matchedLines.length === 0) continue;
+
+        const windows = mergeMatchWindows(matchedLines, cached.lines.length, beforeLines, afterLines);
+        for (const window of windows) {
+          const content = cached.lines.slice(window.startLine - 1, window.endLine).join("\n");
+          const relativePath = workspaceRelativePath(cwd, resolved.fullPath);
+          const region: MatchRegion = {
+            path: relativePath,
+            startLine: window.startLine,
+            endLine: window.endLine,
+            matchedLines: window.matchedLines,
+            content,
+            contentHash: cached.contentHash,
+          };
+          const serializedTokenCost = estimateJsonTokens(region);
+          const blocked = budgetBlockReason(budget, content, [relativePath], serializedTokenCost);
+          if (blocked) {
+            recordSkip({ path: `${p}:${relativePath}`, ...blocked });
+            truncated = true;
+            budgetStopped = true;
+            break;
+          }
+          consumeBudget(budget, content, [relativePath], serializedTokenCost);
+          regions.push(region);
+        }
+        if (budgetStopped) break;
+      }
+
+      matchResults.push({
+        operation: "match",
+        path: p,
+        pattern: item.pattern,
+        matchMode: item.matchMode ?? "literal",
+        include: item.include,
+        caseSensitive: item.caseSensitive !== false,
+        beforeLines,
+        afterLines,
+        matchCount,
+        regions,
+        scannedFiles,
+        scannedBytes,
+        skippedBinaryFiles,
+        skippedLargeFiles,
+        skippedLongRegexLines,
+        truncated,
+        scanTruncated: scoped.truncated,
       });
-    } catch (e: any) {
-      skipped.push({ path: p, code: "read_failed", reason: "File could not be read." });
+    } catch (error) {
+      const failure = safeReadFailure(error);
+      recordSkip({ path: p, ...failure });
     }
   }
 
-  const hasResults = resultFiles.length > 0;
-  const hasHardFailures = skipped.some(item => item.code !== "budget_exceeded");
-  const budgetOnlyExhaustion = !hasResults && skipped.length > 0 && !hasHardFailures;
+  const hasResults = resultFiles.length > 0 || matchResults.length > 0 || globResults.length > 0;
+  const budgetCodes = new Set<ReadManySkipCode>(["budget_exceeded", "line_budget_exceeded", "file_budget_exceeded"]);
+  const totalSkipped = Object.values(skipCounts).reduce((sum, count) => sum + (count ?? 0), 0);
+  const hasHardFailures = Object.entries(skipCounts).some(([code, count]) => (count ?? 0) > 0 && !budgetCodes.has(code as ReadManySkipCode));
+  const budgetOnlyExhaustion = !hasResults && totalSkipped > 0 && !hasHardFailures;
   const isError = !hasResults && hasHardFailures;
 
   const finalWarning = budgetOnlyExhaustion
     ? "budget_exhausted"
     : (bloatWarning ? bloatWarning.trim() : undefined);
 
+  const responseData: any = {
+    files: resultFiles,
+    matches: matchResults,
+    globs: globResults,
+    skipped,
+    skippedOmitted,
+    skipCounts,
+    budget: {
+      maxTokens,
+      usedTokens: budget.usedTokens,
+      maxLines,
+      usedLines: budget.usedLines,
+      maxFiles,
+      usedFiles: budget.returnedFiles.size,
+      estimatedPayloadTokens: 0,
+      envelopeOverheadTokens: 0,
+    },
+    warning: finalWarning,
+  };
   const envelope = {
     status: isError ? "error" : "success",
-    data: {
-      files: resultFiles,
-      skipped,
-      warning: finalWarning,
-    },
+    data: responseData,
     error: isError ? "read_many could not read any requested item" : null,
     diagnostics: isError
       ? [{
           code: "all_items_failed",
           requestedItems: items.length,
-          skippedItems: skipped.length,
+          skippedItems: totalSkipped,
         }]
       : budgetOnlyExhaustion
       ? [{
@@ -309,10 +1002,15 @@ export async function readManyTool(input: ReadManyInput, cwd: string, allowedRoo
         }]
       : []
   };
+  for (let pass = 0; pass < 2; pass += 1) {
+    const estimatedPayloadTokens = estimateJsonTokens(envelope);
+    responseData.budget.estimatedPayloadTokens = estimatedPayloadTokens;
+    responseData.budget.envelopeOverheadTokens = Math.max(0, estimatedPayloadTokens - budget.usedTokens);
+  }
 
   return {
     isError: isError,
-    content: [{ type: "text", text: isError ? "read_many failed. Errors:\n" + JSON.stringify(skipped, null, 2) : JSON.stringify(envelope.data, null, 2) }],
+    content: [{ type: "text", text: JSON.stringify(responseData, null, 2) }],
     structuredContent: envelope
   };
 }

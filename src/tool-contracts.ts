@@ -12,8 +12,8 @@ export const TOOL_CONTRACTS = {
     description: "Inspect one already-known code file with an explicitly selected AST-compression level. Use when direct control over compression is useful; compressed output may omit implementation details.",
   },
   readMany: {
-    title: "Read Many Files",
-    description: "Read several already-known files or exact ranges under one shared token budget, optionally with AST-aware compression. Best for comparing related definitions after paths are identified. This is not a discovery operation; oversized inputs may be skipped by the budget guard.",
+    title: "Composite Read / Inspect",
+    description: "Batch related inspection in one round trip once the relevant area is known: exact reads/ranges, bounded lexical matches with context, and scoped globs. Items execute in order as priority under shared serialized-evidence, line, and file budgets; final payload cost is estimated separately. Literal matching is default and regex is an explicitly bounded opt-in. Prefer this over separate grep→read cycles in the same known area; it is not for project-wide architectural discovery.",
   },
   grep: {
     title: "Grep Files",
@@ -21,11 +21,11 @@ export const TOOL_CONTRACTS = {
   },
   semanticPack: {
     title: "Semantic Pack",
-    description: "Build a goal-focused architectural overview only when broad domain structure or inter-file relationships are genuinely unknown. Once sufficient implementation targets are known, stop architectural discovery and work from the narrower evidence.",
+    description: "Build a goal-focused architectural overview only when broad domain structure or inter-file relationships are genuinely unknown. Once sufficient implementation targets are known, stop architectural discovery and narrow with composite inspection instead of requesting another broad pack.",
   },
   taskContext: {
     title: "Task Context",
-    description: "Return a minimal, fast, stateless, goal-directed map when the relevant implementation files are not yet known. Discovers primary candidates, nearby tests, and limited dependency evidence within a strict token budget. Skip this discovery step when the target file is already known.",
+    description: "Return a minimal, fast, stateless, goal-directed map only when the relevant implementation files are not yet known. Discover primary candidates, nearby tests, and limited dependency evidence within a strict token budget, then stop. Skip this discovery step when the target file is already known; use composite inspection directly for a known target area.",
   },
   codingContext: {
     title: "Coding Context",

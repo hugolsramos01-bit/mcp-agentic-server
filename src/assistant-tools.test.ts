@@ -2,7 +2,8 @@ import { describe, it, beforeEach, afterEach } from "node:test";
 import assert from "node:assert/strict";
 import { runScriptTool, readManyTool } from "./assistant-tools.js";
 import { join } from "path";
-import { writeFileSync, mkdirSync, rmSync } from "fs";
+import { writeFileSync, mkdirSync, rmSync, truncateSync } from "fs";
+import { execFileSync } from "node:child_process";
 import { tmpdir } from "node:os";
 
 describe("runScriptTool", () => {
@@ -89,9 +90,9 @@ describe("runScriptTool", () => {
   });
 });
 
-// ─── P3: readManyTool deduplication and range validation ─────────────
+// ─── readManyTool composite inspection and budget validation ─────────
 
-describe("readManyTool — P3 ranged reads", () => {
+describe("readManyTool — composite inspection", () => {
   const TMP = join(tmpdir(), `read-many-test-${process.pid}`);
   const FILE = "multi.ts";
   const FULL_PATH = join(TMP, FILE);
@@ -104,6 +105,7 @@ describe("readManyTool — P3 ranged reads", () => {
   ];
 
   beforeEach(() => {
+    try { rmSync(TMP, { recursive: true, force: true }); } catch {}
     mkdirSync(TMP, { recursive: true });
     writeFileSync(FULL_PATH, LINES.join("\n"), "utf8");
     process.env.AGENTIC_ALLOWED_ROOTS = TMP;
@@ -218,6 +220,329 @@ describe("readManyTool — P3 ranged reads", () => {
 
     assert.equal(data.files.length, 1);
     assert.equal(data.skipped.length, 0);
+  });
+
+  it("matches a regex with bounded context and merges overlapping windows", async () => {
+    const result = await readManyTool({
+      items: [{
+        operation: "match",
+        path: FILE,
+        pattern: "beta|gamma",
+        matchMode: "regex",
+        beforeLines: 1,
+        afterLines: 1,
+        maxMatches: 10,
+      }],
+    }, TMP, [TMP]);
+    const data = JSON.parse((result.content[0] as any).text);
+
+    assert.equal(result.isError, false);
+    assert.equal(data.matches.length, 1);
+    assert.equal(data.matches[0].matchCount, 2);
+    assert.equal(data.matches[0].regions.length, 1, "overlapping match context must be de-duplicated");
+    assert.deepEqual(data.matches[0].regions[0].matchedLines, [2, 3]);
+    assert.equal(data.matches[0].regions[0].startLine, 1);
+    assert.equal(data.matches[0].regions[0].endLine, 4);
+  });
+
+  it("matches recursively inside a scoped directory", async () => {
+    mkdirSync(join(TMP, "src", "nested"), { recursive: true });
+    writeFileSync(join(TMP, "src", "one.ts"), "const marker = 'TARGET';\n", "utf8");
+    writeFileSync(join(TMP, "src", "nested", "two.ts"), "// TARGET\n", "utf8");
+    writeFileSync(join(TMP, "outside.ts"), "// TARGET\n", "utf8");
+
+    const result = await readManyTool({
+      items: [{
+        operation: "match",
+        path: "src",
+        pattern: "TARGET",
+        matchMode: "literal",
+        maxMatches: 10,
+      }],
+    }, TMP, [TMP]);
+    const data = JSON.parse((result.content[0] as any).text);
+    const paths = data.matches[0].regions.map((region: any) => region.path).sort();
+
+    assert.deepEqual(paths, ["src/nested/two.ts", "src/one.ts"]);
+    assert.equal(data.matches[0].matchCount, 2);
+  });
+
+  it("returns scoped glob results without reading file contents", async () => {
+    mkdirSync(join(TMP, "src", "nested"), { recursive: true });
+    writeFileSync(join(TMP, "src", "one.ts"), "one", "utf8");
+    writeFileSync(join(TMP, "src", "nested", "two.ts"), "two", "utf8");
+    writeFileSync(join(TMP, "src", "nested", "skip.js"), "skip", "utf8");
+
+    const result = await readManyTool({
+      items: [{ operation: "glob", path: "src", glob: "**/*.ts", maxFiles: 10 }],
+    }, TMP, [TMP]);
+    const data = JSON.parse((result.content[0] as any).text);
+
+    assert.equal(data.globs.length, 1);
+    assert.deepEqual(data.globs[0].files.sort(), ["src/nested/two.ts", "src/one.ts"]);
+    assert.equal(data.files.length, 0);
+  });
+
+  it("returns as many glob paths as fit instead of dropping the whole glob on shared file budget", async () => {
+    mkdirSync(join(TMP, "src"), { recursive: true });
+    writeFileSync(join(TMP, "first.ts"), "first", "utf8");
+    writeFileSync(join(TMP, "src", "a.ts"), "a", "utf8");
+    writeFileSync(join(TMP, "src", "b.ts"), "b", "utf8");
+
+    const result = await readManyTool({
+      items: [
+        { path: "first.ts" },
+        { operation: "glob", path: "src", glob: "*.ts", maxFiles: 10 },
+      ],
+      maxFiles: 2,
+    }, TMP, [TMP]);
+    const data = JSON.parse((result.content[0] as any).text);
+
+    assert.equal(data.files.length, 1);
+    assert.equal(data.globs.length, 1);
+    assert.equal(data.globs[0].files.length, 1);
+    assert.equal(data.globs[0].truncated, true);
+    assert.equal(data.budget.usedFiles, 2);
+  });
+
+  it("uses item order as priority under the shared line budget", async () => {
+    const result = await readManyTool({
+      items: [
+        { path: FILE, startLine: 1, endLine: 1 },
+        { path: FILE, startLine: 2, endLine: 2 },
+      ],
+      maxLines: 1,
+      maxTokens: 100,
+    }, TMP, [TMP]);
+    const data = JSON.parse((result.content[0] as any).text);
+
+    assert.equal(data.files.length, 1);
+    assert.equal(data.files[0].content.trim(), LINES[0]);
+    assert.equal(data.skipped[0]?.code, "line_budget_exceeded");
+    assert.equal(data.budget.usedLines, 1);
+  });
+
+  it("enforces a shared unique-file budget across operations", async () => {
+    writeFileSync(join(TMP, "second.ts"), "export const second = true;", "utf8");
+    const result = await readManyTool({
+      items: [
+        { path: FILE, startLine: 1, endLine: 1 },
+        { path: "second.ts", startLine: 1, endLine: 1 },
+      ],
+      maxFiles: 1,
+    }, TMP, [TMP]);
+    const data = JSON.parse((result.content[0] as any).text);
+
+    assert.equal(data.files.length, 1);
+    assert.equal(data.skipped[0]?.code, "file_budget_exceeded");
+    assert.equal(data.budget.usedFiles, 1);
+  });
+
+  it("returns a successful empty match result instead of treating no matches as failure", async () => {
+    const result = await readManyTool({
+      items: [{ operation: "match", path: FILE, pattern: "DOES_NOT_EXIST", matchMode: "literal" }],
+    }, TMP, [TMP]);
+    const data = JSON.parse((result.content[0] as any).text);
+
+    assert.equal(result.isError, false);
+    assert.equal(data.matches[0].matchCount, 0);
+    assert.deepEqual(data.matches[0].regions, []);
+  });
+
+  it("treats match patterns as literal by default", async () => {
+    writeFileSync(FULL_PATH, ["literal beta|gamma", "beta only"].join("\n"), "utf8");
+    const result = await readManyTool({
+      items: [{ operation: "match", path: FILE, pattern: "beta|gamma" }],
+    }, TMP, [TMP]);
+    const data = JSON.parse((result.content[0] as any).text);
+
+    assert.equal(data.matches[0].matchMode, "literal");
+    assert.equal(data.matches[0].matchCount, 1);
+  });
+
+  it("fails closed on an invalid explicit regex without affecting other item modes", async () => {
+    const result = await readManyTool({
+      items: [{ operation: "match", path: FILE, pattern: "[unterminated", matchMode: "regex" }],
+    }, TMP, [TMP]);
+
+    assert.equal(result.isError, true);
+    assert.match((result.content[0] as any).text, /invalid regular expression|unterminated/i);
+  });
+
+  it("rejects incompatible fields instead of guessing an ambiguous operation", async () => {
+    const result = await readManyTool({
+      items: [{ operation: "read", path: FILE, pattern: "alpha" }],
+    }, TMP, [TMP]);
+
+    assert.equal(result.isError, true);
+    assert.match((result.content[0] as any).text, /read operation cannot include pattern/i);
+  });
+
+  it("keeps composite inspection inside the allowed workspace root", async () => {
+    const result = await readManyTool({
+      items: [{ operation: "glob", path: "..", glob: "**/*.ts" }],
+    }, TMP, [TMP]);
+
+    assert.equal(result.isError, true);
+    assert.equal(result.structuredContent?.data?.skipped?.length, 1);
+  });
+
+  it("rejects oversized item batches before doing any filesystem work", async () => {
+    await assert.rejects(
+      readManyTool({ items: Array.from({ length: 101 }, () => ({ path: FILE })) }, TMP, [TMP]),
+      /at most 100 items/i,
+    );
+  });
+
+  it("rejects oversized match patterns", async () => {
+    const result = await readManyTool({
+      items: [{ operation: "match", path: FILE, pattern: "x".repeat(501) }],
+    }, TMP, [TMP]);
+    assert.equal(result.isError, true);
+    assert.match((result.content[0] as any).text, /pattern must be <= 500 characters/i);
+  });
+
+  it("charges serialized result metadata against the shared token budget", async () => {
+    const result = await readManyTool({
+      items: [{ path: FILE, startLine: 1, endLine: 1 }],
+      maxTokens: 20,
+    }, TMP, [TMP]);
+    const data = JSON.parse((result.content[0] as any).text);
+
+    assert.equal(data.files.length, 0);
+    assert.equal(data.skipped[0]?.code, "budget_exceeded");
+    assert.ok(data.budget.estimatedPayloadTokens >= data.budget.usedTokens);
+    assert.ok(data.budget.envelopeOverheadTokens > 0);
+  });
+
+  it("charges base metadata for empty match results so many no-match items cannot bypass the budget", async () => {
+    const result = await readManyTool({
+      items: Array.from({ length: 20 }, () => ({ operation: "match" as const, path: FILE, pattern: "DOES_NOT_EXIST" })),
+      maxTokens: 200,
+    }, TMP, [TMP]);
+    const data = JSON.parse((result.content[0] as any).text);
+
+    assert.ok(data.matches.length > 0 && data.matches.length < 20);
+    assert.ok((data.skipCounts.budget_exceeded ?? 0) > 0);
+    assert.ok(data.budget.usedTokens <= data.budget.maxTokens);
+  });
+
+  it("bounds skipped diagnostics while preserving complete skip counters", async () => {
+    const result = await readManyTool({
+      items: Array.from({ length: 20 }, () => ({ path: FILE, startLine: 1 })),
+      maxTokens: 200,
+    }, TMP, [TMP]);
+    const data = JSON.parse((result.content[0] as any).text);
+
+    assert.equal(result.isError, true);
+    assert.equal(data.skipped.length, 1);
+    assert.equal(data.skippedOmitted, 19);
+    assert.equal(data.skipCounts.invalid_range, 20);
+  });
+
+  it("rejects explicit regex constructs with obvious catastrophic-backtracking risk", async () => {
+    const result = await readManyTool({
+      items: [{ operation: "match", path: FILE, pattern: "(a+)+$", matchMode: "regex" }],
+    }, TMP, [TMP]);
+    const data = JSON.parse((result.content[0] as any).text);
+
+    assert.equal(result.isError, true);
+    assert.equal(data.skipped[0]?.code, "invalid_pattern");
+    assert.match(data.skipped[0]?.reason ?? "", /backtracking/i);
+  });
+
+  it("applies include globs to both directory and file-scoped matches", async () => {
+    mkdirSync(join(TMP, "src"), { recursive: true });
+    writeFileSync(join(TMP, "src", "one.ts"), "// TARGET\n", "utf8");
+    writeFileSync(join(TMP, "src", "two.js"), "// TARGET\n", "utf8");
+
+    const result = await readManyTool({
+      items: [
+        { operation: "match", path: "src", pattern: "TARGET", include: "**/*.ts" },
+        { operation: "match", path: "src/one.ts", pattern: "TARGET", include: "*.ts" },
+      ],
+    }, TMP, [TMP]);
+    const data = JSON.parse((result.content[0] as any).text);
+
+    assert.deepEqual(data.matches[0].regions.map((region: any) => region.path), ["src/one.ts"]);
+    assert.deepEqual(data.matches[1].regions.map((region: any) => region.path), ["src/one.ts"]);
+  });
+
+  it("skips exceptionally long lines for explicit regex evaluation", async () => {
+    writeFileSync(FULL_PATH, `${"a".repeat(40_000)}TARGET`, "utf8");
+    const result = await readManyTool({
+      items: [{ operation: "match", path: FILE, pattern: "TARGET$", matchMode: "regex" }],
+    }, TMP, [TMP]);
+    const data = JSON.parse((result.content[0] as any).text);
+
+    assert.equal(data.matches[0].matchCount, 0);
+    assert.equal(data.matches[0].skippedLongRegexLines, 1);
+  });
+
+  it("does not fall back to ignored files when git returns an empty scoped listing", async () => {
+    mkdirSync(join(TMP, "ignored"), { recursive: true });
+    writeFileSync(join(TMP, ".gitignore"), "ignored/\n", "utf8");
+    writeFileSync(join(TMP, "ignored", "secret.ts"), "// TARGET\n", "utf8");
+    execFileSync("git", ["init"], { cwd: TMP, stdio: "ignore" });
+
+    const result = await readManyTool({
+      items: [{ operation: "match", path: "ignored", pattern: "TARGET" }],
+    }, TMP, [TMP]);
+    const data = JSON.parse((result.content[0] as any).text);
+
+    assert.equal(data.matches[0].matchCount, 0);
+    assert.deepEqual(data.matches[0].regions, []);
+  });
+
+  it("rejects fields that belong to a different composite operation instead of silently ignoring them", async () => {
+    const cases = [
+      { item: { operation: "read" as const, path: FILE, include: "*.ts" }, field: "include" },
+      { item: { operation: "match" as const, path: FILE, pattern: "alpha", maxFiles: 2 }, field: "maxFiles" },
+      { item: { operation: "glob" as const, path: ".", glob: "*.ts", beforeLines: 3 }, field: "beforeLines" },
+    ];
+
+    for (const { item, field } of cases) {
+      const result = await readManyTool({ items: [item] }, TMP, [TMP]);
+      const data = JSON.parse((result.content[0] as any).text);
+      assert.equal(result.isError, true, `${field} must fail closed`);
+      assert.equal(data.skipped[0]?.code, "invalid_item");
+      assert.match(data.skipped[0]?.reason ?? "", new RegExp(field, "i"));
+    }
+  });
+
+  it("preserves legacy paths mode for existing callers", async () => {
+    const result = await readManyTool({ paths: [FILE] }, TMP, [TMP]);
+    const data = JSON.parse((result.content[0] as any).text);
+
+    assert.equal(result.isError, false);
+    assert.equal(data.files.length, 1);
+    assert.equal(data.files[0].operation, "read");
+    assert.ok(data.files[0].content.includes("alpha"));
+  });
+
+  it("rejects oversized paths before filesystem resolution", async () => {
+    const result = await readManyTool({ items: [{ path: "x".repeat(4_097) }] }, TMP, [TMP]);
+    const data = JSON.parse((result.content[0] as any).text);
+
+    assert.equal(result.isError, true);
+    assert.equal(data.skipped[0]?.code, "invalid_item");
+    assert.match(data.skipped[0]?.reason ?? "", /path must be <= 4096 characters/i);
+    assert.ok((data.skipped[0]?.path?.length ?? 0) <= 512, "diagnostic path must stay bounded");
+    assert.match(data.skipped[0]?.path ?? "", /diagnostic truncated/);
+  });
+
+  it("rejects huge composite-read files before loading their contents", async () => {
+    const hugeFile = "huge.ts";
+    const hugePath = join(TMP, hugeFile);
+    writeFileSync(hugePath, "", "utf8");
+    truncateSync(hugePath, 32 * 1024 * 1024 + 1);
+
+    const result = await readManyTool({ items: [{ path: hugeFile, startLine: 1, endLine: 1 }] }, TMP, [TMP]);
+    const data = JSON.parse((result.content[0] as any).text);
+
+    assert.equal(result.isError, true);
+    assert.equal(data.skipped[0]?.code, "resource_limit");
+    assert.match(data.skipped[0]?.reason ?? "", /too large for composite read/i);
   });
 
   it("throws error if both paths and items are provided", async () => {

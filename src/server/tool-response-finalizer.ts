@@ -366,6 +366,31 @@ export function finalizeToolResponse(
     policy.fieldLimits = { diff: 32000, patch: 32000 };
   } else if (toolName === "apply_patch") {
     policy.fieldLimits = { preview: 32000 };
+  } else if (toolName === "read_many") {
+    // read_many already performs aggregate serialized-evidence budgeting before
+    // the response reaches this global finalizer. Preserve the exact evidence
+    // regions it selected instead of applying the generic inline string cap a
+    // second time. Keep ordinary metadata on the normal inline limit.
+    const requestedBudgetTokens = Number(publicRawData?.budget?.maxTokens);
+    const boundedBudgetTokens = Number.isFinite(requestedBudgetTokens)
+      ? Math.max(1, Math.min(64_000, requestedBudgetTokens))
+      : 12_000;
+    const evidenceHardLimit = Math.max(
+      basePolicy.hardStringLimit,
+      Math.min(256_000, Math.ceil(boundedBudgetTokens * 4)),
+    );
+    const evidencePaths: string[] = [];
+    for (let index = 0; index < (publicRawData?.files?.length ?? 0); index += 1) {
+      evidencePaths.push(`files[${index}].content`);
+    }
+    for (let matchIndex = 0; matchIndex < (publicRawData?.matches?.length ?? 0); matchIndex += 1) {
+      const regions = publicRawData?.matches?.[matchIndex]?.regions ?? [];
+      for (let regionIndex = 0; regionIndex < regions.length; regionIndex += 1) {
+        evidencePaths.push(`matches[${matchIndex}].regions[${regionIndex}].content`);
+      }
+    }
+    policy.hardStringLimit = evidenceHardLimit;
+    policy.bypassFieldLimitPaths = evidencePaths;
   }
 
   if (instrumentation) instrumentation.increment("truncationWalks");

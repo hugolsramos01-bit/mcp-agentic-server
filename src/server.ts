@@ -2440,20 +2440,26 @@ function createMcpServer(
         description: TOOL_CONTRACTS.readMany.description,
         inputSchema: {
           workspaceId: z.string(),
-          paths: z.array(z.string()).optional(),
+          paths: z.array(z.string().min(1).max(4_096)).max(100).optional().describe("Legacy whole-file batch. Use items for composite inspection."),
           items: z.array(z.object({
-            path: z.string().min(1),
+            path: z.string().min(1).max(4_096),
+            operation: z.enum(["read", "match", "glob"]).optional().describe("Operation type. Defaults to read; pattern implies match and glob implies glob for backward-compatible callers."),
             startLine: z.number().int().positive().optional(),
-            endLine: z.number().int().positive().optional()
-          }).refine(
-            item => (item.startLine === undefined) === (item.endLine === undefined),
-            { message: "Provide both startLine and endLine, or neither." }
-          ).refine(
-            item => item.startLine === undefined || item.endLine === undefined || item.startLine <= item.endLine,
-            { message: "startLine must be less than or equal to endLine." }
-          )).optional(),
+            endLine: z.number().int().positive().optional(),
+            pattern: z.string().min(1).max(500).optional().describe("For match: literal by default; set matchMode=regex only when bounded regex semantics are needed."),
+            matchMode: z.enum(["regex", "literal"]).optional().describe("Match interpretation; defaults to literal. Regex mode rejects backreferences, lookbehind, and ambiguous nested quantified groups, and skips exceptionally long lines."),
+            caseSensitive: z.boolean().optional().describe("Match case sensitivity; defaults to true."),
+            beforeLines: z.number().int().min(0).max(200).optional().describe("Context lines before each lexical match."),
+            afterLines: z.number().int().min(0).max(200).optional().describe("Context lines after each lexical match."),
+            maxMatches: z.number().int().min(1).max(200).optional().describe("Maximum matched lines for this match item; defaults to 20."),
+            include: z.string().min(1).max(500).optional().describe("For match: optional file glob relative to the scoped path, e.g. **/*.ts or *.py."),
+            glob: z.string().min(1).max(500).optional().describe("For glob: pattern relative to the scoped path, with *, **, and ? support."),
+            maxFiles: z.number().int().min(1).max(2_000).optional().describe("For glob: maximum files returned by this item; defaults to 50 and is still bounded by the shared maxFiles budget."),
+          })).max(100).optional().describe("Ordered composite inspections. Item order is priority under the shared budgets."),
           compressionLevel: z.enum(["none", "light", "balanced", "aggressive", "skeletal"]).optional().describe("Optional compression level to reduce token usage"),
-          maxTokens: z.number().positive().max(64_000).optional().describe("Optional token budget (default 12000, max 64000) — files are skipped once budget is exceeded"),
+          maxTokens: z.number().positive().max(64_000).optional().describe("Shared approximate serialized-evidence budget across read/match/glob outputs (default 12000, max 64000). Result metadata reports estimated final payload tokens and envelope overhead separately."),
+          maxLines: z.number().int().positive().max(20_000).optional().describe("Shared returned-line budget across all operations (default 5000, max 20000)."),
+          maxFiles: z.number().int().positive().max(2_000).optional().describe("Shared unique-file output budget across all operations (default 100, max 2000)."),
         },
         outputSchema: resultOutputSchema(),
         ...toolWidgetDescriptorMeta(config, "read"),

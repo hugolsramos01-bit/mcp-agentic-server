@@ -5,6 +5,33 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.8.0] - 2026-09-08
+
+### Added
+- `read_many` can now compose ordered exact reads/ranges, scoped lexical match+context inspections, and scoped glob discovery in one MCP round trip.
+- Shared `maxTokens`, `maxLines`, and `maxFiles` budgets apply across the full composite call, with item order treated as explicit priority.
+- Match inspection merges overlapping context windows before returning them and exposes scan/budget truncation metadata instead of silently omitting evidence.
+- Match items accept an optional scoped `include` glob so one composite call can narrow both content and file type without an extra discovery round trip.
+- Budget accounting now charges the approximate serialized evidence object (content plus per-result metadata), and responses report estimated final payload tokens plus envelope overhead.
+
+### Changed
+- Match patterns are literal by default; regex semantics are opt-in via `matchMode: "regex"`, reducing accidental regex behavior while preserving advanced searches. Explicit regex mode rejects backreferences, lookbehind, and risky nested quantified groups, and skips exceptionally long lines.
+- Glob output now returns the useful subset that fits the remaining shared budget instead of discarding the entire glob result.
+- `read_many` directory discovery is Git-aware when available, bounded to 10,000 scanned files, and falls back to a bounded cross-platform recursive walk outside Git repositories.
+- Model-facing guidance now follows progressive narrowing: use broad discovery only while the implementation area is genuinely unknown, then switch to bounded composite inspection.
+- Composite calls are capped at 100 items; paths at 4,096 characters; match/glob patterns at 500 characters; match contexts and per-item matches remain explicitly bounded. Match scanning also has a 64 MiB per-item byte ceiling.
+- Composite file loading is capped at 32 MiB per file and a 96 MiB source-byte load budget per call so narrow ranges cannot trigger unbounded pre-budget memory growth.
+- Detailed skipped-item diagnostics scale with the token budget; detail count plus individual path/reason strings are capped, while complete per-code counters remain available when details are omitted.
+
+### Fixed
+- Composite match stops scanning once its output budget is exhausted instead of continuing unnecessary filesystem work.
+- Path-resolution failures preserve their original classification instead of being mislabeled as generic read failures.
+- A successful empty Git file listing no longer falls back to a recursive walk that could surface ignored/generated files.
+- `include` matching now behaves consistently for both directory scopes and direct file scopes.
+- Operation-specific fields fail closed instead of being silently ignored when a `read`, `match`, or `glob` item is malformed.
+- Legacy `paths` mode remains supported and is covered explicitly alongside the new composite `items` mode.
+- The global response finalizer now preserves `read_many` evidence selected by its own shared budget instead of applying a second generic per-string truncation pass; ordinary metadata remains subject to the global inline cap.
+
 ## [1.7.1] - 2026-09-04
 
 ### Fixed

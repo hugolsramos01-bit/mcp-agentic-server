@@ -79,6 +79,18 @@ Yes. It gives ChatGPT Web full local coding capabilities: file inspection, struc
 
 ---
 
+## 🚀 Release 1.8.0 Highlights
+
+Version 1.8.0 turns `read_many` into a bounded composite inspection primitive instead of merely a multi-file reader:
+
+1. **One round trip, several related inspections** — ordered items can mix exact reads/ranges, scoped lexical matches with context, and scoped globs.
+2. **Shared output budgets** — approximate serialized-evidence, returned-line, and unique-file limits apply across the whole call; earlier items have explicit priority, glob results return the useful subset that still fits, and the response reports estimated final payload overhead separately.
+3. **Context de-duplication** — overlapping match windows in the same file are merged before they reach the model.
+4. **Progressive narrowing** — broad discovery is reserved for genuinely unknown architecture; once a target area is known, agents are directed toward a bounded composite inspection instead of restarting broad context collection.
+5. **Cross-platform bounded discovery** — Git-aware file listing respects ignored files even for empty scoped results, with a bounded non-Git fallback and explicit scan-truncation metadata. Match items can also filter files with `include` globs.
+6. **Bounded regex opt-in** — literal search remains the default; explicit regex mode rejects several high-risk backtracking constructs, limits scanned bytes, and skips abnormally long lines instead of letting one search monopolize the server.
+7. **Fail-closed resource bounds** — incompatible operation fields are rejected instead of ignored, legacy `paths` calls remain supported, and composite reads cap path/file/source-byte loading plus diagnostic string sizes so a narrow request cannot accidentally create an oversized filesystem or response payload.
+
 ## 🚀 Release 1.6.0 Highlights
 
 Version 1.6.0 focuses on lower-latency coding loops without weakening the
@@ -189,7 +201,7 @@ Persist the setting with `agentic config set securityMode safe|trusted|full`, th
 |------|-------------|
 | `workspace_summary` | Compact architectural summary of the workspace. |
 | `project_bootstrap` | Scans package managers, monorepo bounds, and base dependencies. |
-| `read_many` | Read multiple files at once. |
+| `read_many` | Composite bounded inspection: exact reads/ranges, scoped match+context (with optional file `include` glob), and scoped globs in one ordered call with shared serialized-evidence/line/file budgets and payload-cost reporting. |
 | `tree` | Directory tree visualization. |
 | `next_route_map` / `payload_schema_map` | Next.js / Payload CMS schema extraction. |
 | `file_dependencies` | Inward and outward dependency map. |
@@ -235,11 +247,11 @@ Deprecated compatibility aliases are hidden by default and never appear in the m
 
 This server is designed to act as the "hands and eyes" of a remote AGI.
 If you are building an autonomous agent or using Claude/ChatGPT for coding, instruct your agent to:
-1. Always call `semantic_pack`, `project_bootstrap`, or `workspace_summary` first.
-2. Use `read_compressed` for large files — expand blocks with `expand_compressed_block`.
-3. Use `context_budget` to estimate token cost before reading multiple files.
-4. Use `mode="worktree"` if the task involves running complex shell commands or destructive tests.
-5. Use `edit_dry_run` before performing multi-line regex or exact string replacements.
+1. **Narrow progressively.** If the relevant files are unknown, use `task_context`; if a strong target is already known, skip broad discovery.
+2. Use `read_many` to batch related exact reads, match+context inspections, and scoped globs in one round trip. Put the most important items first because item order is budget priority.
+3. Use `semantic_pack` only when broad domain structure or inter-file relationships are genuinely unknown; stop broad discovery once implementation targets are strong enough.
+4. Use `read_compressed` for large whole-file orientation — expand omitted blocks before editing them.
+5. Use `mode="worktree"` if the task involves running complex shell commands or destructive tests, and use `edit_dry_run` before ambiguous or risky replacements.
 
 ## Isolation boundaries
 
