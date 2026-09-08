@@ -1,6 +1,6 @@
 import { execFile } from "node:child_process";
-import { existsSync, readFileSync, rmSync } from "node:fs";
-import { mkdtemp } from "node:fs/promises";
+import { existsSync, readFileSync } from "node:fs";
+import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { basename, delimiter, join } from "node:path";
 import { promisify } from "node:util";
@@ -64,6 +64,10 @@ const MAX_VIEWPORT_WIDTH = 2560;
 const MIN_VIEWPORT_HEIGHT = 480;
 const MAX_VIEWPORT_HEIGHT = 1600;
 const LOCAL_HOSTS = new Set(["localhost", "127.0.0.1", "::1", "[::1]"]);
+const PNG_SIGNATURE = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
+const PNG_IEND = Buffer.from([0x00, 0x00, 0x00, 0x00, 0x49, 0x45, 0x4e, 0x44, 0xae, 0x42, 0x60, 0x82]);
+const TRANSIENT_BROWSER_ERROR_CODES = new Set(["EPERM", "EBUSY", "EACCES", "ETXTBSY"]);
+const MAX_CAPTURE_ATTEMPTS = 2;
 
 export function normalizeVisualReviewUrl(value: string): string {
   let url: URL;
@@ -232,15 +236,66 @@ function safeScreenshotName(value: string): string {
   return value.toLowerCase().replace(/[^a-z0-9_-]+/g, "-").replace(/^-+|-+$/g, "") || "viewport";
 }
 
-async function captureViewport(
+function processErrorCode(error: unknown): string | number | undefined {
+  if (!error || typeof error !== "object" || !("code" in error)) return undefined;
+  const code = (error as { code?: unknown }).code;
+  return typeof code === "string" || typeof code === "number" ? code : undefined;
+}
+
+function summarizeProcessError(error: unknown): string {
+  if (!error || typeof error !== "object") return String(error);
+  const candidate = error as { code?: unknown; signal?: unknown; stderr?: unknown; message?: unknown };
+  const code = typeof candidate.code === "string" || typeof candidate.code === "number" ? String(candidate.code) : "";
+  const signal = typeof candidate.signal === "string" ? candidate.signal : "";
+  const stderr = typeof candidate.stderr === "string" ? candidate.stderr.trim() : "";
+  const message = typeof candidate.message === "string" ? candidate.message.trim() : String(error);
+  const detail = (stderr || message).replace(/\s+/g, " ").slice(0, 360);
+  return [code && `code=${code}`, signal && `signal=${signal}`, detail].filter(Boolean).join("; ");
+}
+
+function isValidPng(image: Buffer): boolean {
+  return image.length > PNG_SIGNATURE.length + PNG_IEND.length
+    && image.subarray(0, PNG_SIGNATURE.length).equals(PNG_SIGNATURE)
+    && image.subarray(-PNG_IEND.length).equals(PNG_IEND);
+}
+
+async function cleanupVisualReviewTempDir(tempDir: string): Promise<string | null> {
+  try {
+    await rm(tempDir, {
+      recursive: true,
+      force: true,
+      maxRetries: process.platform === "win32" ? 8 : 2,
+      retryDelay: 125,
+    });
+    return null;
+  } catch (error) {
+    const code = processErrorCode(error);
+    const timer = setTimeout(() => {
+      void rm(tempDir, { recursive: true, force: true, maxRetries: 8, retryDelay: 250 }).catch(() => undefined);
+    }, 1_000);
+    timer.unref();
+    return `Temporary browser profile cleanup was deferred${code ? ` (${code})` : ""}.`;
+  }
+}
+
+interface CaptureResult {
+  data: string;
+  bytes: number;
+  warnings: string[];
+}
+
+async function captureViewportAttempt(
   browser: BrowserExecutable,
   url: string,
   viewport: ViewportSpec,
   waitMs: number,
-): Promise<{ data: string; bytes: number }> {
+): Promise<CaptureResult> {
   const tempDir = await mkdtemp(join(tmpdir(), "agentic-visual-review-"));
   const screenshotPath = join(tempDir, `${safeScreenshotName(viewport.preset)}-${viewport.width}x${viewport.height}.png`);
   const profilePath = join(tempDir, "profile");
+  const warnings: string[] = [];
+  let capture: CaptureResult | null = null;
+  let failure: Error | null = null;
 
   try {
     const args = buildVisualReviewBrowserArgs(
@@ -251,25 +306,68 @@ async function captureViewport(
       waitMs,
     );
 
-    await execFileAsync(browser.path, args, {
-      timeout: Math.max(15_000, waitMs + 15_000),
-      windowsHide: true,
-      maxBuffer: 1024 * 1024,
-    });
+    let browserError: unknown = null;
+    try {
+      await execFileAsync(browser.path, args, {
+        timeout: Math.max(15_000, waitMs + 15_000),
+        windowsHide: true,
+        maxBuffer: 1024 * 1024,
+      });
+    } catch (error) {
+      browserError = error;
+    }
 
     if (!existsSync(screenshotPath)) {
-      throw new Error(`${browser.name} finished without producing a screenshot.`);
+      const reason = browserError ? `: ${summarizeProcessError(browserError)}` : ".";
+      const error = new Error(`${browser.name} finished without producing a screenshot${reason}`);
+      Object.assign(error, { code: processErrorCode(browserError), cause: browserError });
+      failure = error;
+    } else {
+      const image = readFileSync(screenshotPath);
+      if (!isValidPng(image)) {
+        const reason = browserError ? ` ${summarizeProcessError(browserError)}` : "";
+        const error = new Error(`${browser.name} produced an invalid PNG screenshot.${reason}`.trim());
+        Object.assign(error, { code: processErrorCode(browserError), cause: browserError });
+        failure = error;
+      } else {
+        if (browserError) {
+          warnings.push(
+            `${browser.name} exited with an error after producing a valid PNG; the capture was kept (${summarizeProcessError(browserError)}).`,
+          );
+        }
+        capture = { data: image.toString("base64"), bytes: image.length, warnings };
+      }
     }
-
-    const image = readFileSync(screenshotPath);
-    if (image.length === 0) {
-      throw new Error(`${browser.name} produced an empty screenshot.`);
-    }
-
-    return { data: image.toString("base64"), bytes: image.length };
-  } finally {
-    rmSync(tempDir, { recursive: true, force: true });
+  } catch (error) {
+    failure = error instanceof Error ? error : new Error(String(error));
   }
+
+  const cleanupWarning = await cleanupVisualReviewTempDir(tempDir);
+  if (cleanupWarning) warnings.push(cleanupWarning);
+  if (failure) throw failure;
+  if (!capture) throw new Error(`${browser.name} capture did not produce a result.`);
+  return { ...capture, warnings };
+}
+
+async function captureViewport(
+  browser: BrowserExecutable,
+  url: string,
+  viewport: ViewportSpec,
+  waitMs: number,
+): Promise<CaptureResult> {
+  let lastError: unknown;
+  for (let attempt = 1; attempt <= MAX_CAPTURE_ATTEMPTS; attempt += 1) {
+    try {
+      return await captureViewportAttempt(browser, url, viewport, waitMs);
+    } catch (error) {
+      lastError = error;
+      const code = processErrorCode(error);
+      const isTransient = typeof code === "string" && TRANSIENT_BROWSER_ERROR_CODES.has(code);
+      if (!isTransient || attempt === MAX_CAPTURE_ATTEMPTS) throw error;
+      await new Promise((resolve) => setTimeout(resolve, 150 * attempt));
+    }
+  }
+  throw lastError instanceof Error ? lastError : new Error(String(lastError));
 }
 
 export async function visualReviewTool(input: VisualReviewInput): Promise<ToolResponse> {
@@ -300,9 +398,16 @@ export async function visualReviewTool(input: VisualReviewInput): Promise<ToolRe
     bytes: number;
   }> = [];
   const imageContent: Array<{ type: "image"; data: string; mimeType: string }> = [];
+  const warnings: string[] = [];
+  const failures: Array<{
+    preset: string;
+    width: number;
+    height: number;
+    reason: string;
+  }> = [];
 
-  try {
-    for (const viewport of viewports) {
+  for (const viewport of viewports) {
+    try {
       const capture = await captureViewport(browser, url, viewport, waitMs);
       captures.push({
         preset: viewport.preset,
@@ -312,9 +417,19 @@ export async function visualReviewTool(input: VisualReviewInput): Promise<ToolRe
         bytes: capture.bytes,
       });
       imageContent.push({ type: "image", data: capture.data, mimeType: "image/png" });
+      warnings.push(...capture.warnings.map((warning) => `${viewport.preset}: ${warning}`));
+    } catch (error) {
+      failures.push({
+        preset: viewport.preset,
+        width: viewport.width,
+        height: viewport.height,
+        reason: error instanceof Error ? error.message : String(error),
+      });
     }
-  } catch (error) {
-    const reason = error instanceof Error ? error.message : String(error);
+  }
+
+  if (captures.length === 0) {
+    const reason = failures.map((failure) => `${failure.preset}: ${failure.reason}`).join(" | ");
     return {
       content: [{
         type: "text",
@@ -326,6 +441,7 @@ export async function visualReviewTool(input: VisualReviewInput): Promise<ToolRe
         url,
         browser: browser.name,
         reason,
+        failures,
       },
     };
   }
@@ -333,12 +449,16 @@ export async function visualReviewTool(input: VisualReviewInput): Promise<ToolRe
   const order = captures
     .map((capture, index) => `${index + 1}. ${capture.preset} ${capture.width}x${capture.height}`)
     .join(", ");
+  const status = failures.length
+    ? `Captured ${captures.length} of ${viewports.length} requested screenshot(s); ${failures.length} viewport(s) failed.`
+    : `Captured ${captures.length} visual review screenshot(s) with ${browser.name}.`;
+  const warningSummary = warnings.length ? ` ${warnings.length} non-fatal browser lifecycle warning(s) were recorded.` : "";
 
   return {
     content: [
       {
         type: "text",
-        text: `Captured ${captures.length} visual review screenshot(s) with ${browser.name}. Image order: ${order}. Review the images directly for visual hierarchy, spacing, density, responsive behavior, touch ergonomics, clipping/overflow, and visible regressions. Compare breakpoints rather than judging each image in isolation.`,
+        text: `${status}${warningSummary} Image order: ${order}. Review the images directly for visual hierarchy, spacing, density, responsive behavior, touch ergonomics, clipping/overflow, and visible regressions. Compare breakpoints rather than judging each image in isolation.`,
       },
       ...imageContent,
     ],
@@ -347,6 +467,8 @@ export async function visualReviewTool(input: VisualReviewInput): Promise<ToolRe
       browser: browser.name,
       waitMs,
       captures,
+      failures,
+      warnings,
     },
   };
 }

@@ -102,7 +102,7 @@ test("browser arguments use the requested viewport and screenshot target", () =>
   assert.strictEqual(args.at(-1), "http://localhost:3000/");
 });
 
-test("visual review captures a real local page when a supported browser is available", async (t) => {
+test("visual review repeatedly captures a real local page when a supported browser is available", async (t) => {
   if (!findVisualReviewBrowser()) {
     t.skip("No supported browser installed on this runner");
     return;
@@ -122,20 +122,27 @@ test("visual review captures a real local page when a supported browser is avail
     const address = server.address();
     assert.ok(address && typeof address !== "string");
 
-    const response = await visualReviewTool({
-      url: `http://127.0.0.1:${address.port}/`,
-      viewports: ["mobile"],
-      waitMs: 100,
-    });
+    for (let attempt = 0; attempt < 3; attempt += 1) {
+      const response = await visualReviewTool({
+        url: `http://127.0.0.1:${address.port}/`,
+        viewports: ["mobile", "compact-mobile"],
+        waitMs: 100,
+      });
 
-    assert.notStrictEqual(response.isError, true);
-    assert.strictEqual(response.content.length, 2);
-    assert.strictEqual(response.content[1].type, "image");
-    if (response.content[1].type === "image") {
-      assert.strictEqual(response.content[1].mimeType, "image/png");
-      assert.ok(response.content[1].data.length > 100);
+      assert.notStrictEqual(response.isError, true);
+      assert.strictEqual(response.content.length, 3);
+      assert.deepStrictEqual(
+        response.structuredContent?.captures?.map((capture: { preset: string }) => capture.preset),
+        ["mobile", "compact-mobile"],
+      );
+      for (const block of response.content.slice(1)) {
+        assert.strictEqual(block.type, "image");
+        if (block.type === "image") {
+          assert.strictEqual(block.mimeType, "image/png");
+          assert.ok(block.data.length > 100);
+        }
+      }
     }
-    assert.deepStrictEqual(response.structuredContent?.captures?.[0]?.preset, "mobile");
   } finally {
     await new Promise<void>((resolve) => server.close(() => resolve()));
   }

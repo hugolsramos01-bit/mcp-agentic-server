@@ -5,6 +5,16 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.7.1] - 2026-09-04
+
+### Fixed
+- `visual_review` now keeps a complete PNG when Chrome/Edge exits non-zero after successfully writing the screenshot, instead of reporting a false capture failure.
+- Windows browser-profile cleanup now retries transient filesystem locks and defers final cleanup without turning a valid capture into an `EPERM` failure.
+- Transient browser launch errors such as `EPERM`, `EBUSY`, and `EACCES` receive one bounded retry with a fresh temporary profile.
+- A failed viewport no longer discards successful captures from the same visual review; partial results are returned with structured failure diagnostics.
+- Real-browser coverage now repeats mobile and compact-mobile captures in the same process to exercise Windows lifecycle/cleanup behavior.
+- Production transitive resolutions were refreshed to `fast-uri` 3.1.7 and `qs` 6.16.0 so the release audit no longer carries their newly reported advisories.
+
 ## [1.7.0] - 2026-09-01
 
 ### Added
