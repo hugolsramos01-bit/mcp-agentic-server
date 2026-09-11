@@ -5,6 +5,22 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.8.1] - 2026-09-11
+
+### Security
+- Workspace shell commands, package scripts, process sessions, dependency installation, and tournament verification no longer inherit Agentic control-plane environment variables such as OAuth owner tokens, allowed roots, or public server URLs.
+- Only explicitly workspace-scoped Agentic variables (`AGENTIC_WORKSPACE_ID` and `AGENTIC_WORKSPACE_ROOT`) are reintroduced into child-process environments.
+- Structured grep now excludes `.env*`, private-key file patterns, internal `.git` / checkpoint metadata, and Windows `nul` paths from hidden-file searches.
+
+### Changed
+- Server binding configuration now prefers `AGENTIC_HOST` and `AGENTIC_PORT`. Legacy `HOST` / `PORT` remain supported for compatibility, but when consumed as Agentic's server binding they are removed from workspace subprocesses so project tooling can load its own port/host configuration.
+- `.env.example` now documents the namespaced server binding variables.
+
+### Fixed
+- Playwright and other workspace tools no longer inherit Agentic's legacy `PORT=7676`, preventing readiness probes from accidentally targeting the MCP server instead of the application under test.
+- Structured grep no longer descends into `.git/agentic-checkpoints`, avoiding Windows reserved-device failures such as `nul` / `os error 1`.
+- The public grep `include` filter is now applied to ripgrep instead of being silently ignored by the underlying adapter.
+
 ## [1.8.0] - 2026-09-08
 
 ### Added

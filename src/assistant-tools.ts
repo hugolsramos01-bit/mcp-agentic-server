@@ -8,6 +8,7 @@ import { promisify } from "node:util";
 import { enforceSecurePath, type ToolResponse } from "./pi-tools.js";
 import { getWorkspaceGitEligibility } from "./git.js";
 import type { SecurityMode } from "./security/security-mode.js";
+import { workspaceProcessEnvironment } from "./workspace-environment.js";
 
 const execFileAsync = promisify(execFile);
 
@@ -1251,7 +1252,12 @@ export interface RunScriptInput {
   timeoutMs?: number;
 }
 
-export async function runScriptTool(input: RunScriptInput, cwd: string, securityMode: SecurityMode = "safe"): Promise<ToolResponse> {
+export async function runScriptTool(
+  input: RunScriptInput,
+  cwd: string,
+  securityMode: SecurityMode = "safe",
+  environmentOptions: { serverHost?: string; serverPort?: number; workspaceId?: string } = {},
+): Promise<ToolResponse> {
   try {
     const pkgPath = join(cwd, "package.json");
     if (!existsSync(pkgPath)) {
@@ -1309,7 +1315,17 @@ export async function runScriptTool(input: RunScriptInput, cwd: string, security
     });
 
     const { runProcess } = await import("./process-runner/index.js");
-    const result = await runProcess(packageManager, ["run", input.script], { cwd, timeoutMs: (input as any).timeoutMs ?? 600_000 });
+    const env = workspaceProcessEnvironment({
+      serverHost: environmentOptions.serverHost,
+      serverPort: environmentOptions.serverPort,
+      workspaceId: environmentOptions.workspaceId,
+      workspaceRoot: cwd,
+    });
+    const result = await runProcess(packageManager, ["run", input.script], {
+      cwd,
+      timeoutMs: (input as any).timeoutMs ?? 600_000,
+      env,
+    });
     
     let stdout = result.status === "success" || result.status === "command_failed" || result.status === "timeout" || result.status === "cancelled" ? result.stdout : "";
     let stderr = result.status === "success" || result.status === "command_failed" || result.status === "timeout" || result.status === "cancelled" ? result.stderr : (result as any).message || "";

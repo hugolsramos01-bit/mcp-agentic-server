@@ -63,6 +63,42 @@ describe("runScriptTool", () => {
     assert.match((full.content[0] as any).text, /target-ok/);
   });
 
+  it("does not expose Agentic control-plane env to package scripts", async () => {
+    const testCwd = join(cwd, "agentic-env-isolation-" + Math.random().toString(36).slice(2));
+    mkdirSync(testCwd, { recursive: true });
+    writeFileSync(join(testCwd, "print-env.js"), `console.log(JSON.stringify({port:process.env.PORT??null,host:process.env.HOST??null,owner:process.env.AGENTIC_OAUTH_OWNER_TOKEN??null,workspaceId:process.env.AGENTIC_WORKSPACE_ID??null}));`);
+    writeFileSync(join(testCwd, "package.json"), JSON.stringify({ scripts: { envcheck: "node print-env.js" } }));
+
+    const previous = {
+      PORT: process.env.PORT,
+      HOST: process.env.HOST,
+      AGENTIC_OAUTH_OWNER_TOKEN: process.env.AGENTIC_OAUTH_OWNER_TOKEN,
+    };
+    process.env.PORT = "7676";
+    process.env.HOST = "127.0.0.1";
+    process.env.AGENTIC_OAUTH_OWNER_TOKEN = "owner-secret";
+    try {
+      const result = await runScriptTool(
+        { script: "envcheck", outputMode: "full" },
+        testCwd,
+        "safe",
+        { serverHost: "127.0.0.1", serverPort: 7676, workspaceId: "ws_script" },
+      );
+      assert.notEqual(result.isError, true);
+      const text = (result.content[0] as any).text as string;
+      assert.match(text, /\\?"port\\?":null/);
+      assert.match(text, /\\?"host\\?":null/);
+      assert.match(text, /\\?"owner\\?":null/);
+      assert.match(text, /ws_script/);
+      assert.doesNotMatch(text, /owner-secret/);
+    } finally {
+      for (const [key, value] of Object.entries(previous)) {
+        if (value === undefined) delete process.env[key];
+        else process.env[key] = value;
+      }
+    }
+  });
+
   it("should enforce the provided timeoutMs", async () => {
     // Setup a script that sleeps for 2 seconds
     const testCwd = join(cwd, "agentic-test-timeout-" + Math.random().toString(36).slice(2));

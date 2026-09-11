@@ -216,8 +216,8 @@ function defaultAgentDir(): string {
 
 export function loadConfig(env: NodeJS.ProcessEnv = process.env): ServerConfig {
   const files = loadAgenticFiles(env);
-  const host = env.HOST ?? files.config.host ?? "127.0.0.1";
-  const port = parsePort(env.PORT ?? files.config.port);
+  const host = env.AGENTIC_HOST ?? env.HOST ?? files.config.host ?? "127.0.0.1";
+  const port = parsePort(env.AGENTIC_PORT ?? env.PORT ?? files.config.port);
   const publicBaseUrl = parsePublicBaseUrl(
     env.AGENTIC_PUBLIC_BASE_URL ?? files.config.publicBaseUrl ?? localPublicBaseUrl(host, port),
   );

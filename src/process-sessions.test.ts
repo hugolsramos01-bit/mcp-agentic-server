@@ -53,6 +53,8 @@ assert.match(unicodeResult.output, /🙂c$/);
 const manager = new ProcessSessionManager({
   maxBufferCharacters: 1_024,
   completedSessionTtlMs: 1_000,
+  serverHost: "127.0.0.1",
+  serverPort: 7676,
 });
 
 const node = process.platform === "win32"
@@ -79,6 +81,40 @@ const environment = await manager.start({
 });
 assert.equal(environment.running, false);
 assert.match(environment.output, /1,dumb,cat,cat,cat,1,workspace-a,\/tmp\/agentic-workspace-a/);
+
+const previousControlPlaneEnv = {
+  PORT: process.env.PORT,
+  HOST: process.env.HOST,
+  AGENTIC_OAUTH_OWNER_TOKEN: process.env.AGENTIC_OAUTH_OWNER_TOKEN,
+  AGENTIC_ALLOWED_ROOTS: process.env.AGENTIC_ALLOWED_ROOTS,
+  AGENTIC_PUBLIC_BASE_URL: process.env.AGENTIC_PUBLIC_BASE_URL,
+};
+process.env.PORT = "7676";
+process.env.HOST = "127.0.0.1";
+process.env.AGENTIC_OAUTH_OWNER_TOKEN = "owner-secret";
+process.env.AGENTIC_ALLOWED_ROOTS = process.cwd();
+process.env.AGENTIC_PUBLIC_BASE_URL = "https://agentic.example";
+try {
+  const isolatedEnvironment = await manager.start({
+    workspaceId: "workspace-isolated",
+    workspaceRoot: "/tmp/workspace-isolated",
+    cwd: process.cwd(),
+    command: `${node} -e "console.log(JSON.stringify({port:process.env.PORT??null,host:process.env.HOST??null,owner:process.env.AGENTIC_OAUTH_OWNER_TOKEN??null,roots:process.env.AGENTIC_ALLOWED_ROOTS??null,publicUrl:process.env.AGENTIC_PUBLIC_BASE_URL??null,workspaceId:process.env.AGENTIC_WORKSPACE_ID??null}))"`,
+    yieldTimeMs: 2_000,
+  });
+  assert.equal(isolatedEnvironment.running, false);
+  assert.match(isolatedEnvironment.output, /"port":null/);
+  assert.match(isolatedEnvironment.output, /"host":null/);
+  assert.match(isolatedEnvironment.output, /"owner":null/);
+  assert.match(isolatedEnvironment.output, /"roots":null/);
+  assert.match(isolatedEnvironment.output, /"publicUrl":null/);
+  assert.match(isolatedEnvironment.output, /"workspaceId":"workspace-isolated"/);
+} finally {
+  for (const [key, value] of Object.entries(previousControlPlaneEnv)) {
+    if (value === undefined) delete process.env[key];
+    else process.env[key] = value;
+  }
+}
 
 const background = await manager.start({
   workspaceId: "workspace-a",

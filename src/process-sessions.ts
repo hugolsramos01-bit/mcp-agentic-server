@@ -9,6 +9,7 @@
 import { spawn } from "node:child_process";
 import { spawnSync } from "node:child_process";
 import { basename } from "node:path";
+import { workspaceProcessEnvironment } from "./workspace-environment.js";
 
 // ─── Cross-platform shell resolution (inlined from process-platform) ──
 
@@ -130,6 +131,8 @@ interface ProcessSession {
 interface ProcessSessionManagerOptions {
   maxBufferCharacters?: number;
   completedSessionTtlMs?: number;
+  serverHost?: string;
+  serverPort?: number;
 }
 
 function boundedInteger(value: number | undefined, fallback: number, maximum: number): number {
@@ -151,22 +154,25 @@ function terminalSize(value: number | undefined, fallback: number): number {
 function processEnvironment(input?: {
   workspaceId?: string;
   workspaceRoot?: string;
+  serverHost?: string;
+  serverPort?: number;
 }): Record<string, string> {
-  return {
-    ...Object.fromEntries(
-      Object.entries(process.env).filter((entry): entry is [string, string] => entry[1] !== undefined),
-    ),
-    NO_COLOR: "1",
-    TERM: "dumb",
-    PAGER: "cat",
-    GIT_PAGER: "cat",
-    GH_PAGER: "cat",
-    CODEX_CI: "1",
-    LANG: process.env.LANG ?? "C.UTF-8",
-    LC_ALL: process.env.LC_ALL ?? "C.UTF-8",
-    ...(input?.workspaceId ? { AGENTIC_WORKSPACE_ID: input.workspaceId } : {}),
-    ...(input?.workspaceRoot ? { AGENTIC_WORKSPACE_ROOT: input.workspaceRoot } : {}),
-  };
+  return workspaceProcessEnvironment({
+    serverHost: input?.serverHost,
+    serverPort: input?.serverPort,
+    workspaceId: input?.workspaceId,
+    workspaceRoot: input?.workspaceRoot,
+    overrides: {
+      NO_COLOR: "1",
+      TERM: "dumb",
+      PAGER: "cat",
+      GIT_PAGER: "cat",
+      GH_PAGER: "cat",
+      CODEX_CI: "1",
+      LANG: process.env.LANG ?? "C.UTF-8",
+      LC_ALL: process.env.LC_ALL ?? "C.UTF-8",
+    },
+  }) as Record<string, string>;
 }
 
 function codePointLength(value: string): number {
@@ -276,11 +282,15 @@ export class ProcessSessionManager {
   private readonly sessions = new Map<number, ProcessSession>();
   private readonly maxBufferCharacters: number;
   private readonly completedSessionTtlMs: number;
+  private readonly serverHost?: string;
+  private readonly serverPort?: number;
   private nextSessionId = 1;
 
   constructor(options: ProcessSessionManagerOptions = {}) {
     this.maxBufferCharacters = options.maxBufferCharacters ?? DEFAULT_BUFFER_CHARACTERS;
     this.completedSessionTtlMs = options.completedSessionTtlMs ?? COMPLETED_SESSION_TTL_MS;
+    this.serverHost = options.serverHost;
+    this.serverPort = options.serverPort;
   }
 
   async start(input: StartCommandInput): Promise<ProcessSnapshot> {
@@ -391,6 +401,8 @@ export class ProcessSessionManager {
       env: processEnvironment({
         workspaceId: input.workspaceId,
         workspaceRoot: input.workspaceRoot,
+        serverHost: this.serverHost,
+        serverPort: this.serverPort,
       }),
       stdio: "pipe",
       windowsHide: true,
@@ -425,6 +437,8 @@ export class ProcessSessionManager {
         env: processEnvironment({
           workspaceId: input.workspaceId,
           workspaceRoot: input.workspaceRoot,
+          serverHost: this.serverHost,
+          serverPort: this.serverPort,
         }),
         name: "xterm-256color",
         cols: session.columns,

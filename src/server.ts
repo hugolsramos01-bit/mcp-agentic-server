@@ -80,6 +80,7 @@ import { basename, join } from "node:path";
 import { agenticDoctor } from "./diagnostics.js";
 import { finalizeToolResponse } from "./server/tool-response-finalizer.js";
 import { visualReviewTool } from "./visual-review.js";
+import { workspaceProcessEnvironment } from "./workspace-environment.js";
 
 type Transport = StreamableHTTPServerTransport;
 
@@ -410,7 +411,15 @@ function createMcpServer(
             pkgManager = "yarn";
           }
           
-          const result = await runProcess(cmd, args, { cwd: workspace.worktree.path });
+          const result = await runProcess(cmd, args, {
+            cwd: workspace.worktree.path,
+            env: workspaceProcessEnvironment({
+              serverHost: config.host,
+              serverPort: config.port,
+              workspaceId: req.workspaceId,
+              workspaceRoot: workspace.worktree.path,
+            }),
+          });
 
           if (result.status !== "success") {
             const errResult = result.status === "infrastructure_error" || result.status === "timeout" || result.status === "cancelled"
@@ -1606,6 +1615,9 @@ function createMcpServer(
         const response = await grepFilesTool(piInput, {
           cwd: workspace.root,
           root: workspace.root,
+          workspaceId,
+          serverHost: config.host,
+          serverPort: config.port,
         });
 
         if (response.isError) {
@@ -2555,7 +2567,11 @@ function createMcpServer(
       } as any,
       async (req: any) => {
         const workspace = workspaces.getWorkspace(req.workspaceId);
-        return wrap("run_package_script", req, await runScriptTool(req, workspace.root, config.securityMode));
+        return wrap("run_package_script", req, await runScriptTool(req, workspace.root, config.securityMode, {
+          serverHost: config.host,
+          serverPort: config.port,
+          workspaceId: req.workspaceId,
+        }));
       }
     );
 
@@ -2605,7 +2621,12 @@ function createMcpServer(
         annotations: READ_TOOL_ANNOTATIONS,
       } as any,
       async (req: any) => {
-        return wrap("tournament_judge", req, await tournamentJudgeTool({ ...req, securityMode: config.securityMode }));
+        return wrap("tournament_judge", req, await tournamentJudgeTool({
+          ...req,
+          securityMode: config.securityMode,
+          serverHost: config.host,
+          serverPort: config.port,
+        }));
       }
     );
     registerAppTool("tournament_cleanup",
@@ -2839,6 +2860,9 @@ function createMcpServer(
         cwd,
         root: workspace.root,
         securityMode: config.securityMode,
+        workspaceId,
+        serverHost: config.host,
+        serverPort: config.port,
       });
 
       if (response.isError) {
@@ -2924,7 +2948,10 @@ export function createServer(config = loadConfig()): RunningServer {
   const workspaceStore = createWorkspaceStore(config.stateDir);
   const workspaces = new WorkspaceRegistry(config, workspaceStore);
   const reviewCheckpoints = createReviewCheckpointManager();
-  const processSessions = new ProcessSessionManager();
+  const processSessions = new ProcessSessionManager({
+    serverHost: config.host,
+    serverPort: config.port,
+  });
   const localAgentProviders = config.subagents
     ? getLocalAgentProviderAvailabilitySnapshot()
     : [];
@@ -3110,7 +3137,10 @@ export async function serveStdio(config = loadConfig()): Promise<{ close(): Prom
   const workspaceStore = createWorkspaceStore(config.stateDir);
   const workspaces = new WorkspaceRegistry(config, workspaceStore);
   const reviewCheckpoints = createReviewCheckpointManager();
-  const processSessions = new ProcessSessionManager();
+  const processSessions = new ProcessSessionManager({
+    serverHost: config.host,
+    serverPort: config.port,
+  });
   const localAgentProviders = config.subagents
     ? getLocalAgentProviderAvailabilitySnapshot()
     : [];

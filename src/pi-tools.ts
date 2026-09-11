@@ -1,5 +1,4 @@
 import {
-  createBashTool,
   createEditTool,
   createFindTool,
   createGrepTool,
@@ -19,9 +18,14 @@ import {
 import { resolveWorkspacePath } from "./security/path-resolution.js";
 import { assertPathOperationAllowed } from "./security/secret-policy.js";
 import { assertCommandAllowed } from "./security/command-executor.js";
-import { isAbsolute, resolve } from "node:path";
+import { isAbsolute, join, relative, resolve } from "node:path";
+import { existsSync, mkdtempSync, rmSync } from "node:fs";
+import { homedir, tmpdir } from "node:os";
 import { expandHomePath } from "./roots.js";
 import type { SecurityMode } from "./security/security-mode.js";
+import { runProcess } from "./process-runner/index.js";
+import { resolveShellCommand } from "./process-sessions.js";
+import { workspaceProcessEnvironment } from "./workspace-environment.js";
 
 
 
@@ -77,6 +81,9 @@ interface ToolContext {
   root: string;
   readRoots?: string[];
   securityMode?: SecurityMode;
+  workspaceId?: string;
+  serverHost?: string;
+  serverPort?: number;
 }
 
 function toMcpContent(result: AgentToolResult<unknown>): McpContent[] {
@@ -96,6 +103,35 @@ function toMcpContent(result: AgentToolResult<unknown>): McpContent[] {
 function formatToolError(error: unknown): McpContent[] {
   const message = error instanceof Error ? error.message : String(error);
   return [{ type: "text", text: message }];
+}
+
+async function ensureManagedRipgrep(): Promise<string | undefined> {
+  const agentDir = process.env.PI_CODING_AGENT_DIR
+    ? resolve(expandHomePath(process.env.PI_CODING_AGENT_DIR))
+    : join(homedir(), ".pi", "agent");
+  const managedPath = join(agentDir, "bin", process.platform === "win32" ? "rg.exe" : "rg");
+  if (existsSync(managedPath)) return managedPath;
+
+  // Preserve the Pi tool's existing auto-install behavior without letting its
+  // broad --hidden search touch the user's workspace. A disposable empty scope
+  // is enough to make Pi resolve/download its managed ripgrep binary.
+  const bootstrapRoot = mkdtempSync(join(tmpdir(), "agentic-rg-bootstrap-"));
+  try {
+    const tool = createGrepTool(bootstrapRoot);
+    await tool.execute("agentic-rg-bootstrap", {
+      pattern: "__agentic_rg_bootstrap__",
+      path: bootstrapRoot,
+      literal: true,
+      limit: 1,
+    });
+  } catch {
+    // The caller will surface the original executable failure if bootstrap did
+    // not make a managed binary available.
+  } finally {
+    try { rmSync(bootstrapRoot, { recursive: true, force: true }); } catch {}
+  }
+
+  return existsSync(managedPath) ? managedPath : undefined;
 }
 
 async function runTool<TInput, TDetails = unknown>(
@@ -176,9 +212,77 @@ export async function editFileTool(input: EditToolInput, context: ToolContext): 
 export async function grepFilesTool(input: GrepToolInput, context: ToolContext): Promise<ToolResponse> {
   const targetPath = input.path ?? context.cwd;
   const path = enforceSecurePath(targetPath, context.cwd, [context.root], false);
-  const tool = createGrepTool(context.cwd);
+  const scopedPath = relative(context.cwd, path).replace(/\\/g, "/") || ".";
+  const include = (input as GrepToolInput & { include?: string }).include ?? input.glob;
+  const args = [
+    "--line-number",
+    "--column",
+    "--with-filename",
+    "--color=never",
+    "--hidden",
+  ];
+  if (input.ignoreCase) args.push("--ignore-case");
+  if (input.literal) args.push("--fixed-strings");
+  if (include) args.push("--glob", include);
 
-  return runTool((params) => tool.execute("grep_files", params), { ...input, path }, context);
+  // Security exclusions come after caller-controlled include globs so a broad
+  // or secret-targeting include cannot re-enable internal metadata or secrets.
+  args.push(
+    "--glob", "!.git/**",
+    "--glob", "!**/.git/**",
+    "--glob", "!.agentic-checkpoints/**",
+    "--glob", "!**/.agentic-checkpoints/**",
+    "--glob", "!nul",
+    "--glob", "!**/nul",
+    "--glob", "!.env",
+    "--glob", "!.env.*",
+    "--glob", "!**/.env",
+    "--glob", "!**/.env.*",
+    "--glob", "!*.pem",
+    "--glob", "!**/*.pem",
+    "--glob", "!*.key",
+    "--glob", "!**/*.key",
+    "--glob", "!*.p12",
+    "--glob", "!**/*.p12",
+    "--glob", "!*.pfx",
+    "--glob", "!**/*.pfx",
+    "--glob", "!id_rsa",
+    "--glob", "!**/id_rsa",
+    "--glob", "!id_ed25519",
+    "--glob", "!**/id_ed25519",
+  );
+  args.push("--", input.pattern, scopedPath);
+
+  const env = workspaceProcessEnvironment({
+    serverHost: context.serverHost,
+    serverPort: context.serverPort,
+    workspaceId: context.workspaceId,
+    workspaceRoot: context.root,
+  });
+  let result = await runProcess("rg", args, { cwd: context.cwd, timeoutMs: 30_000, env });
+  if (result.status === "infrastructure_error" && result.code === "ENOENT") {
+    const managedRipgrep = await ensureManagedRipgrep();
+    if (managedRipgrep) {
+      result = await runProcess(managedRipgrep, args, { cwd: context.cwd, timeoutMs: 30_000, env });
+    }
+  }
+  if (result.status === "success") {
+    return { content: [{ type: "text", text: result.stdout.trim() || "No matches found" }] };
+  }
+  if (result.status === "command_failed" && result.exitCode === 1) {
+    return { content: [{ type: "text", text: "No matches found" }] };
+  }
+
+  const message = result.status === "command_failed"
+    ? result.stderr.trim() || `ripgrep exited with code ${result.exitCode}`
+    : result.status === "timeout"
+      ? `ripgrep timed out after ${result.timeoutMs}ms`
+      : result.status === "cancelled"
+        ? "ripgrep search was cancelled"
+        : "message" in result
+          ? result.message
+          : "ripgrep failed";
+  return { content: [{ type: "text", text: message }], isError: true };
 }
 
 export async function findFilesTool(input: FindToolInput, context: ToolContext): Promise<ToolResponse> {
@@ -205,11 +309,37 @@ export async function runShellTool(input: BashToolInput, context: ToolContext): 
     source: "bash",
     securityMode: context.securityMode,
   });
-  const tool = createBashTool(context.cwd);
   const timeout = input.timeout === undefined ? 30 : Math.min(input.timeout, 300);
+  const env = workspaceProcessEnvironment({
+    serverHost: context.serverHost,
+    serverPort: context.serverPort,
+    workspaceId: context.workspaceId,
+    workspaceRoot: context.root,
+    overrides: {
+      NO_COLOR: "1",
+      TERM: "dumb",
+      PAGER: "cat",
+      GIT_PAGER: "cat",
+      GH_PAGER: "cat",
+      CODEX_CI: "1",
+    },
+  });
+  const shell = resolveShellCommand(input.command, process.platform, env);
+  const result = await runProcess(shell.executable, shell.args, {
+    cwd: context.cwd,
+    timeoutMs: timeout * 1_000,
+    env,
+  });
 
-  return runTool((params) => tool.execute("run_shell", params), {
-    command: input.command,
-    timeout,
-  }, context);
+  const stdout = "stdout" in result ? result.stdout : "";
+  const stderr = "stderr" in result ? result.stderr : ("message" in result ? result.message : "");
+  const output = [stdout.trimEnd(), stderr ? `STDERR:\n${stderr.trimEnd()}` : ""]
+    .filter(Boolean)
+    .join("\n");
+  const content = [{ type: "text" as const, text: output || "(no output)" }];
+  return {
+    content,
+    isError: result.status !== "success" || undefined,
+    structuredContent: result,
+  };
 }

@@ -79,6 +79,12 @@ Yes. It gives ChatGPT Web full local coding capabilities: file inspection, struc
 
 ---
 
+## 🔐 Release 1.8.1 Security & Isolation
+
+Version 1.8.1 isolates workspace subprocesses from the Agentic MCP control plane. Shell commands, package scripts, process sessions, dependency installs, and tournament verification no longer inherit `AGENTIC_*` server credentials/configuration. Use `AGENTIC_HOST` and `AGENTIC_PORT` for the MCP server binding; legacy `HOST` / `PORT` are still accepted, but when they configure Agentic they are not propagated into workspace commands.
+
+Structured grep is also hardened for local repositories: it excludes `.git` / Agentic checkpoint internals, secret-like `.env` and private-key files, and Windows `nul` paths while correctly honoring the public `include` glob.
+
 ## 🚀 Release 1.8.0 Highlights
 
 Version 1.8.0 turns `read_many` into a bounded composite inspection primitive instead of merely a multi-file reader:

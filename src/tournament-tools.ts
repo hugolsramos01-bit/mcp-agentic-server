@@ -8,6 +8,7 @@ import { assertCommandAllowed } from "./security/command-executor.js";
 import { collectPackageScriptCommands } from "./security/script-resolver.js";
 
 import { runProcess, type ExecutionStatus } from "./process-runner/index.js";
+import { workspaceProcessEnvironment } from "./workspace-environment.js";
 
 interface TournamentEntry {
   id: string;
@@ -108,7 +109,16 @@ export async function tournamentSpawnTool(input: TournamentSpawnInput): Promise<
             source: "dependency-install",
             securityMode: config.securityMode,
           });
-          await runProcess(cmd, args, { cwd: worktree.path, timeoutMs: 300_000 });
+          await runProcess(cmd, args, {
+            cwd: worktree.path,
+            timeoutMs: 300_000,
+            env: workspaceProcessEnvironment({
+              serverHost: config.host,
+              serverPort: config.port,
+              workspaceId,
+              workspaceRoot: worktree.path,
+            }),
+          });
         } catch {
           // Non-fatal - worktree_install_deps can be called manually
         }
@@ -179,6 +189,8 @@ export interface TournamentJudgeInput {
   tournamentId: string;
   verificationScripts?: string[];
   securityMode?: SecurityMode;
+  serverHost?: string;
+  serverPort?: number;
 }
 
 export async function tournamentJudgeTool(input: TournamentJudgeInput): Promise<ToolResponse> {
@@ -286,7 +298,16 @@ export async function tournamentJudgeTool(input: TournamentJudgeInput): Promise<
           }
         }
 
-        const result = await runProcess(packageManager, ["run", scriptName], { cwd, timeoutMs: 300_000 });
+        const result = await runProcess(packageManager, ["run", scriptName], {
+          cwd,
+          timeoutMs: 300_000,
+          env: workspaceProcessEnvironment({
+            serverHost: input.serverHost,
+            serverPort: input.serverPort,
+            workspaceId: entry.workspaceId,
+            workspaceRoot: cwd,
+          }),
+        });
         
         const passed = result.status === "success";
         let details = "";

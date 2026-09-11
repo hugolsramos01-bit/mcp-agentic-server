@@ -195,6 +195,21 @@ assert.throws(
 assert.equal(loadConfig(baseEnv).publicBaseUrl, "http://127.0.0.1:7676");
 assert.deepEqual(loadConfig(baseEnv).allowedHosts, ["localhost", "127.0.0.1", "::1"]);
 
+const namespacedBinding = loadConfig({
+  ...baseEnv,
+  AGENTIC_HOST: "127.0.0.2",
+  AGENTIC_PORT: "8788",
+  HOST: "legacy-host.example",
+  PORT: "9999",
+});
+assert.equal(namespacedBinding.host, "127.0.0.2");
+assert.equal(namespacedBinding.port, 8788);
+assert.equal(namespacedBinding.publicBaseUrl, "http://127.0.0.2:8788");
+
+const legacyBinding = loadConfig({ ...baseEnv, HOST: "127.0.0.3", PORT: "8789" });
+assert.equal(legacyBinding.host, "127.0.0.3");
+assert.equal(legacyBinding.port, 8789);
+
 assert.equal(
   loadConfig({ ...baseEnv, AGENTIC_PUBLIC_BASE_URL: "https://abc.trycloudflare.com/" }).publicBaseUrl,
   "https://abc.trycloudflare.com",
