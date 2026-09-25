@@ -2,6 +2,8 @@
 
 [![MCP Registry](https://img.shields.io/badge/MCP_Registry-io.github.hugolsramos01--bit%2Fmcp--agentic--server-blue)](https://registry.modelcontextprotocol.io/servers/io.github.hugolsramos01-bit/mcp-agentic-server)
 
+[Project website](https://hugoramos.dev) · [GitHub repository](https://github.com/hugolsramos01-bit/mcp-agentic-server) · [npm package](https://www.npmjs.com/package/mcp-agentic-server) · [MCP Registry](https://registry.modelcontextprotocol.io/servers/io.github.hugolsramos01-bit/mcp-agentic-server)
+
 **Connect compatible ChatGPT Web accounts to local coding tools through MCP Developer Mode.**
 
 Agentic MCP connects ChatGPT Web Developer Mode to your local repositories through a secure Model Context Protocol (MCP) server. It supports structured file editing, shell execution, Git worktrees, semantic navigation and checkpoints.

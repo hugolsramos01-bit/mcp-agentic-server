@@ -80,6 +80,13 @@ jobs:
           echo "Registry did not report $EXPECTED_VERSION after two minutes."
           exit 1
 
+      - name: Publish metadata to MCP Registry
+        run: |
+          curl -fsSL "https://github.com/modelcontextprotocol/registry/releases/latest/download/mcp-publisher_linux_amd64.tar.gz" -o mcp-publisher.tar.gz
+          tar -xzf mcp-publisher.tar.gz mcp-publisher
+          ./mcp-publisher login github-oidc
+          ./mcp-publisher publish server.json
+
       - name: Create GitHub release
         uses: softprops/action-gh-release@v2
         with:

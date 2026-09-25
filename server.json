@@ -3,16 +3,17 @@
   "name": "io.github.hugolsramos01-bit/mcp-agentic-server",
   "title": "Agentic MCP",
   "description": "Local coding tools for ChatGPT Developer Mode and MCP clients with safe editing and shell execution.",
-  "version": "1.8.1",
+  "version": "1.8.2",
   "repository": {
     "url": "https://github.com/hugolsramos01-bit/mcp-agentic-server",
     "source": "github"
   },
+  "websiteUrl": "https://hugoramos.dev",
   "packages": [
     {
       "registryType": "npm",
       "identifier": "mcp-agentic-server",
-      "version": "1.8.1",
+      "version": "1.8.2",
       "transport": {
         "type": "stdio"
       },
